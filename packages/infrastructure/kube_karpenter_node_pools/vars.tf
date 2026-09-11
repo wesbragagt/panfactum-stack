@@ -92,3 +92,14 @@ variable "default_termination_grace_period" {
   type        = string
   default     = "1h0m0s"
 }
+
+variable "budgets" {
+  description = "Disruption budgets to apply to all Karpenter NodePools."
+  type = list(object({
+    nodes    = string
+    schedule = optional(string)
+    duration = optional(string)
+    reasons  = optional(list(string))
+  }))
+  default = []
+}
