@@ -204,7 +204,7 @@ locals {
   disruption_policy = {
     consolidationPolicy = "WhenEmptyOrUnderutilized"
     consolidateAfter    = "10s"
-    budgets             = []
+    budgets             = var.budgets
   }
 
   expire_after = "24h"

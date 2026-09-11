@@ -92,3 +92,36 @@ variable "default_termination_grace_period" {
   type        = string
   default     = "1h0m0s"
 }
+
+variable "budgets" {
+  description = "Voluntary disruption budgets applied to every NodePool. Defaults to 10%; an empty list explicitly allows unbounded voluntary disruption. Budgets do not prevent expiration, interruption, or other forceful disruption."
+  type = list(object({
+    nodes    = string
+    schedule = optional(string)
+    duration = optional(string)
+    reasons  = optional(list(string))
+  }))
+  default = [{ nodes = "10%" }]
+
+  validation {
+    condition = alltrue([for budget in var.budgets :
+      can(regex("^([0-9]+|[0-9]+%)$", budget.nodes)) &&
+      (endswith(budget.nodes, "%") ? try(tonumber(trimsuffix(budget.nodes, "%")) <= 100, false) : true)
+    ])
+    error_message = "Each budget's nodes must be a nonnegative integer or a percentage from 0% to 100%."
+  }
+
+  validation {
+    condition = alltrue([for budget in var.budgets :
+      (budget.schedule == null) == (budget.duration == null)
+    ])
+    error_message = "Specify schedule and duration together, or omit both."
+  }
+
+  validation {
+    condition = alltrue([for budget in var.budgets :
+      budget.reasons == null ? true : alltrue([for reason in budget.reasons : contains(["Empty", "Underutilized", "Drifted"], reason)])
+    ])
+    error_message = "Budget reasons must be Empty, Underutilized, or Drifted."
+  }
+}
