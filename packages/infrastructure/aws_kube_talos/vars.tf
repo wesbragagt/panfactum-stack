@@ -91,3 +91,34 @@ variable "etcd_backup_talosctl_sha256" {
     amd64 = "ff432b68986709e6b69c563a08a2ced4232d5196b0dccd6d2e783e9d714d7d7d"
   }
 }
+
+variable "machine_secrets" {
+  description = "Talos secrets bundle in the siderolabs/talos provider machine_secrets shape. Generate it once with scripts/gen_talos_secrets.py and keep it SOPS-encrypted; it is the only source of the cluster PKI."
+  type = object({
+    certs = object({
+      etcd               = object({ cert = string, key = string })
+      k8s                = object({ cert = string, key = string })
+      k8s_aggregator     = object({ cert = string, key = string })
+      k8s_serviceaccount = object({ key = string })
+      os                 = object({ cert = string, key = string })
+    })
+    cluster = object({ id = string, secret = string })
+    secrets = object({
+      bootstrap_token             = string
+      secretbox_encryption_secret = string
+      aescbc_encryption_secret    = optional(string)
+    })
+    trustdinfo = object({ token = string })
+  })
+  sensitive = true
+}
+
+variable "client_configuration" {
+  description = "Talos admin client credentials (base64 CA, certificate, key) that Terraform uses for the Talos API. Signed by the os CA in machine_secrets; produced by scripts/gen_talos_secrets.py."
+  type = object({
+    ca_certificate     = string
+    client_certificate = string
+    client_key         = string
+  })
+  sensitive = true
+}

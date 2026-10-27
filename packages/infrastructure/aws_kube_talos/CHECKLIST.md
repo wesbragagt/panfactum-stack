@@ -10,7 +10,7 @@ Source: control-plane and node/network reviews comparing this module with Panfac
   - Done when: stopping the CronJob triggers the alert.
 - [ ] **Never expire the last good snapshot.** Also write a fixed `latest.snapshot` key and keep N noncurrent versions with `newer_noncurrent_versions` (`backup.tf:74-79`).
   - Done when: a 60-day backup outage still leaves a restorable snapshot.
-- [ ] **Store the Talos secrets bundle outside Terraform state.** Export `talos_machine_secrets` in `talosctl gen secrets` format, SOPS-encrypted in the repo (`main.tf:205`).
+- [ ] **Store the Talos secrets bundle outside Terraform state.** Supply `machine_secrets` and `client_configuration` from a SOPS-encrypted bundle in the repo (`vars.tf`); generate it with `scripts/gen_talos_secrets.py`.
   - Done when: a restore succeeds using only the repo, S3, and KMS access.
 - [ ] **Write `RESTORE.md`.** Cover multi-node loss, new IPs, `bootstrap --recover-from`, and removing stale etcd members.
   - Done when: the runbook is followed once on real AWS.
@@ -26,7 +26,7 @@ Source: control-plane and node/network reviews comparing this module with Panfac
 - [ ] **Leave etcd gracefully on destroy.** Add `on_destroy = { reset = true, graceful = true, reboot = false }` to `talos_machine_configuration_apply.control_plane` (`main.tf:304`).
   - Done when: replacing one control plane leaves exactly 3 healthy etcd members.
 - [ ] **Guard against losing quorum.** Precondition that blocks lowering `control_plane_count` unless an explicit flag is set (`vars.tf:23-32`).
-- [ ] **Protect the PKI and instances.** `prevent_destroy` on `talos_machine_secrets.this` and `aws_instance.control_plane`; `disable_api_termination = true` on control planes.
+- [ ] **Protect the PKI and instances.** `prevent_destroy` on `aws_instance.control_plane`; `disable_api_termination = true` on control planes.
 - [ ] **Place control planes by subnet name, not sorted ID.** Look up subnets per name and assert one per AZ (`main.tf:39-48`, `main.tf:243`).
   - Done when: adding a subnet does not plan any control-plane replacement.
 - [ ] **Roll changes one node at a time.** Document the upgrade order (bump vars, apply per node, `talosctl upgrade` / `upgrade-k8s`) so Terraform never rolls back live versions (`main.tf:214-226`).

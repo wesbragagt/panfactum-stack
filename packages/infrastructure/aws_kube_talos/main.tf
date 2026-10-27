@@ -204,15 +204,11 @@ resource "aws_lb_target_group_attachment" "api" {
 ## Talos machine configuration
 ###########################################################################
 
-resource "talos_machine_secrets" "this" {
-  talos_version = var.talos_version
-}
-
 data "talos_machine_configuration" "control_plane" {
   cluster_name       = var.cluster_name
   cluster_endpoint   = local.cluster_endpoint
   machine_type       = "controlplane"
-  machine_secrets    = talos_machine_secrets.this.machine_secrets
+  machine_secrets    = var.machine_secrets
   talos_version      = var.talos_version
   kubernetes_version = var.kube_version
   docs               = false # With docs/examples the config exceeds the 16 KB EC2 user data limit
@@ -223,7 +219,7 @@ data "talos_machine_configuration" "worker" {
   cluster_name       = var.cluster_name
   cluster_endpoint   = local.cluster_endpoint
   machine_type       = "worker"
-  machine_secrets    = talos_machine_secrets.this.machine_secrets
+  machine_secrets    = var.machine_secrets
   talos_version      = var.talos_version
   kubernetes_version = var.kube_version
   docs               = false
@@ -305,7 +301,7 @@ resource "aws_instance" "worker" {
 
 resource "talos_machine_configuration_apply" "control_plane" {
   count                       = var.control_plane_count
-  client_configuration        = talos_machine_secrets.this.client_configuration
+  client_configuration        = var.client_configuration
   machine_configuration_input = data.talos_machine_configuration.control_plane.machine_configuration
   # Applied over the Talos API rather than user data, which is capped at 16 KB
   config_patches = local.backup_config_patches
@@ -315,7 +311,7 @@ resource "talos_machine_configuration_apply" "control_plane" {
 
 resource "talos_machine_configuration_apply" "worker" {
   count                       = var.worker_count
-  client_configuration        = talos_machine_secrets.this.client_configuration
+  client_configuration        = var.client_configuration
   machine_configuration_input = data.talos_machine_configuration.worker.machine_configuration
   endpoint                    = aws_instance.worker[count.index].public_ip
   node                        = aws_instance.worker[count.index].private_ip
@@ -323,21 +319,21 @@ resource "talos_machine_configuration_apply" "worker" {
 
 resource "talos_machine_bootstrap" "this" {
   depends_on           = [talos_machine_configuration_apply.control_plane]
-  client_configuration = talos_machine_secrets.this.client_configuration
+  client_configuration = var.client_configuration
   endpoint             = aws_instance.control_plane[0].public_ip
   node                 = aws_instance.control_plane[0].private_ip
 }
 
 resource "talos_cluster_kubeconfig" "this" {
   depends_on           = [talos_machine_bootstrap.this]
-  client_configuration = talos_machine_secrets.this.client_configuration
+  client_configuration = var.client_configuration
   endpoint             = aws_instance.control_plane[0].public_ip
   node                 = aws_instance.control_plane[0].private_ip
 }
 
 data "talos_client_configuration" "this" {
   cluster_name         = var.cluster_name
-  client_configuration = talos_machine_secrets.this.client_configuration
+  client_configuration = var.client_configuration
   endpoints            = aws_instance.control_plane[*].public_ip
   nodes                = aws_instance.control_plane[*].public_ip
 }

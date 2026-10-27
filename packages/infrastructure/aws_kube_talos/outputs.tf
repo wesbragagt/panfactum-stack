@@ -11,7 +11,7 @@ output "cluster_url" {
 output "cluster_ca_data" {
   description = "Base64-encoded Kubernetes cluster CA certificate."
   # The CA certificate is public; only machine_secrets as a whole is sensitive
-  value = nonsensitive(talos_machine_secrets.this.machine_secrets.certs.k8s.cert)
+  value = nonsensitive(var.machine_secrets.certs.k8s.cert)
 }
 
 output "node_security_group_id" {
