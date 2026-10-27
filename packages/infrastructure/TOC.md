@@ -29,6 +29,7 @@
 - `aws_eks/` - Deploys a fully configured AWS EKS Kubernetes cluster with control plane, node groups, and networking.
 - `aws_iam_identity_center_permissions/` - Configures IAM Identity Center permission sets and account assignments for user access management.
 - `aws_kms_encrypt_key/` - Creates KMS encryption keys with multi-region replication and rotation policies for data encryption.
+- `aws_kube_talos/` - Deploys a self-managed Talos Kubernetes cluster on EC2 with encrypted etcd backups to S3.
 - `aws_organization/` - Sets up AWS Organizations structure with master account, member accounts, and organization policies.
 - `aws_registered_domains/` - Registers domain names with Route53 domains and configures associated DNS zones.
 - `aws_s3_private_bucket/` - Creates private S3 buckets with encryption, versioning, logging, and access restrictions.

@@ -284,6 +284,8 @@ words:
     "userbase",
     "Scaleway",
     "exfill",
+    "talosconfig",
+    "Floci",
   ]
 languageSettings:
   - languageId:
