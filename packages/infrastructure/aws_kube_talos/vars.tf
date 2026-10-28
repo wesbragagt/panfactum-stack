@@ -21,13 +21,13 @@ variable "worker_subnets" {
 }
 
 variable "control_plane_count" {
-  description = "Number of control plane nodes. Must be odd so etcd can keep quorum."
+  description = "Number of control plane nodes. Only 1 is supported while the API endpoint is a single Elastic IP; HA needs a multi-address endpoint."
   type        = number
   default     = 1
 
   validation {
-    condition     = contains([1, 3, 5], var.control_plane_count)
-    error_message = "control_plane_count must be 1, 3, or 5."
+    condition     = var.control_plane_count == 1
+    error_message = "control_plane_count must be 1 until the API endpoint can span several control planes."
   }
 }
 
@@ -73,7 +73,7 @@ variable "talos_api_allowed_cidrs" {
 }
 
 variable "kube_api_allowed_cidrs" {
-  description = "CIDRs allowed to reach the Kubernetes API (TCP 6443) through the load balancer."
+  description = "CIDRs allowed to reach the Kubernetes API (TCP 6443) on the control plane's Elastic IP."
   type        = list(string)
 }
 

@@ -30,7 +30,6 @@ Source: control-plane and node/network reviews comparing this module with Panfac
 - [ ] **Place control planes by subnet name, not sorted ID.** Look up subnets per name and assert one per AZ (`main.tf:39-48`, `main.tf:243`).
   - Done when: adding a subnet does not plan any control-plane replacement.
 - [ ] **Roll changes one node at a time.** Document the upgrade order (bump vars, apply per node, `talosctl upgrade` / `upgrade-k8s`) so Terraform never rolls back live versions (`main.tf:214-226`).
-- [ ] **Health-check the API properly.** Change the NLB target group to HTTPS on `/readyz` (`main.tf:173-176`).
 - [ ] **Stop pinning operations to `control_plane[0]`.** Bootstrap and kubeconfig resources should tolerate that node being gone (`main.tf:320-334`).
 
 ## 3. Workloads stay up
@@ -49,7 +48,6 @@ Source: control-plane and node/network reviews comparing this module with Panfac
 ## 4. Network and security
 
 - [ ] **Move nodes to private subnets.** Use the existing NAT, tag subnets `kubernetes.io/cluster/<name>`, drop per-node public IPs (`main.tf:245,276`).
-- [ ] **Use an internal NLB for nodes.** Allow nodes by security-group reference instead of public IPs; remove the `lb_nodes` rule (`main.tf:128-137`).
 - [ ] **Reach control planes by private IP.** Set talosconfig `nodes` to private IPs (`main.tf:337-340`). Use EIPs or a bastion for operator access.
 - [ ] **Remove PKI from EC2 user data.** Boot with a minimal config and push the full config over the Talos API (`main.tf:246`). Fix the misleading comment at `main.tf:248`.
   - Done when: `DescribeInstanceAttribute userData` contains no private keys.
@@ -57,7 +55,7 @@ Source: control-plane and node/network reviews comparing this module with Panfac
 
 ## 5. Cost and capacity
 
-- [ ] **Recalculate cost after the network changes.** Target: no per-node public IPv4, internal NLB, workloads on control planes or Spot workers. Compare with Panfactum EKS (~$147/mo on-demand, ~$100 with Spot controllers).
+- [ ] **Recalculate cost after the network changes.** Target: no per-node public IPv4, no load balancer, workloads on control planes or Spot workers. Compare with Panfactum EKS (~$147/mo on-demand, ~$100 with Spot controllers).
 - [ ] **Grow root volumes.** Raise `root_volume_size_gb` above 20 GB; etcd and container images share it.
 - [ ] **Optional: cross-region backup copy.** Replicate the bucket or add Object Lock.
 

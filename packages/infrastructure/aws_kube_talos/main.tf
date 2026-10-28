@@ -18,7 +18,7 @@ terraform {
 }
 
 locals {
-  cluster_endpoint = "https://${aws_lb.api.dns_name}:6443"
+  cluster_endpoint = "https://${aws_eip.api.public_ip}:6443"
 }
 
 data "pf_aws_tags" "tags" {
@@ -91,13 +91,26 @@ resource "aws_vpc_security_group_ingress_rule" "talos_api" {
   description       = "Talos API"
 }
 
-resource "aws_vpc_security_group_ingress_rule" "kube_api_from_lb" {
-  security_group_id            = aws_security_group.nodes.id
-  referenced_security_group_id = aws_security_group.lb.id
-  ip_protocol                  = "tcp"
-  from_port                    = 6443
-  to_port                      = 6443
-  description                  = "Kubernetes API from the NLB (traffic and health checks)"
+# Operators reach the API directly; there is no load balancer in front of the single control plane
+resource "aws_vpc_security_group_ingress_rule" "kube_api" {
+  for_each          = toset(var.kube_api_allowed_cidrs)
+  security_group_id = aws_security_group.nodes.id
+  cidr_ipv4         = each.key
+  ip_protocol       = "tcp"
+  from_port         = 6443
+  to_port           = 6443
+  description       = "Kubernetes API"
+}
+
+# Nodes reach the endpoint through the Elastic IP, so traffic arrives from public addresses
+resource "aws_vpc_security_group_ingress_rule" "kube_api_nodes" {
+  for_each          = { for i, ip in concat([aws_eip.api.public_ip], aws_instance.worker[*].public_ip) : tostring(i) => ip }
+  security_group_id = aws_security_group.nodes.id
+  cidr_ipv4         = "${each.value}/32"
+  ip_protocol       = "tcp"
+  from_port         = 6443
+  to_port           = 6443
+  description       = "Kubernetes API from cluster nodes"
 }
 
 resource "aws_vpc_security_group_egress_rule" "nodes_all" {
@@ -107,97 +120,23 @@ resource "aws_vpc_security_group_egress_rule" "nodes_all" {
   description       = "All egress"
 }
 
-resource "aws_security_group" "lb" {
-  name        = "${var.cluster_name}-api-lb"
-  description = "Kubernetes API NLB for ${var.cluster_name}"
-  vpc_id      = var.vpc_id
+###########################################################################
+## Kubernetes API endpoint
+###########################################################################
+
+# Allocated before the instance so the address can go into the machine config
+# (and the API server cert SANs); associated after the instance exists.
+resource "aws_eip" "api" {
+  domain = "vpc"
 
   tags = merge(data.pf_aws_tags.tags.tags, {
-    Name = "${var.cluster_name}-api-lb"
+    Name = "${var.cluster_name}-api"
   })
 }
 
-resource "aws_vpc_security_group_ingress_rule" "lb_operators" {
-  for_each          = toset(var.kube_api_allowed_cidrs)
-  security_group_id = aws_security_group.lb.id
-  cidr_ipv4         = each.key
-  ip_protocol       = "tcp"
-  from_port         = 6443
-  to_port           = 6443
-  description       = "Kubernetes API"
-}
-
-# The NLB is internet-facing, so nodes reach the cluster endpoint from their public IPs
-resource "aws_vpc_security_group_ingress_rule" "lb_nodes" {
-  for_each          = { for i, ip in concat(aws_instance.control_plane[*].public_ip, aws_instance.worker[*].public_ip) : tostring(i) => ip }
-  security_group_id = aws_security_group.lb.id
-  cidr_ipv4         = "${each.value}/32"
-  ip_protocol       = "tcp"
-  from_port         = 6443
-  to_port           = 6443
-  description       = "Kubernetes API from cluster nodes"
-}
-
-resource "aws_vpc_security_group_egress_rule" "lb_to_nodes" {
-  security_group_id            = aws_security_group.lb.id
-  referenced_security_group_id = aws_security_group.nodes.id
-  ip_protocol                  = "tcp"
-  from_port                    = 6443
-  to_port                      = 6443
-  description                  = "Forward to control plane nodes"
-}
-
-###########################################################################
-## Kubernetes API load balancer
-###########################################################################
-
-resource "aws_lb" "api" {
-  name                             = "${var.cluster_name}-api"
-  load_balancer_type               = "network"
-  internal                         = false
-  subnets                          = data.aws_subnets.control_plane.ids
-  security_groups                  = [aws_security_group.lb.id]
-  enable_cross_zone_load_balancing = true
-
-  tags = data.pf_aws_tags.tags.tags
-}
-
-resource "aws_lb_target_group" "api" {
-  name        = "${var.cluster_name}-api"
-  port        = 6443
-  protocol    = "TCP"
-  target_type = "instance"
-  vpc_id      = var.vpc_id
-
-  # With client IP preservation, a control plane node cannot reach itself through the NLB (hairpin)
-  preserve_client_ip = false
-
-  health_check {
-    protocol = "TCP"
-    port     = "6443"
-  }
-
-  tags = data.pf_aws_tags.tags.tags
-}
-
-resource "aws_lb_listener" "api" {
-  load_balancer_arn = aws_lb.api.arn
-  port              = 6443
-  protocol          = "TCP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.api.arn
-  }
-
-  tags = data.pf_aws_tags.tags.tags
-}
-
-resource "aws_lb_target_group_attachment" "api" {
-  count            = var.control_plane_count
-  target_group_arn = aws_lb_target_group.api.arn
-  target_id        = aws_instance.control_plane[count.index].id
-  port             = 6443
+resource "aws_eip_association" "api" {
+  allocation_id = aws_eip.api.id
+  instance_id   = aws_instance.control_plane[0].id
 }
 
 ###########################################################################
@@ -305,7 +244,7 @@ resource "talos_machine_configuration_apply" "control_plane" {
   machine_configuration_input = data.talos_machine_configuration.control_plane.machine_configuration
   # Applied over the Talos API rather than user data, which is capped at 16 KB
   config_patches = local.backup_config_patches
-  endpoint       = aws_instance.control_plane[count.index].public_ip
+  endpoint       = aws_eip_association.api.public_ip
   node           = aws_instance.control_plane[count.index].private_ip
 }
 
@@ -320,20 +259,20 @@ resource "talos_machine_configuration_apply" "worker" {
 resource "talos_machine_bootstrap" "this" {
   depends_on           = [talos_machine_configuration_apply.control_plane]
   client_configuration = var.client_configuration
-  endpoint             = aws_instance.control_plane[0].public_ip
+  endpoint             = aws_eip_association.api.public_ip
   node                 = aws_instance.control_plane[0].private_ip
 }
 
 resource "talos_cluster_kubeconfig" "this" {
   depends_on           = [talos_machine_bootstrap.this]
   client_configuration = var.client_configuration
-  endpoint             = aws_instance.control_plane[0].public_ip
+  endpoint             = aws_eip_association.api.public_ip
   node                 = aws_instance.control_plane[0].private_ip
 }
 
 data "talos_client_configuration" "this" {
   cluster_name         = var.cluster_name
   client_configuration = var.client_configuration
-  endpoints            = aws_instance.control_plane[*].public_ip
-  nodes                = aws_instance.control_plane[*].public_ip
+  endpoints            = [aws_eip_association.api.public_ip]
+  nodes                = [aws_eip_association.api.public_ip]
 }
