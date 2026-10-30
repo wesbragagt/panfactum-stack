@@ -26,6 +26,11 @@ locals {
     apiVersion    = "v1alpha1", kind = "KubeAPIServerConfig"
     certExtraSANs = distinct([local.api_host, aws_eip.api.public_ip])
   })
+
+  cilium_config_patches = var.cilium_enabled ? [
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeFlannelCNIConfig", "$patch" = "delete" }),
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeProxyConfig", enabled = false })
+  ] : []
 }
 
 data "pf_aws_tags" "tags" {
@@ -168,6 +173,7 @@ data "talos_machine_configuration" "control_plane" {
   kubernetes_version = var.kube_version
   docs               = false # With docs/examples the config exceeds the 16 KB EC2 user data limit
   examples           = false
+  config_patches     = local.cilium_config_patches
 }
 
 data "talos_machine_configuration" "worker" {
@@ -179,6 +185,7 @@ data "talos_machine_configuration" "worker" {
   kubernetes_version = var.kube_version
   docs               = false
   examples           = false
+  config_patches     = local.cilium_config_patches
 }
 
 ###########################################################################

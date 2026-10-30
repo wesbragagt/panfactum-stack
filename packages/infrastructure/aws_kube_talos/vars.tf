@@ -86,6 +86,12 @@ variable "api_dns" {
   default = null
 }
 
+variable "cilium_enabled" {
+  description = "Disable Talos-managed Flannel and kube-proxy on every node before installing Cilium with kube-proxy replacement."
+  type        = bool
+  default     = false
+}
+
 variable "etcd_backup_retention_days" {
   description = "Days to keep etcd snapshots in S3."
   type        = number
