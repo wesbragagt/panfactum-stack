@@ -77,6 +77,15 @@ variable "kube_api_allowed_cidrs" {
   type        = list(string)
 }
 
+variable "api_dns" {
+  description = "Optional public DNS name for the Kubernetes API. Creates an A record to the Elastic IP in this Route53 zone and makes the name the cluster endpoint."
+  type = object({
+    zone_id = string
+    name    = string
+  })
+  default = null
+}
+
 variable "etcd_backup_retention_days" {
   description = "Days to keep etcd snapshots in S3."
   type        = number

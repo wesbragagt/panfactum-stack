@@ -18,7 +18,14 @@ terraform {
 }
 
 locals {
-  cluster_endpoint = "https://${aws_eip.api.public_ip}:6443"
+  api_host         = var.api_dns == null ? aws_eip.api.public_ip : var.api_dns.name
+  cluster_endpoint = "https://${local.api_host}:6443"
+
+  # Keep the Elastic IP valid in the API server cert so clients pinned to it survive a switch to the DNS name
+  api_san_patch = yamlencode({
+    apiVersion    = "v1alpha1", kind = "KubeAPIServerConfig"
+    certExtraSANs = distinct([local.api_host, aws_eip.api.public_ip])
+  })
 }
 
 data "pf_aws_tags" "tags" {
@@ -139,6 +146,15 @@ resource "aws_eip_association" "api" {
   instance_id   = aws_instance.control_plane[0].id
 }
 
+resource "aws_route53_record" "api" {
+  count   = var.api_dns == null ? 0 : 1
+  zone_id = var.api_dns.zone_id
+  name    = var.api_dns.name
+  type    = "A"
+  ttl     = 300
+  records = [aws_eip.api.public_ip]
+}
+
 ###########################################################################
 ## Talos machine configuration
 ###########################################################################
@@ -243,9 +259,12 @@ resource "talos_machine_configuration_apply" "control_plane" {
   client_configuration        = var.client_configuration
   machine_configuration_input = data.talos_machine_configuration.control_plane.machine_configuration
   # Applied over the Talos API rather than user data, which is capped at 16 KB
-  config_patches = local.backup_config_patches
+  config_patches = concat(local.backup_config_patches, [local.api_san_patch])
   endpoint       = aws_eip_association.api.public_ip
   node           = aws_instance.control_plane[count.index].private_ip
+
+  # Nodes resolve the cluster endpoint during the apply, so the record must exist first
+  depends_on = [aws_route53_record.api]
 }
 
 resource "talos_machine_configuration_apply" "worker" {
