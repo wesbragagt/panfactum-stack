@@ -17,6 +17,7 @@
 - `aws_cloudwatch_log_group/` - Creates and configures CloudWatch log groups with retention policies and encryption settings.
 - `aws_core_permissions/` - Establishes base IAM permissions and policies required across AWS accounts in the Panfactum framework.
 - `aws_delegated_zones/` - Creates Route53 delegation sets and configures DNS zone delegation to subsidiary AWS accounts.
+- `aws_dns_cloudflare_delegation/` - Delegates a subdomain of a Cloudflare-hosted zone to Route53 name servers with NS records.
 - `aws_dns_iam_role/` - Provisions an IAM role with permissions for managing Route53 DNS records across multiple AWS accounts.
 - `aws_dns_links/` - Establishes DNS delegation relationships between parent and child domain zones.
 - `aws_dns_records/` - Creates and manages Route53 DNS records within specified zones with support for multiple record types.
