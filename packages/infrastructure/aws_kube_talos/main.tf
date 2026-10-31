@@ -185,7 +185,6 @@ data "talos_machine_configuration" "worker" {
   kubernetes_version = var.kube_version
   docs               = false
   examples           = false
-  config_patches     = local.cilium_config_patches
 }
 
 ###########################################################################
@@ -235,6 +234,15 @@ resource "aws_instance" "worker" {
   vpc_security_group_ids      = [aws_security_group.nodes.id]
   associate_public_ip_address = true
   user_data                   = data.talos_machine_configuration.worker.machine_configuration
+
+  instance_market_options {
+    market_type = "spot"
+
+    spot_options {
+      spot_instance_type             = "one-time"
+      instance_interruption_behavior = "terminate"
+    }
+  }
 
   metadata_options {
     http_endpoint               = "enabled"
