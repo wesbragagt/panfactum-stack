@@ -213,3 +213,8 @@ variable "controller_nodes_enabled" {
   type        = bool
   default     = true
 }
+variable "controller_memory_mb" {
+  description = "Memory request (and VPA floor) for the workflow-controller, in Mi. The limit is 1.3x this."
+  type        = number
+  default     = 50
+}

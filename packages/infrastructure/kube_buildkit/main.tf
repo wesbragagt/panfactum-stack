@@ -173,7 +173,7 @@ module "buildkit" {
         "--addr", "unix:///run/user/1000/buildkit/buildkitd.sock",
         "--oci-worker-no-process-sandbox",
         # GC is enabled by default so we need to increase the limits in order to keep a meaningful cache
-        "--oci-worker-gc-keepstorage", tostring(var.max_storage_gb * 1000)
+        "--oci-worker-gc-keepstorage", tostring(floor(var.initial_storage_gb * 0.75) * 1000)
       ]
       uid = 1000
       linux_capabilities = [
