@@ -153,6 +153,21 @@ module "redis_cache" {
   instance_type_anti_affinity_required = var.enhanced_ha_enabled
 }
 
+// Vault superuser creds exist only on the master until creds-syncer copies them, so Loki got
+// WRONGPASS during failovers. The root user is set on every node at start and does not expire.
+resource "kubernetes_secret" "redis_root_creds" {
+  type = "kubernetes.io/basic-auth"
+  metadata {
+    name      = "loki-redis-root-creds"
+    namespace = local.namespace
+    labels    = module.util_backend.labels
+  }
+  data = {
+    username = module.redis_cache.root_name
+    password = module.redis_cache.root_password
+  }
+}
+
 /***************************************
 * Logs Storage
 ***************************************/
@@ -290,7 +305,7 @@ resource "helm_release" "loki" {
 
           frontend = {
             address                   = "loki-read.${local.namespace}.svc.cluster.local"
-            scheduler_address         = "loki-backend.${local.namespace}.svc.cluster.local:9095"
+            scheduler_address         = "loki-query-scheduler-discovery.${local.namespace}.svc.cluster.local:9095"
             tail_proxy_url            = "http://loki-backend.${local.namespace}.svc.cluster.local:3100"
             graceful_shutdown_timeout = "90s"
             compress_responses        = true
@@ -302,7 +317,7 @@ resource "helm_release" "loki" {
           }
 
           frontend_worker = {
-            scheduler_address = "loki-backend.${local.namespace}.svc.cluster.local:9095"
+            scheduler_address = "loki-query-scheduler-discovery.${local.namespace}.svc.cluster.local:9095"
           }
 
           compactor = {
@@ -586,7 +601,7 @@ resource "helm_release" "loki" {
             name = "REDIS_USERNAME"
             valueFrom = {
               secretKeyRef = {
-                name     = module.redis_cache.superuser_creds_secret
+                name     = kubernetes_secret.redis_root_creds.metadata[0].name
                 key      = "username"
                 optional = false
               }
@@ -596,7 +611,7 @@ resource "helm_release" "loki" {
             name = "REDIS_PASSWORD"
             valueFrom = {
               secretKeyRef = {
-                name     = module.redis_cache.superuser_creds_secret
+                name     = kubernetes_secret.redis_root_creds.metadata[0].name
                 key      = "password"
                 optional = false
               }
@@ -634,7 +649,7 @@ resource "helm_release" "loki" {
             name = "REDIS_USERNAME"
             valueFrom = {
               secretKeyRef = {
-                name     = module.redis_cache.superuser_creds_secret
+                name     = kubernetes_secret.redis_root_creds.metadata[0].name
                 key      = "username"
                 optional = false
               }
@@ -644,7 +659,7 @@ resource "helm_release" "loki" {
             name = "REDIS_PASSWORD"
             valueFrom = {
               secretKeyRef = {
-                name     = module.redis_cache.superuser_creds_secret
+                name     = kubernetes_secret.redis_root_creds.metadata[0].name
                 key      = "password"
                 optional = false
               }
@@ -676,7 +691,7 @@ resource "helm_release" "loki" {
             name = "REDIS_USERNAME"
             valueFrom = {
               secretKeyRef = {
-                name     = module.redis_cache.superuser_creds_secret
+                name     = kubernetes_secret.redis_root_creds.metadata[0].name
                 key      = "username"
                 optional = false
               }
@@ -686,7 +701,7 @@ resource "helm_release" "loki" {
             name = "REDIS_PASSWORD"
             valueFrom = {
               secretKeyRef = {
-                name     = module.redis_cache.superuser_creds_secret
+                name     = kubernetes_secret.redis_root_creds.metadata[0].name
                 key      = "password"
                 optional = false
               }
@@ -770,38 +785,6 @@ resource "helm_release" "loki" {
   ]
 
   depends_on = [module.redis_cache]
-}
-
-resource "kubectl_manifest" "service_monitor" {
-  count = var.monitoring_enabled ? 1 : 0
-  yaml_body = yamlencode({
-    apiVersion = "monitoring.coreos.com/v1"
-    kind       = "ServiceMonitor"
-    metadata = {
-      name      = "loki-canary"
-      namespace = local.namespace
-      labels    = module.util_canary.labels
-    }
-    spec = {
-      endpoints = [{
-        honorLabels = true
-        interval    = "60s"
-        port        = "http-metrics"
-        path        = "/metrics"
-        scheme      = "http"
-      }]
-      jobLabel = "loki-canary"
-      namespaceSelector = {
-        matchNames = [local.namespace]
-      }
-      selector = {
-        matchLabels = module.util_canary.match_labels
-      }
-    }
-  })
-  force_conflicts   = true
-  server_side_apply = true
-  depends_on        = [helm_release.loki]
 }
 
 resource "kubernetes_config_map" "dashboard" {
