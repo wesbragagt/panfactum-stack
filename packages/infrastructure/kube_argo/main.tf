@@ -415,11 +415,11 @@ resource "helm_release" "argo" {
         }
         resources = {
           requests = {
-            memory = "50Mi"
+            memory = "${var.controller_memory_mb}Mi"
             cpu    = "100m"
           }
           limits = {
-            memory = "${floor(50 * 1.3)}Mi"
+            memory = "${floor(var.controller_memory_mb * 1.3)}Mi"
           }
         }
       }
@@ -532,16 +532,13 @@ resource "kubectl_manifest" "vpa_controller" {
         containerPolicies = [{
           containerName = "controller"
           minAllowed = {
-            memory = "50Mi"
+            memory = "${var.controller_memory_mb}Mi"
           }
         }]
       }
       updatePolicy = {
-        updateMode = "Auto"
-        evictionRequirements = [{
-          resources         = ["cpu", "memory"]
-          changeRequirement = "TargetHigherThanRequests"
-        }]
+        // Resizing evictions restart the controller and reset its in-memory synchronization locks.
+        updateMode = "Initial"
       }
       targetRef = {
         apiVersion = "apps/v1"
