@@ -77,10 +77,12 @@ resource "helm_release" "pvc_autoresizer" {
   values = [
     yamlencode({
       image = {
-        repository = "public.ecr.aws/t8f0s7h5/pvc-autoresizer"
-        tag        = var.pvc_autoresizer_version
+        repository = "ghcr.io/topolvm/pvc-autoresizer"
+        reference  = var.pvc_autoresizer_version
       }
       controller = {
+        // The module already creates a PDB.
+        podDisruptionBudget = { enabled = false }
         args = {
           prometheusURL    = var.prometheus_enabled ? "http://thanos-query-frontend.monitoring.svc.cluster.local:9090" : null
           useK8sMetricsApi = !var.prometheus_enabled
