@@ -387,6 +387,89 @@ resource "kubectl_manifest" "pdb" {
   depends_on        = [helm_release.velero]
 }
 
+// Velero reads only the exclusion label, not the annotation workloads set on ephemeral PVCs.
+// Unlabeled PVCs that vanish mid-backup fail it (#4244).
+locals {
+  pod_owned_pvc_precondition = {
+    // StatefulSet PVCs have no ownerReferences; without the `[]` fallback length() errors and Kyverno denies them.
+    key      = "{{ request.object.metadata.ownerReferences || `[]` | [?kind=='Pod'] | length(@) }}"
+    operator = "GreaterThan"
+    value    = 0
+  }
+  exclude_from_backup_patch = {
+    metadata = { labels = { "velero.io/exclude-from-backup" = "true" } }
+  }
+  pvc_match = {
+    any = [{ resources = { kinds = ["PersistentVolumeClaim"] } }]
+  }
+}
+
+resource "kubectl_manifest" "exclude_new_pod_owned_pvcs" {
+  yaml_body = yamlencode({
+    apiVersion = "kyverno.io/v1"
+    kind       = "ClusterPolicy"
+    metadata = {
+      name   = "velero-exclude-new-pod-owned-pvcs"
+      labels = module.util.labels
+    }
+    spec = {
+      admission  = true
+      background = false
+      rules = [{
+        name          = "label-pvc"
+        match         = local.pvc_match
+        preconditions = { all = [local.pod_owned_pvc_precondition] }
+        mutate        = { patchStrategicMerge = local.exclude_from_backup_patch }
+      }]
+    }
+  })
+  server_side_apply = true
+  force_conflicts   = true
+}
+
+// Kyverno only allows mutating existing resources when every rule in the policy has targets,
+// so this cannot share a policy with the admission rule above.
+resource "kubectl_manifest" "exclude_existing_pod_owned_pvcs" {
+  yaml_body = yamlencode({
+    apiVersion = "kyverno.io/v1"
+    kind       = "ClusterPolicy"
+    metadata = {
+      name   = "velero-exclude-existing-pod-owned-pvcs"
+      labels = module.util.labels
+    }
+    spec = {
+      admission                    = true
+      background                   = false
+      mutateExistingOnPolicyUpdate = true
+      rules = [{
+        name  = "label-pvc"
+        match = local.pvc_match
+        preconditions = {
+          all = [
+            local.pod_owned_pvc_precondition,
+            {
+              key      = "{{ request.object.metadata.labels.\"velero.io/exclude-from-backup\" || '' }}"
+              operator = "NotEquals"
+              value    = "true"
+            }
+          ]
+        }
+        mutate = {
+          targets = [{
+            apiVersion = "v1"
+            kind       = "PersistentVolumeClaim"
+            namespace  = "{{ request.object.metadata.namespace }}"
+            name       = "{{ request.object.metadata.name }}"
+          }]
+          patchStrategicMerge = local.exclude_from_backup_patch
+        }
+      }]
+    }
+  })
+  server_side_apply = true
+  force_conflicts   = true
+}
+
 /***************************************
 * VolumeSnapshot Garbage Collection
 *
@@ -436,7 +519,8 @@ module "snapshot_gc" {
   burstable_nodes_enabled     = true
   vpa_enabled                 = var.vpa_enabled
 
-  cron_schedule = "0 0 * * *"
+  // Avoid overlapping the hourly backup at :00.
+  cron_schedule = "30 0 * * *"
   containers = [{
     name             = "garbage-collector"
     image_registry   = "public.ecr.aws"
@@ -445,9 +529,9 @@ module "snapshot_gc" {
     command = [
       "pf", "kube", "velero-snapshot-gc"
     ]
-    minimum_memory = 50
+    minimum_memory = 256
   }]
   starting_deadline_seconds = 60 * 5
-  active_deadline_seconds   = 60 * 5
+  active_deadline_seconds   = 60 * 60
 }
 
