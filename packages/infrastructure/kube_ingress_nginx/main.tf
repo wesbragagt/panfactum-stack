@@ -30,8 +30,6 @@ locals {
   name      = "ingress-nginx"
   namespace = module.namespace.namespace
 
-  plugin_name = "panfactum-plugin-lua"
-
   // This has to be THIS name in order for it to
   // replace the self-generated cert secret from the helm chart
   webhook_secret = "nginx-admission"
@@ -139,16 +137,6 @@ module "nlb_common" {
   deregistration_delay_seconds = local.deregistration_buffer + ceil(local.nginx_base_timeout * 1.5)
 }
 
-resource "kubernetes_config_map" "plugin" {
-  metadata {
-    name      = local.name
-    namespace = local.namespace
-  }
-  data = {
-    plugin = file("${path.module}/plugin.lua")
-  }
-}
-
 resource "helm_release" "nginx_ingress" {
   namespace       = local.namespace
   name            = "ingress-nginx"
@@ -175,14 +163,6 @@ resource "helm_release" "nginx_ingress" {
         annotations = {
           // Required b/c the webhook certificate doesn't automatically renew
           "reloader.stakater.com/auto" = "true"
-        }
-
-        podAnnotations = {
-          // Ensure the pods are restarted when the plugin code changes
-          "panfactum.com/plugin-hash" = filemd5("${path.module}/plugin.lua")
-
-          // Forces a reload if the kustomization fails
-          customizationHash = md5(join("", [for filename in sort(fileset(path.module, "kustomize/*")) : filesha256(filename)]))
         }
 
         extraArgs = {
@@ -278,14 +258,18 @@ resource "helm_release" "nginx_ingress" {
           // HSTS setup
           hsts                    = "true"
           hsts-include-subdomains = "true"
-          hsts-max-age            = "${10 * 365 * 24 * 60 * 60}"
+          hsts-max-age            = tostring(10 * 365 * 24 * 60 * 60) // "${...}" stays a number; Helm renders numbers >= 1e6 as 3.1536e+08
           hsts-preload            = "true"
 
           // Hide identifying headers for security
           hide-headers = "server,x-powered-by,x-aspnet-version,x-aspnetmvc-version"
 
-          // Provides a status endpoint
-          http-snippet = file("${path.module}/nginx_status_snippet.txt")
+          // Status endpoint plus the security header maps; controller v1.12 removed the Lua hook that set them
+          http-snippet = join("\n", [file("${path.module}/nginx_status_snippet.txt"), file("${path.module}/pf_headers_snippet.txt")])
+
+          // Runs after each ingress's configuration-snippet, so it can read the $pf_* variables kube_ingress sets
+          location-snippet = file("${path.module}/pf_location_snippet.txt")
+
         }
         service = {
           name              = local.name
@@ -375,31 +359,12 @@ resource "helm_release" "nginx_ingress" {
             subPath   = "tls.key"
             name      = "webhook-cert"
             readOnly  = true
-          },
-          {
-            mountPath = "/etc/nginx/lua/plugins/panfactum/main.lua"
-            subPath   = "plugin"
-            name      = local.name
-            readOnly  = true
-          }
-        ]
-        extraVolumes = [
-          {
-            name = local.name
-            configMap = {
-              name = local.name
-            }
           }
         ]
       }
     })
   ]
 
-  // The helm chart doesn't allow enabling plugins for some reason
-  // so we manually inject the "plugins" field into the configmap
-  postrender = {
-    binary_path = "${path.module}/kustomize/kustomize.sh"
-  }
 
   timeout    = 60 * 60
   depends_on = [module.webhook_cert]
