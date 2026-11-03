@@ -108,7 +108,8 @@ data "aws_iam_policy_document" "cilium" {
       "ec2:ModifyNetworkInterfaceAttribute",
       "ec2:AssignPrivateIpAddresses",
       "ec2:CreateTags",
-      "ec2:DescribeTags"
+      "ec2:DescribeTags",
+      "ec2:DescribeRouteTables"
     ]
     resources = ["*"]
   }
