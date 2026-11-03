@@ -291,7 +291,7 @@ resource "helm_release" "linkerd_cni" {
       commonLabels      = module.util_cni.labels
       logLevel          = var.log_level
       priorityClassName = "system-node-critical"
-      iptablesMode      = "legacy" // Bottlerocket does not ship iptables-nft; the new default "nft" causes exit status 127
+      iptablesMode      = "plain" // Use the installed backend on both Bottlerocket 1.33 (legacy) and 1.34 (nft).
 
       resources = {
         memory = {
