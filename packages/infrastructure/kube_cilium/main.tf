@@ -108,7 +108,8 @@ data "aws_iam_policy_document" "cilium" {
       "ec2:ModifyNetworkInterfaceAttribute",
       "ec2:AssignPrivateIpAddresses",
       "ec2:CreateTags",
-      "ec2:DescribeTags"
+      "ec2:DescribeTags",
+      "ec2:DescribeRouteTables"
     ]
     resources = ["*"]
   }
@@ -172,11 +173,8 @@ resource "helm_release" "cilium" {
         iamRole = module.aws_permissions.role_arn
       }
 
-      // No need to masquerade as the host node since each pod
-      // gets a VPC IP address in AWS. This also prevents
-      // NLB hairpinning issues if multiple ENIs ever get attached.
-      enableIPv4Masquerade = false
-
+      // 1.18 flips the ENI-mode default to false; keep the masquerade behavior 1.17 had
+      enableIPv4Masquerade       = true
       egressMasqueradeInterfaces = "eth0"
       routingMode                = "native"
 
