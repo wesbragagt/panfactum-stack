@@ -13,6 +13,12 @@ pf wf git-checkout \
   -p "$GIT_PASSWORD"
 cd repo
 
+# Repo-local checkout credentials do not cover git ls-remote against another private repo.
+# Keep credentials in the environment rather than writing the token into the config.
+# Expand only when Git invokes the helper, not while writing its configuration.
+# shellcheck disable=SC2016
+git config --global credential.https://github.com.helper '!f() { printf "%s\n" "username=$GIT_USERNAME" "password=$GIT_PASSWORD"; }; f'
+
 #####################################################
 # Step 2: Setup AWS profile
 #####################################################
