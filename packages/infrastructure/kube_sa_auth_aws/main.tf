@@ -20,7 +20,11 @@ terraform {
 }
 
 locals {
-  kube_oidc_provider = trimprefix(data.aws_eks_cluster.cluster.identity[0].oidc[0].issuer, "https://")
+  custom_oidc_requested = var.oidc_provider_arn != null || var.oidc_issuer_url != null
+  kube_oidc_provider = trimprefix(trimsuffix(
+    var.oidc_issuer_url != null ? var.oidc_issuer_url : try(data.aws_eks_cluster.cluster[0].identity[0].oidc[0].issuer, ""), "/"
+  ), "https://")
+  oidc_principal = var.oidc_provider_arn != null ? var.oidc_provider_arn : "arn:aws:iam::${data.aws_caller_identity.main.account_id}:oidc-provider/${local.kube_oidc_provider}"
   ip_allow_list_with_defaults = concat(
     var.ip_allow_list,
     [for subnet in data.aws_subnet.cluster_subnet_info : subnet.tags["panfactum.com/public-ip"] if contains(keys(subnet.tags), "panfactum.com/public-ip")],
@@ -42,6 +46,7 @@ data "pf_metadata" "metadata" {}
 # ################################################################################
 
 data "aws_subnets" "cluster_subnets" {
+  count = var.ip_restrictions_enabled && var.cluster_subnet_ids == null ? 1 : 0
   filter {
     name   = "tag-key"
     values = ["kubernetes.io/cluster/${local.cluster_name}"]
@@ -49,7 +54,7 @@ data "aws_subnets" "cluster_subnets" {
 }
 
 data "aws_subnet" "cluster_subnet_info" {
-  for_each = toset(data.aws_subnets.cluster_subnets.ids)
+  for_each = var.ip_restrictions_enabled ? (var.cluster_subnet_ids != null ? var.cluster_subnet_ids : toset(data.aws_subnets.cluster_subnets[0].ids)) : toset([])
   id       = each.key
 }
 
@@ -67,7 +72,8 @@ resource "aws_iam_policy" "service_account" {
 }
 
 data "aws_eks_cluster" "cluster" {
-  name = local.cluster_name
+  count = local.custom_oidc_requested ? 0 : 1
+  name  = local.cluster_name
 }
 
 data "aws_iam_policy_document" "service_account_assume" {
@@ -75,13 +81,21 @@ data "aws_iam_policy_document" "service_account_assume" {
     effect  = "Allow"
     actions = ["sts:AssumeRoleWithWebIdentity"]
     principals {
-      identifiers = ["arn:aws:iam::${data.aws_caller_identity.main.account_id}:oidc-provider/${local.kube_oidc_provider}"]
+      identifiers = [local.oidc_principal]
       type        = "Federated"
     }
     condition {
       test     = "StringEquals"
       values   = ["system:serviceaccount:${var.service_account_namespace}:${var.service_account}"]
       variable = "${local.kube_oidc_provider}:sub"
+    }
+    dynamic "condition" {
+      for_each = local.custom_oidc_requested ? [true] : []
+      content {
+        test     = "StringEquals"
+        values   = ["sts.amazonaws.com"]
+        variable = "${local.kube_oidc_provider}:aud"
+      }
     }
   }
 }
@@ -94,6 +108,16 @@ resource "aws_iam_role" "service_account" {
     description = "IAM role for ${var.service_account_namespace}/${var.service_account} in ${local.cluster_name}."
   })
   max_session_duration = 43200
+  lifecycle {
+    precondition {
+      condition     = (var.oidc_provider_arn == null) == (var.oidc_issuer_url == null)
+      error_message = "Provide oidc_provider_arn and oidc_issuer_url together, or leave both null for EKS discovery."
+    }
+    precondition {
+      condition     = local.custom_oidc_requested && var.oidc_provider_arn != null ? endswith(var.oidc_provider_arn, ":oidc-provider/${local.kube_oidc_provider}") && split(":", var.oidc_provider_arn)[4] == data.aws_caller_identity.main.account_id : true
+      error_message = "The explicit OIDC provider ARN must match the issuer URL and the role's AWS account."
+    }
+  }
 }
 
 resource "aws_iam_policy_attachment" "service_account" {
@@ -103,6 +127,7 @@ resource "aws_iam_policy_attachment" "service_account" {
 }
 
 data "aws_iam_policy_document" "ip_blocks" {
+  count = var.ip_restrictions_enabled ? 1 : 0
   statement {
     effect    = "Deny"
     resources = ["*"]
@@ -200,17 +225,19 @@ data "aws_iam_policy_document" "ip_blocks" {
 }
 
 resource "aws_iam_policy" "ip_blocks" {
+  count       = var.ip_restrictions_enabled ? 1 : 0
   name_prefix = "${substr(var.service_account, 0, 26)}-ip-blocks-"
   description = "Restricts ${var.service_account_namespace}/${var.service_account} in ${local.cluster_name} to cluster IPs."
-  policy      = data.aws_iam_policy_document.ip_blocks.json
+  policy      = data.aws_iam_policy_document.ip_blocks[0].json
   tags = merge(data.pf_aws_tags.tags.tags, {
     description = "Restricts ${var.service_account_namespace}/${var.service_account} in ${local.cluster_name} to cluster IPs."
   })
 }
 
 resource "aws_iam_policy_attachment" "ip_blocks" {
+  count      = var.ip_restrictions_enabled ? 1 : 0
   name       = "${aws_iam_policy.service_account.name}-ip-blocks"
-  policy_arn = aws_iam_policy.ip_blocks.arn
+  policy_arn = aws_iam_policy.ip_blocks[0].arn
   roles      = [aws_iam_role.service_account.name]
 }
 
@@ -231,4 +258,14 @@ resource "kubernetes_annotations" "service_account" {
   annotations = {
     "eks.amazonaws.com/role-arn" = aws_iam_role.service_account.arn
   }
+}
+
+# Preserve existing EKS state addresses with the default IP restriction setting.
+moved {
+  from = aws_iam_policy.ip_blocks
+  to   = aws_iam_policy.ip_blocks[0]
+}
+moved {
+  from = aws_iam_policy_attachment.ip_blocks
+  to   = aws_iam_policy_attachment.ip_blocks[0]
 }

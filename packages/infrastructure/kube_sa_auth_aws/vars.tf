@@ -31,3 +31,32 @@ variable "allow_public_s3_presigned_urls" {
   default     = false
 }
 
+
+variable "oidc_provider_arn" {
+  description = "Existing self-managed cluster OIDC provider ARN. Supply with oidc_issuer_url; null preserves EKS discovery."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.oidc_provider_arn == null ? true : can(regex("^arn:[^:]+:iam::[0-9]{12}:oidc-provider/.+", var.oidc_provider_arn))
+    error_message = "oidc_provider_arn must be an IAM OIDC provider ARN."
+  }
+}
+variable "oidc_issuer_url" {
+  description = "HTTPS issuer URL paired with oidc_provider_arn. Custom identities require the exact namespace/service-account subject and sts.amazonaws.com audience."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.oidc_issuer_url == null ? true : startswith(var.oidc_issuer_url, "https://") && !strcontains(var.oidc_issuer_url, "?")
+    error_message = "oidc_issuer_url must be an HTTPS issuer URL without query parameters."
+  }
+}
+variable "cluster_subnet_ids" {
+  description = "Explicit cluster subnet IDs for IP restrictions. Null preserves tagged EKS subnet discovery; an empty set disables discovery."
+  type        = set(string)
+  default     = null
+}
+variable "ip_restrictions_enabled" {
+  description = "Attach Panfactum source-IP deny policies (default true). Explicit false supports self-managed nodes with changing public egress; OIDC principal/subject/audience restrictions remain enforced."
+  type        = bool
+  default     = true
+}
