@@ -78,3 +78,68 @@ variable "controller_nodes_enabled" {
   type        = bool
   default     = true
 }
+variable "cluster_type" {
+  description = "Cluster platform. EKS preserves the existing ENI/IRSA defaults; Talos uses KubePrism and does not query EKS."
+  type        = string
+  default     = "eks"
+  validation {
+    condition     = contains(["eks", "talos"], var.cluster_type)
+    error_message = "cluster_type must be eks or talos."
+  }
+}
+
+variable "ipam_mode" {
+  description = "Optional IPAM override. Defaults to eni on EKS and cluster-pool on Talos. ENI is not supported in Talos mode."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.ipam_mode == null ? true : contains(["eni", "cluster-pool", "kubernetes"], var.ipam_mode)
+    error_message = "ipam_mode must be eni, cluster-pool, kubernetes or null."
+  }
+}
+
+variable "cluster_pool_ipv4_cidrs" {
+  description = "Pod CIDRs used only by cluster-pool IPAM. Must match the installed cluster during adoption."
+  type        = list(string)
+  default     = ["10.244.0.0/16"]
+}
+
+variable "k8s_service_host" {
+  description = "Agent API host override, without scheme. Defaults to the EKS endpoint or Talos KubePrism localhost."
+  type        = string
+  default     = null
+}
+
+variable "k8s_service_port" {
+  description = "Agent API port override. Defaults to 443 for EKS and 7445 for Talos KubePrism."
+  type        = number
+  default     = null
+}
+
+variable "namespace" {
+  description = "Helm release namespace. For adoption, preserve the existing release namespace."
+  type        = string
+  default     = "cilium"
+}
+
+variable "namespace_create" {
+  description = "Manage the namespace and its Panfactum RBAC. Set false to use an existing namespace such as kube-system."
+  type        = bool
+  default     = true
+}
+
+variable "operator_replicas" {
+  description = "Operator replica override. Defaults to two on EKS and one on Talos."
+  type        = number
+  default     = null
+  validation {
+    condition     = var.operator_replicas == null ? true : var.operator_replicas >= 1
+    error_message = "operator_replicas must be at least one."
+  }
+}
+
+variable "values_overrides" {
+  description = "Additional Helm values documents merged after module defaults. Review their full diff when adopting an existing release."
+  type        = list(string)
+  default     = []
+}

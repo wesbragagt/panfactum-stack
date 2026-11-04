@@ -37,6 +37,12 @@ variable "control_plane_instance_type" {
   default     = "t4g.medium"
 }
 
+variable "control_plane_workloads_enabled" {
+  description = "Allow ordinary workloads on control planes for small homelab clusters; they share resources with etcd and the API server."
+  type        = bool
+  default     = false
+}
+
 variable "worker_count" {
   description = "Number of worker nodes."
   type        = number

@@ -116,7 +116,7 @@ resource "aws_vpc_security_group_ingress_rule" "kube_api" {
 
 # Nodes reach the endpoint through the Elastic IP, so traffic arrives from public addresses
 resource "aws_vpc_security_group_ingress_rule" "kube_api_nodes" {
-  for_each          = { for i, ip in concat([aws_eip.api.public_ip], aws_instance.worker[*].public_ip) : tostring(i) => ip }
+  for_each          = { "0" = aws_eip.api.public_ip }
   security_group_id = aws_security_group.nodes.id
   cidr_ipv4         = "${each.value}/32"
   ip_protocol       = "tcp"
@@ -173,12 +173,14 @@ data "talos_machine_configuration" "control_plane" {
   kubernetes_version = var.kube_version
   docs               = false # With docs/examples the config exceeds the 16 KB EC2 user data limit
   examples           = false
-  config_patches     = local.cilium_config_patches
+  config_patches = concat(local.cilium_config_patches, var.control_plane_workloads_enabled ? [
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeNodeConfig", taints = { "node-role.kubernetes.io/control-plane" = null } })
+  ] : [])
 }
 
 data "talos_machine_configuration" "worker" {
   cluster_name       = var.cluster_name
-  cluster_endpoint   = local.cluster_endpoint
+  cluster_endpoint   = "https://${aws_instance.control_plane[0].private_ip}:6443"
   machine_type       = "worker"
   machine_secrets    = var.machine_secrets
   talos_version      = var.talos_version
@@ -226,22 +228,19 @@ resource "aws_instance" "control_plane" {
   }
 }
 
-resource "aws_instance" "worker" {
-  count                       = var.worker_count
-  ami                         = data.aws_ami.talos.id
-  instance_type               = var.worker_instance_type
-  subnet_id                   = element(sort(data.aws_subnets.worker.ids), count.index)
-  vpc_security_group_ids      = [aws_security_group.nodes.id]
-  associate_public_ip_address = true
-  user_data                   = data.talos_machine_configuration.worker.machine_configuration
+resource "aws_launch_template" "worker" {
+  name_prefix   = "${var.cluster_name}-worker-"
+  image_id      = data.aws_ami.talos.id
+  instance_type = var.worker_instance_type
+  user_data     = base64encode(data.talos_machine_configuration.worker.machine_configuration)
+
+  network_interfaces {
+    associate_public_ip_address = true
+    security_groups             = [aws_security_group.nodes.id]
+  }
 
   instance_market_options {
     market_type = "spot"
-
-    spot_options {
-      spot_instance_type             = "one-time"
-      instance_interruption_behavior = "terminate"
-    }
   }
 
   metadata_options {
@@ -250,19 +249,41 @@ resource "aws_instance" "worker" {
     http_put_response_hop_limit = 1
   }
 
-  root_block_device {
-    volume_size = var.root_volume_size_gb
-    volume_type = "gp3"
-    encrypted   = true
+  block_device_mappings {
+    device_name = data.aws_ami.talos.root_device_name
+    ebs {
+      volume_size           = var.root_volume_size_gb
+      volume_type           = "gp3"
+      encrypted             = true
+      delete_on_termination = true
+    }
   }
 
-  tags = merge(data.pf_aws_tags.tags.tags, {
-    Name = "${var.cluster_name}-worker-${count.index}"
-  })
-
-  lifecycle {
-    ignore_changes = [ami, user_data]
+  tag_specifications {
+    resource_type = "instance"
+    tags = merge(data.pf_aws_tags.tags.tags, {
+      Name = "${var.cluster_name}-worker"
+    })
   }
+
+  tags = data.pf_aws_tags.tags.tags
+}
+
+resource "aws_autoscaling_group" "worker" {
+  name_prefix         = "${var.cluster_name}-worker-"
+  min_size            = var.worker_count
+  max_size            = var.worker_count
+  desired_capacity    = var.worker_count
+  vpc_zone_identifier = data.aws_subnets.worker.ids
+  health_check_type   = "EC2"
+
+  launch_template {
+    id      = aws_launch_template.worker.id
+    version = aws_launch_template.worker.latest_version
+  }
+
+  # Workers join over the private API address, not their changing public IPs.
+  depends_on = [talos_machine_bootstrap.this]
 }
 
 ###########################################################################
@@ -282,13 +303,6 @@ resource "talos_machine_configuration_apply" "control_plane" {
   depends_on = [aws_route53_record.api]
 }
 
-resource "talos_machine_configuration_apply" "worker" {
-  count                       = var.worker_count
-  client_configuration        = var.client_configuration
-  machine_configuration_input = data.talos_machine_configuration.worker.machine_configuration
-  endpoint                    = aws_instance.worker[count.index].public_ip
-  node                        = aws_instance.worker[count.index].private_ip
-}
 
 resource "talos_machine_bootstrap" "this" {
   depends_on           = [talos_machine_configuration_apply.control_plane]

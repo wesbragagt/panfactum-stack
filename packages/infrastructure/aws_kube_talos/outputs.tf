@@ -24,9 +24,9 @@ output "control_plane_public_ips" {
   value       = [aws_eip_association.api.public_ip]
 }
 
-output "worker_public_ips" {
-  description = "Public IPs of the worker nodes."
-  value       = aws_instance.worker[*].public_ip
+output "worker_autoscaling_group_name" {
+  description = "Auto Scaling group maintaining the desired Spot worker count."
+  value       = aws_autoscaling_group.worker.name
 }
 
 output "talosconfig" {

@@ -1,0 +1,274 @@
+{/* lint disable no-duplicate-headings */}
+
+{/* eslint-disable import-x/order */}
+
+## Inputs
+
+The following input variables are supported:
+
+### api\_dns
+
+Description: Optional public DNS name for the Kubernetes API. Creates an A record to the Elastic IP in this Route53 zone and makes the name the cluster endpoint.
+
+Type:
+
+```hcl
+object({
+    zone_id = string
+    name    = string
+  })
+```
+
+Default: `null`
+
+### cilium\_enabled
+
+Description: Disable Talos-managed Flannel and kube-proxy on every node before installing Cilium with kube-proxy replacement.
+
+Type: `bool`
+
+Default: `false`
+
+### client\_configuration
+
+Description: Talos admin client credentials (base64 CA, certificate, key) that Terraform uses for the Talos API. Signed by the os CA in machine\_secrets; produced by scripts/gen\_talos\_secrets.py.
+
+Type:
+
+```hcl
+object({
+    ca_certificate     = string
+    client_certificate = string
+    client_key         = string
+  })
+```
+
+Default: n/a
+
+### cluster\_name
+
+Description: The name of the Talos cluster. Used for the Talos/Kubernetes cluster name and AWS resource names.
+
+Type: `string`
+
+Default: n/a
+
+### control\_plane\_count
+
+Description: Number of control plane nodes. Only 1 is supported while the API endpoint is a single Elastic IP; HA needs a multi-address endpoint.
+
+Type: `number`
+
+Default: `1`
+
+### control\_plane\_instance\_type
+
+Description: EC2 instance type for control plane nodes. T2 types are not supported by Talos.
+
+Type: `string`
+
+Default: `"t4g.medium"`
+
+### control\_plane\_subnets
+
+Description: List of PUBLIC subnet names (Name tag) for the control plane nodes and the API load balancer.
+
+Type: `list(string)`
+
+Default:
+
+```json
+[
+  "PUBLIC_A",
+  "PUBLIC_B",
+  "PUBLIC_C"
+]
+```
+
+### etcd\_backup\_retention\_days
+
+Description: Days to keep etcd snapshots in S3.
+
+Type: `number`
+
+Default: `30`
+
+### etcd\_backup\_talosctl\_sha256
+
+Description: SHA256 of the talosctl release binary for talos\_version, keyed by arm64/amd64. Update together with talos\_version.
+
+Type: `map(string)`
+
+Default:
+
+```json
+{
+  "amd64": "ff432b68986709e6b69c563a08a2ced4232d5196b0dccd6d2e783e9d714d7d7d",
+  "arm64": "dfd3aa33c3159810e216fc39afb685d4d120c8f2728e017d8c7f7635d3139382"
+}
+```
+
+### kube\_api\_allowed\_cidrs
+
+Description: CIDRs allowed to reach the Kubernetes API (TCP 6443) on the control plane's Elastic IP.
+
+Type: `list(string)`
+
+Default: n/a
+
+### kube\_version
+
+Description: Kubernetes version (e.g., 1.37.0). Pinned so a talos provider upgrade does not change it; upgrade with `talosctl upgrade-k8s`.
+
+Type: `string`
+
+Default: `"1.37.0"`
+
+### machine\_secrets
+
+Description: Talos secrets bundle in the siderolabs/talos provider machine\_secrets shape. Generate it once with scripts/gen\_talos\_secrets.py and keep it SOPS-encrypted; it is the only source of the cluster PKI.
+
+Type:
+
+```hcl
+object({
+    certs = object({
+      etcd               = object({ cert = string, key = string })
+      k8s                = object({ cert = string, key = string })
+      k8s_aggregator     = object({ cert = string, key = string })
+      k8s_serviceaccount = object({ key = string })
+      os                 = object({ cert = string, key = string })
+    })
+    cluster = object({ id = string, secret = string })
+    secrets = object({
+      bootstrap_token             = string
+      secretbox_encryption_secret = string
+      aescbc_encryption_secret    = optional(string)
+    })
+    trustdinfo = object({ token = string })
+  })
+```
+
+Default: n/a
+
+### root\_volume\_size\_gb
+
+Description: Size of each node's root EBS volume in GB.
+
+Type: `number`
+
+Default: `20`
+
+### talos\_api\_allowed\_cidrs
+
+Description: CIDRs allowed to reach the Talos API (TCP 50000). Must include the machine running tofu.
+
+Type: `list(string)`
+
+Default: n/a
+
+### talos\_version
+
+Description: Talos version. Selects the official Sidero Labs AMI and the machine config contract.
+
+Type: `string`
+
+Default: `"v1.14.5"`
+
+### vpc\_id
+
+Description: The id for the VPC that the cluster should be deployed into
+
+Type: `string`
+
+Default: n/a
+
+### worker\_count
+
+Description: Number of worker nodes.
+
+Type: `number`
+
+Default: `1`
+
+### worker\_instance\_type
+
+Description: EC2 instance type for worker nodes. T2 types are not supported by Talos.
+
+Type: `string`
+
+Default: `"t4g.medium"`
+
+### worker\_subnets
+
+Description: List of PUBLIC subnet names (Name tag) for the worker nodes.
+
+Type: `list(string)`
+
+Default:
+
+```json
+[
+  "PUBLIC_A",
+  "PUBLIC_B",
+  "PUBLIC_C"
+]
+```
+
+## Outputs
+
+The following outputs are exported:
+
+### cluster\_ca\_data
+
+Description: Base64-encoded Kubernetes cluster CA certificate.
+
+### cluster\_name
+
+Description: The name of the Talos cluster.
+
+### cluster\_url
+
+Description: The URL of the Kubernetes API server (use as kube\_api\_server in region.yaml).
+
+### control\_plane\_public\_ips
+
+Description: Public IP of the control plane node (Talos and Kubernetes API endpoint).
+
+### etcd\_backup\_bucket
+
+Description: S3 bucket holding SSE-KMS encrypted etcd snapshots.
+
+### etcd\_backup\_kms\_key\_arn
+
+Description: KMS key that encrypts etcd snapshots. Restores need kms:Decrypt on it.
+
+### kubeconfig
+
+Description: Admin kubeconfig. The context is named admin@<cluster\_name>.
+
+### node\_security\_group\_id
+
+Description: Security group shared by all Talos nodes.
+
+### talosconfig
+
+Description: talosctl client configuration.
+
+### worker\_public\_ips
+
+Description: Public IPs of the worker nodes.
+
+## Providers
+
+The following providers are needed by this module:
+
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.40.0/docs) (6.40.0)
+
+- [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
+
+- talos (0.12.0)
+
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

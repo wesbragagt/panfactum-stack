@@ -25,7 +25,7 @@ terraform {
 
 locals {
   name         = "cilium"
-  namespace    = module.namespace.namespace
+  namespace    = var.namespace_create ? module.namespace[0].namespace : var.namespace
   cluster_name = data.pf_metadata.metadata.kube_cluster_name
   cluster_url  = data.pf_metadata.metadata.kube_api_server
 }
@@ -38,7 +38,8 @@ data "pf_kube_labels" "labels" {
 data "pf_metadata" "metadata" {}
 
 data "aws_eks_cluster" "cluster" {
-  name = data.pf_metadata.metadata.kube_cluster_name // We must do this lookup since we set `data.pf_metadata.kube_api_server` is set to a VIP in the CI / CD pipeline (which doesn't work with the Cilium install)
+  count = local.talos_enabled ? 0 : 1
+  name  = data.pf_metadata.metadata.kube_cluster_name // We must do this lookup since we set `data.pf_metadata.kube_api_server` is set to a VIP in the CI / CD pipeline (which doesn't work with the Cilium install)
 }
 
 module "util_controller" {
@@ -48,7 +49,7 @@ module "util_controller" {
   instance_type_anti_affinity_required = var.sla_target >= 2 // We are a little more aggressive than typical here, b/c if the operator goes down, there is a significant delay in new node initialization
   az_spread_preferred                  = var.sla_target >= 2
   host_anti_affinity_required          = var.sla_target >= 2
-  pull_through_cache_enabled           = true
+  pull_through_cache_enabled           = var.pull_through_cache_enabled
   burstable_nodes_enabled              = var.burstable_nodes_enabled
   controller_nodes_enabled             = var.controller_nodes_enabled
   spot_nodes_enabled                   = var.spot_nodes_enabled
@@ -82,9 +83,10 @@ module "constants" {
 ***************************************/
 
 module "namespace" {
+  count  = var.namespace_create ? 1 : 0
   source = "../kube_namespace"
 
-  namespace = local.name
+  namespace = var.namespace
 }
 
 /***************************************
@@ -115,6 +117,7 @@ data "aws_iam_policy_document" "cilium" {
 }
 
 module "aws_permissions" {
+  count  = local.eni_enabled ? 1 : 0
   source = "../kube_sa_auth_aws"
 
 
@@ -126,6 +129,7 @@ module "aws_permissions" {
 }
 
 resource "kubernetes_annotations" "service_account" {
+  count       = local.eni_enabled ? 1 : 0
   api_version = "v1"
   kind        = "ServiceAccount"
   metadata {
@@ -133,7 +137,7 @@ resource "kubernetes_annotations" "service_account" {
     namespace = local.namespace
   }
   annotations = {
-    "eks.amazonaws.com/role-arn" = module.aws_permissions.role_arn
+    "eks.amazonaws.com/role-arn" = module.aws_permissions[0].role_arn
   }
   depends_on = [helm_release.cilium]
 }
@@ -156,29 +160,18 @@ resource "helm_release" "cilium" {
   wait_for_jobs   = true
   max_history     = 5
 
-  values = [
-    yamlencode({
-      eni = {
-        enabled = true
+  lifecycle {
+    precondition {
+      condition     = !local.talos_enabled || local.ipam_mode != "eni"
+      error_message = "Talos mode requires cluster-pool or kubernetes IPAM; ENI/IRSA mode is EKS-only."
+    }
+  }
 
-        // Required to ensure that all IPs get assigned to a single
-        // ENI; otherwise, traffic will get dropped
-        // https://github.com/cilium/cilium/issues/19250
-        awsEnablePrefixDelegation = true
-        awsReleaseExcessIPs       = true
-      }
-      ipam = {
-        mode    = "eni"
-        iamRole = module.aws_permissions.role_arn
-      }
-
-      // No need to masquerade as the host node since each pod
-      // gets a VPC IP address in AWS. This also prevents
-      // NLB hairpinning issues if multiple ENIs ever get attached.
-      enableIPv4Masquerade = false
-
-      egressMasqueradeInterfaces = "eth0"
-      routingMode                = "native"
+  values = concat([
+    yamlencode(merge(local.platform_values, {
+      ipam = merge(local.platform_values.ipam, local.eni_enabled ? {
+        iamRole = module.aws_permissions[0].role_arn
+      } : {})
 
       cni = {
         exclusive = false
@@ -199,8 +192,8 @@ resource "helm_release" "cilium" {
       // shifts so you MUST use the internal EKS API DNS name
       // in order for this to continue to work
       kubeProxyReplacement = true
-      k8sServiceHost       = trimprefix(data.aws_eks_cluster.cluster.endpoint, "https://")
-      k8sServicePort       = 443
+      k8sServiceHost       = var.k8s_service_host != null ? var.k8s_service_host : (local.talos_enabled ? "localhost" : trimprefix(data.aws_eks_cluster.cluster[0].endpoint, "https://"))
+      k8sServicePort       = var.k8s_service_port != null ? var.k8s_service_port : (local.talos_enabled ? 7445 : 443)
 
       // Enhanced load balancing capabilities
       loadBalancer = {
@@ -296,7 +289,8 @@ resource "helm_release" "cilium" {
             effect   = "NoSchedule"
           }
         ],
-        module.util_agent.tolerations
+        module.util_agent.tolerations,
+        local.platform_tolerations
       )
 
       prometheus = {
@@ -345,7 +339,7 @@ resource "helm_release" "cilium" {
       }
 
       operator = {
-        replicas = 2
+        replicas = var.operator_replicas != null ? var.operator_replicas : (local.talos_enabled ? 1 : 2)
         tolerations = concat([
           // These are needed b/c the cilium agents on each node need the operator
           // to be running in order for them to remove this taint
@@ -365,7 +359,8 @@ resource "helm_release" "cilium" {
             effect   = module.constants.linkerd_taint.effect
           }
           ],
-          module.util_controller.tolerations
+          module.util_controller.tolerations,
+          local.platform_tolerations
         )
 
         podLabels = module.util_controller.labels
@@ -387,10 +382,10 @@ resource "helm_release" "cilium" {
         extraArgs = [
           "--cluster-name=${local.cluster_name}"
         ]
-        extraEnv = [
-          { name : "AWS_ROLE_ARN", value = module.aws_permissions.role_arn },
+        extraEnv = local.eni_enabled ? [
+          { name : "AWS_ROLE_ARN", value = module.aws_permissions[0].role_arn },
           { name : "AWS_REGION", value = data.aws_region.region.region }
-        ]
+        ] : []
 
         prometheus = {
           serviceMonitor = {
@@ -403,14 +398,14 @@ resource "helm_release" "cilium" {
       }
 
       envoy = {
-        enabled = false
+        enabled = local.talos_enabled
       }
 
       gatewayAPI = {
         enabled = false
       }
-    })
-  ]
+    }))
+  ], var.values_overrides)
 }
 
 resource "kubectl_manifest" "vpa_operator" {
