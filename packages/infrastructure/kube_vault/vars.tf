@@ -172,3 +172,53 @@ variable "restricted_reader_iam_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "oidc_provider_arn" {
+  description = "Existing OIDC provider ARN; null retains EKS discovery."
+  type        = string
+  default     = null
+}
+
+variable "oidc_issuer_url" {
+  description = "Existing OIDC issuer URL paired with its ARN."
+  type        = string
+  default     = null
+}
+
+variable "ip_restrictions_enabled" {
+  description = "Enable source-IP deny policies."
+  type        = bool
+  default     = true
+}
+
+variable "cluster_subnet_ids" {
+  description = "Explicit subnets for source-IP policy discovery."
+  type        = set(string)
+  default     = null
+}
+
+variable "vault_replicas" {
+  description = "Number of Raft members. One is explicitly non-HA; default three preserves existing topology."
+  type        = number
+  default     = 3
+  validation {
+    condition     = var.vault_replicas >= 1 && floor(var.vault_replicas) == var.vault_replicas
+    error_message = "vault_replicas must be a positive integer."
+  }
+}
+variable "az_spread_required" {
+  description = "Require AZ spread for stateful replicas. Disable only for an explicit single-zone/single-node deployment."
+  type        = bool
+  default     = true
+}
+variable "extra_helm_values" {
+  description = "Explicit chart overrides merged last. Empty preserves existing module values."
+  type        = any
+  default     = {}
+}
+
+variable "disable_mlock" {
+  description = "Optional explicit mlock setting for Raft on hosts without swap. Null preserves the existing template."
+  type        = bool
+  default     = null
+}

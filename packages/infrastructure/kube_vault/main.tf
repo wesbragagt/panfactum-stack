@@ -49,7 +49,7 @@ module "util_server" {
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
   instance_type_anti_affinity_required = var.bootstrap_mode_enabled ? false : var.sla_target == 3
-  az_spread_required                   = true // stateful
+  az_spread_required                   = var.az_spread_required // stateful; opt out only for an explicit single-node topology
   extra_labels                         = data.pf_kube_labels.labels.labels
 
   # Vault must be scheduled on arm64 nodes as we have installed custom
@@ -131,6 +131,10 @@ module "aws_permissions" {
   service_account_namespace = local.namespace
   iam_policy_json           = data.aws_iam_policy_document.sa.json
   ip_allow_list             = var.aws_iam_ip_allow_list
+  oidc_provider_arn         = var.oidc_provider_arn
+  oidc_issuer_url           = var.oidc_issuer_url
+  cluster_subnet_ids        = var.cluster_subnet_ids
+  ip_restrictions_enabled   = var.ip_restrictions_enabled
 }
 
 /***************************************
@@ -265,22 +269,25 @@ resource "helm_release" "vault" {
 
         ha = {
           enabled  = true
-          replicas = 3
+          replicas = var.vault_replicas
           disruptionBudget = {
             enabled = false
           }
           raft = {
             enabled   = true
             setNodeId = true
-            config = templatefile("./ha.hcl", {
-              aws_region   = data.aws_region.region.region
-              kms_key_id   = module.unseal_key.id
-              aws_role_arn = module.aws_permissions.role_arn
+            config = templatefile("${path.module}/ha.hcl", {
+              vault_replicas = var.vault_replicas
+              disable_mlock  = var.disable_mlock
+              aws_region     = data.aws_region.region.region
+              kms_key_id     = module.unseal_key.id
+              aws_role_arn   = module.aws_permissions.role_arn
             })
           }
         }
       }
-    })
+    }),
+    yamlencode(var.extra_helm_values)
   ]
 
   timeout    = 60 * 10

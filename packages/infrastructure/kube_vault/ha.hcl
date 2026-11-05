@@ -1,3 +1,6 @@
+%{ if disable_mlock != null ~}
+disable_mlock = ${disable_mlock}
+%{ endif ~}
 ui = true
 
 listener "tcp" {
@@ -32,15 +35,11 @@ service_registration "kubernetes" {}
 # Use the headless Kubernetes service addresses to connect with the other instances
 storage "raft" {
   path = "/vault/data"
+%{ for index in range(vault_replicas) ~}
   retry_join {
-    leader_api_addr = "http://vault-0.vault-internal:8200"
+    leader_api_addr = "http://vault-${index}.vault-internal:8200"
   }
-  retry_join {
-    leader_api_addr = "http://vault-1.vault-internal:8200"
-  }
-  retry_join {
-    leader_api_addr = "http://vault-2.vault-internal:8200"
-  }
+%{ endfor ~}
 }
 
 plugin_directory = "/plugins"
