@@ -65,3 +65,9 @@ variable "aws_secrets_use_workload_identity" {
   type        = bool
   default     = false
 }
+
+variable "kubernetes_issuer" {
+  description = "Explicit issuer of projected Kubernetes tokens for self-managed clusters. Null retains the provider default."
+  type        = string
+  default     = null
+}

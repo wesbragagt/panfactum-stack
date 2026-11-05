@@ -54,6 +54,7 @@ resource "vault_auth_backend" "kubernetes" {
 resource "vault_kubernetes_auth_backend_config" "kubernetes" {
   backend         = vault_auth_backend.kubernetes.path
   kubernetes_host = var.kubernetes_url
+  issuer          = var.kubernetes_issuer
 }
 
 /***************************************
