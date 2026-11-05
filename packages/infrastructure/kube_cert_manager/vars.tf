@@ -1,13 +1,19 @@
 variable "cert_manager_version" {
   description = "The version of cert-manager to deploy"
   type        = string
-  default     = "1.17.4"
+  default     = "1.21.3"
 }
 
 variable "vpa_enabled" {
   description = "Whether the VPA resources should be enabled"
   type        = bool
   default     = false
+}
+
+variable "extra_helm_values" {
+  description = "Additional chart values applied after module defaults, for explicit deployment-specific overrides"
+  type        = any
+  default     = {}
 }
 
 variable "log_verbosity" {

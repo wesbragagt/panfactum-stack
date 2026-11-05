@@ -327,7 +327,8 @@ resource "helm_release" "cert_manager" {
           interval = "60s"
         }
       }
-    })
+    }),
+    yamlencode(var.extra_helm_values)
   ]
 
   depends_on = [module.webhook_cert]
