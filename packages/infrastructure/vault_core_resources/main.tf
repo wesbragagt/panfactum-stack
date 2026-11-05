@@ -115,22 +115,26 @@ resource "aws_iam_policy" "vault" {
 }
 
 resource "random_id" "vault_user" {
+  count       = var.aws_secrets_use_workload_identity ? 0 : 1
   byte_length = 8
   prefix      = "vault-"
 }
 
 resource "aws_iam_user" "vault" {
-  name = random_id.vault_user.hex
-  tags = data.pf_aws_tags.tags.tags
+  count = var.aws_secrets_use_workload_identity ? 0 : 1
+  name  = random_id.vault_user[0].hex
+  tags  = data.pf_aws_tags.tags.tags
 }
 
 resource "aws_iam_user_policy_attachment" "vault" {
+  count      = var.aws_secrets_use_workload_identity ? 0 : 1
   policy_arn = aws_iam_policy.vault.arn
-  user       = aws_iam_user.vault.name
+  user       = aws_iam_user.vault[0].name
 }
 
 resource "aws_iam_access_key" "vault" {
-  user = aws_iam_user.vault.name
+  count = var.aws_secrets_use_workload_identity ? 0 : 1
+  user  = aws_iam_user.vault[0].name
 }
 
 // TODO: Add a cronjob for AWS credential rotation
@@ -138,8 +142,8 @@ resource "vault_aws_secret_backend" "aws" {
   path                      = "aws"
   region                    = data.aws_region.current.region
   description               = "Dynamically provisions IAM credentials"
-  access_key                = aws_iam_access_key.vault.id
-  secret_key                = aws_iam_access_key.vault.secret
+  access_key                = var.aws_secrets_use_workload_identity ? null : aws_iam_access_key.vault[0].id
+  secret_key                = var.aws_secrets_use_workload_identity ? null : aws_iam_access_key.vault[0].secret
   default_lease_ttl_seconds = 60 * 60 * 16
 }
 
@@ -308,3 +312,34 @@ resource "kubectl_manifest" "vpa_secrets_operator" {
   depends_on        = [helm_release.vault_secrets_operator]
 }
 
+
+# Preserve existing static-credential callers while allowing SDK web-identity credentials.
+moved {
+  from = random_id.vault_user
+  to   = random_id.vault_user[0]
+}
+moved {
+  from = aws_iam_user.vault
+  to   = aws_iam_user.vault[0]
+}
+moved {
+  from = aws_iam_user_policy_attachment.vault
+  to   = aws_iam_user_policy_attachment.vault[0]
+}
+moved {
+  from = aws_iam_access_key.vault
+  to   = aws_iam_access_key.vault[0]
+}
+
+data "kubernetes_service_account" "vault_aws_identity" {
+  count = var.aws_secrets_use_workload_identity ? 1 : 0
+  metadata {
+    name      = "vault"
+    namespace = local.namespace
+  }
+}
+resource "aws_iam_role_policy_attachment" "vault_workload_identity" {
+  count      = var.aws_secrets_use_workload_identity ? 1 : 0
+  role       = basename(data.kubernetes_service_account.vault_aws_identity[0].metadata[0].annotations["eks.amazonaws.com/role-arn"])
+  policy_arn = aws_iam_policy.vault.arn
+}

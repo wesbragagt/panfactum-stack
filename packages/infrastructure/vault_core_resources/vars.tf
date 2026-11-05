@@ -59,3 +59,9 @@ variable "controller_nodes_enabled" {
   type        = bool
   default     = true
 }
+
+variable "aws_secrets_use_workload_identity" {
+  description = "Use the Vault pod AWS SDK web identity for the AWS secrets backend, attaching its existing user-management policy to the annotated Vault role. False preserves legacy IAM user/access-key resources."
+  type        = bool
+  default     = false
+}
