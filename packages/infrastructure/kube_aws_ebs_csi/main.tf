@@ -73,7 +73,8 @@ module "constants" {
 module "namespace" {
   source = "../kube_namespace"
 
-  namespace = local.service
+  namespace    = local.service
+  extra_labels = var.namespace_labels
 }
 
 /***************************************

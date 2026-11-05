@@ -137,3 +137,9 @@ variable "storage_class_mount_options" {
   type        = list(string)
   default     = ["context=\"system_u:object_r:local_t:s0\""]
 }
+
+variable "namespace_labels" {
+  description = "Extra labels scoped to the driver namespace, including any explicit host-access Pod Security exemption."
+  type        = map(string)
+  default     = {}
+}
