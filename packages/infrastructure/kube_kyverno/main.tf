@@ -480,7 +480,8 @@ resource "helm_release" "kyverno" {
         tolerations = module.util_policy_reports_cleanup.tolerations
         podLabels   = module.util_policy_reports_cleanup.labels
       }
-    })
+    }),
+    yamlencode(var.extra_helm_values)
   ]
 }
 

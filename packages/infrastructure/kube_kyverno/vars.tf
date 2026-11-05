@@ -73,3 +73,8 @@ variable "controller_nodes_enabled" {
   type        = bool
   default     = true
 }
+variable "extra_helm_values" {
+  description = "Additional chart values merged last, for explicit topology-specific overrides. Empty preserves existing defaults."
+  type        = any
+  default     = {}
+}
