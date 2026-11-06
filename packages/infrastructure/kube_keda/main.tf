@@ -208,9 +208,9 @@ resource "helm_release" "keda" {
       tolerations = module.util_operator.tolerations
 
       podLabels = {
-        keda           = module.util_operator.labels
-        webhooks       = module.util_webhook.labels
-        metricsAdapter = module.util_metrics_server.labels
+        keda           = { for key, value in module.util_operator.labels : key => value if !contains(keys(data.pf_kube_labels.labels.labels), key) }
+        webhooks       = { for key, value in module.util_webhook.labels : key => value if !contains(keys(data.pf_kube_labels.labels.labels), key) }
+        metricsAdapter = { for key, value in module.util_metrics_server.labels : key => value if !contains(keys(data.pf_kube_labels.labels.labels), key) }
       }
 
       logging = {
