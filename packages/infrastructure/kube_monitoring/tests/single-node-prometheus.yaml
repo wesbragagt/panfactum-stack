@@ -1,0 +1,32 @@
+# Chart-contract fixture for kube-prometheus-stack 82.10.5.
+# Actual module values additionally supply certificates, credentials and scheduling.
+fullnameOverride: monitoring
+cleanPrometheusOperatorObjectNames: true
+prometheusOperator:
+  admissionWebhooks:
+    deployment:
+      enabled: true
+      replicas: 1
+prometheus:
+  prometheusSpec:
+    replicas: 1
+    resources:
+      requests: {memory: 512Mi}
+      limits: {memory: 768Mi}
+alertmanager:
+  alertmanagerSpec: {replicas: 1}
+grafana:
+  replicas: 1
+  envValueFrom:
+    GF_DATABASE_PASSWORD:
+      secretKeyRef: {name: grafana-db, key: password}
+    GF_DATABASE_USER:
+      secretKeyRef: {name: grafana-db, key: username}
+  grafana.ini:
+    auth.basic: {enabled: true}
+    auth.generic_oauth: {enabled: false, auto_login: false}
+  ingress: {enabled: false}
+kube-state-metrics:
+  resources:
+    requests: {memory: 64Mi}
+    limits: {memory: 128Mi}

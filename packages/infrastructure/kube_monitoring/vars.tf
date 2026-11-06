@@ -294,3 +294,245 @@ variable "controller_nodes_enabled" {
 }
 
 
+
+variable "grafana_oidc_enabled" {
+  description = "Provision Vault OIDC and configure Grafana OAuth. Basic authentication remains independently controlled."
+  type        = bool
+  default     = true
+}
+
+variable "az_spread_required" {
+  description = "Require zone spread for stateful monitoring workloads and Grafana PostgreSQL."
+  type        = bool
+  default     = true
+}
+
+variable "operator_webhook_replicas" {
+  description = "Number of operator webhook replicas."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.operator_webhook_replicas >= 1 && floor(var.operator_webhook_replicas) == var.operator_webhook_replicas
+    error_message = "operator_webhook_replicas must be an integer of at least 1."
+  }
+}
+
+variable "prometheus_replicas" {
+  description = "Number of prometheus replicas."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.prometheus_replicas >= 1 && floor(var.prometheus_replicas) == var.prometheus_replicas
+    error_message = "prometheus_replicas must be an integer of at least 1."
+  }
+}
+
+variable "alertmanager_replicas" {
+  description = "Number of alertmanager replicas."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.alertmanager_replicas >= 1 && floor(var.alertmanager_replicas) == var.alertmanager_replicas
+    error_message = "alertmanager_replicas must be an integer of at least 1."
+  }
+}
+
+variable "grafana_replicas" {
+  description = "Number of grafana replicas."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.grafana_replicas >= 1 && floor(var.grafana_replicas) == var.grafana_replicas
+    error_message = "grafana_replicas must be an integer of at least 1."
+  }
+}
+
+variable "thanos_query_replicas" {
+  description = "Number of thanos query replicas."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.thanos_query_replicas >= 1 && floor(var.thanos_query_replicas) == var.thanos_query_replicas
+    error_message = "thanos_query_replicas must be an integer of at least 1."
+  }
+}
+
+variable "thanos_frontend_replicas" {
+  description = "Number of thanos frontend replicas."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.thanos_frontend_replicas >= 1 && floor(var.thanos_frontend_replicas) == var.thanos_frontend_replicas
+    error_message = "thanos_frontend_replicas must be an integer of at least 1."
+  }
+}
+
+variable "thanos_store_gateway_replicas" {
+  description = "Number of thanos store gateway replicas."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.thanos_store_gateway_replicas >= 1 && floor(var.thanos_store_gateway_replicas) == var.thanos_store_gateway_replicas
+    error_message = "thanos_store_gateway_replicas must be an integer of at least 1."
+  }
+}
+
+variable "prometheus_memory_request_mb" {
+  description = "prometheus memory request mb."
+  type        = number
+  default     = 1000
+  validation {
+    condition     = var.prometheus_memory_request_mb >= 64 && floor(var.prometheus_memory_request_mb) == var.prometheus_memory_request_mb
+    error_message = "prometheus_memory_request_mb must be an integer of at least 64."
+  }
+}
+
+variable "prometheus_memory_limit_mb" {
+  description = "prometheus memory limit mb."
+  type        = number
+  default     = 1300
+  validation {
+    condition     = var.prometheus_memory_limit_mb >= 64 && floor(var.prometheus_memory_limit_mb) == var.prometheus_memory_limit_mb
+    error_message = "prometheus_memory_limit_mb must be an integer of at least 64."
+  }
+}
+
+variable "kube_state_metrics_memory_request_mb" {
+  description = "kube state metrics memory request mb."
+  type        = number
+  default     = 300
+  validation {
+    condition     = var.kube_state_metrics_memory_request_mb >= 32 && floor(var.kube_state_metrics_memory_request_mb) == var.kube_state_metrics_memory_request_mb
+    error_message = "kube_state_metrics_memory_request_mb must be an integer of at least 32."
+  }
+}
+
+variable "kube_state_metrics_memory_limit_mb" {
+  description = "kube state metrics memory limit mb."
+  type        = number
+  default     = 390
+  validation {
+    condition     = var.kube_state_metrics_memory_limit_mb >= 32 && floor(var.kube_state_metrics_memory_limit_mb) == var.kube_state_metrics_memory_limit_mb
+    error_message = "kube_state_metrics_memory_limit_mb must be an integer of at least 32."
+  }
+}
+
+variable "thanos_vpa_minimum_memory_mb" {
+  description = "thanos vpa minimum memory mb."
+  type        = number
+  default     = 1000
+  validation {
+    condition     = var.thanos_vpa_minimum_memory_mb >= 32 && floor(var.thanos_vpa_minimum_memory_mb) == var.thanos_vpa_minimum_memory_mb
+    error_message = "thanos_vpa_minimum_memory_mb must be an integer of at least 32."
+  }
+}
+
+variable "redis_replicas" {
+  description = "redis replicas."
+  type        = number
+  default     = 3
+  validation {
+    condition     = var.redis_replicas >= 1 && floor(var.redis_replicas) == var.redis_replicas
+    error_message = "redis_replicas must be an integer of at least 1."
+  }
+}
+
+variable "redis_minimum_memory_mb" {
+  description = "redis minimum memory mb."
+  type        = number
+  default     = 1000
+  validation {
+    condition     = var.redis_minimum_memory_mb >= 25 && floor(var.redis_minimum_memory_mb) == var.redis_minimum_memory_mb
+    error_message = "redis_minimum_memory_mb must be an integer of at least 25."
+  }
+}
+
+variable "grafana_db_instances" {
+  description = "grafana db instances."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.grafana_db_instances >= 1 && floor(var.grafana_db_instances) == var.grafana_db_instances
+    error_message = "grafana_db_instances must be an integer of at least 1."
+  }
+}
+
+variable "grafana_db_minimum_memory_mb" {
+  description = "grafana db minimum memory mb."
+  type        = number
+  default     = 500
+  validation {
+    condition     = var.grafana_db_minimum_memory_mb >= 500 && floor(var.grafana_db_minimum_memory_mb) == var.grafana_db_minimum_memory_mb
+    error_message = "grafana_db_minimum_memory_mb must be an integer of at least 500."
+  }
+}
+
+variable "grafana_db_pooler_minimum_memory_mb" {
+  description = "grafana db pooler minimum memory mb."
+  type        = number
+  default     = 25
+  validation {
+    condition     = var.grafana_db_pooler_minimum_memory_mb >= 25 && floor(var.grafana_db_pooler_minimum_memory_mb) == var.grafana_db_pooler_minimum_memory_mb
+    error_message = "grafana_db_pooler_minimum_memory_mb must be an integer of at least 25."
+  }
+}
+
+variable "redis_allow_single_node" {
+  description = "Opt into the shared Redis module single-node scheduling and quorum mode; use with redis_replicas = 1."
+  type        = bool
+  default     = false
+}
+
+variable "grafana_db_controller_nodes_enabled" {
+  description = "Allow Grafana database and pooler on controller nodes."
+  type        = bool
+  default     = false
+}
+
+variable "grafana_db_burstable_nodes_enabled" {
+  description = "Override database placement; null inherits the corresponding monitoring placement setting."
+  type        = bool
+  default     = null
+}
+
+variable "grafana_db_spot_nodes_enabled" {
+  description = "Override database placement; null inherits the corresponding monitoring placement setting."
+  type        = bool
+  default     = null
+}
+
+variable "oidc_provider_arn" {
+  description = "Forwarded to every AWS service-account authentication module, including Grafana PostgreSQL."
+  type        = string
+  default     = null
+}
+
+variable "oidc_issuer_url" {
+  description = "Forwarded to every AWS service-account authentication module, including Grafana PostgreSQL."
+  type        = string
+  default     = null
+}
+
+variable "cluster_subnet_ids" {
+  description = "Forwarded to every AWS service-account authentication module, including Grafana PostgreSQL."
+  type        = list(string)
+  default     = null
+}
+
+variable "ip_restrictions_enabled" {
+  description = "Forwarded to every AWS service-account authentication module, including Grafana PostgreSQL."
+  type        = bool
+  default     = true
+}
+
+variable "prometheus_extra_helm_values" {
+  description = "Additional Helm values merged after module defaults. Prefer explicit typed options when available."
+  type        = any
+  default     = {}
+}
+
+variable "thanos_extra_helm_values" {
+  description = "Additional Helm values merged after module defaults. Prefer explicit typed options when available."
+  type        = any
+  default     = {}
+}

@@ -182,7 +182,7 @@ module "util_grafana" {
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
   instance_type_anti_affinity_required = var.enhanced_ha_enabled
-  az_spread_required                   = true // stateful
+  az_spread_required                   = var.az_spread_required // stateful
   extra_labels                         = data.pf_kube_labels.labels.labels
 }
 
@@ -196,7 +196,7 @@ module "util_prometheus" {
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
   instance_type_anti_affinity_required = var.enhanced_ha_enabled
-  az_spread_required                   = true // stateful
+  az_spread_required                   = var.az_spread_required // stateful
   lifetime_evictions_enabled           = false
   extra_labels                         = data.pf_kube_labels.labels.labels
 }
@@ -253,7 +253,7 @@ module "util_thanos_store_gateway" {
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
   instance_type_anti_affinity_required = var.enhanced_ha_enabled
-  az_spread_required                   = true // stateful so always on
+  az_spread_required                   = var.az_spread_required // stateful
   extra_labels                         = data.pf_kube_labels.labels.labels
 }
 
@@ -267,7 +267,7 @@ module "util_thanos_ruler" {
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
   instance_type_anti_affinity_required = var.enhanced_ha_enabled
-  az_spread_required                   = true // stateful so always on
+  az_spread_required                   = var.az_spread_required // stateful
   extra_labels                         = data.pf_kube_labels.labels.labels
 }
 
@@ -324,7 +324,7 @@ module "util_alertmanager" {
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
   instance_type_anti_affinity_required = var.enhanced_ha_enabled
-  az_spread_required                   = true // stateful so always on
+  az_spread_required                   = var.az_spread_required // stateful
   lifetime_evictions_enabled           = false
   extra_labels                         = data.pf_kube_labels.labels.labels
 }
@@ -352,13 +352,20 @@ module "grafana_db" {
 
   pg_cluster_namespace                 = local.namespace
   pg_initial_storage_gb                = 1
-  pg_instances                         = 2
+  pg_instances                         = var.grafana_db_instances
+  pg_minimum_memory_mb                 = var.grafana_db_minimum_memory_mb
+  pgbouncer_minimum_memory_mb          = var.grafana_db_pooler_minimum_memory_mb
+  az_spread_required                   = var.az_spread_required
+  oidc_provider_arn                    = var.oidc_provider_arn
+  oidc_issuer_url                      = var.oidc_issuer_url
+  cluster_subnet_ids                   = var.cluster_subnet_ids
+  ip_restrictions_enabled              = var.ip_restrictions_enabled
   aws_iam_ip_allow_list                = var.aws_iam_ip_allow_list
   pull_through_cache_enabled           = var.pull_through_cache_enabled
   pgbouncer_pool_mode                  = "session"
-  burstable_nodes_enabled              = var.burstable_nodes_enabled
-  spot_nodes_enabled                   = var.spot_nodes_enabled
-  controller_nodes_enabled             = false // should not run on controller nodes which can cause disruptions
+  burstable_nodes_enabled              = coalesce(var.grafana_db_burstable_nodes_enabled, var.burstable_nodes_enabled)
+  spot_nodes_enabled                   = coalesce(var.grafana_db_spot_nodes_enabled, var.spot_nodes_enabled)
+  controller_nodes_enabled             = var.grafana_db_controller_nodes_enabled
   backups_force_delete                 = true
   monitoring_enabled                   = var.monitoring_enabled
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
@@ -378,14 +385,15 @@ module "thanos_redis_cache" {
   source = "../kube_redis_sentinel"
 
   namespace                            = local.namespace
-  replica_count                        = 3
+  replica_count                        = var.redis_replicas
+  allow_single_node                    = var.redis_allow_single_node
   lfu_cache_enabled                    = true
   burstable_nodes_enabled              = var.burstable_nodes_enabled
   spot_nodes_enabled                   = var.spot_nodes_enabled
   controller_nodes_enabled             = var.controller_nodes_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
   vpa_enabled                          = var.vpa_enabled
-  minimum_memory_mb                    = 1000
+  minimum_memory_mb                    = var.redis_minimum_memory_mb
   monitoring_enabled                   = var.monitoring_enabled
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   instance_type_anti_affinity_required = var.enhanced_ha_enabled
@@ -464,6 +472,10 @@ module "aws_permissions" {
   service_account_namespace = local.namespace
   iam_policy_json           = data.aws_iam_policy_document.prometheus.json
   ip_allow_list             = var.aws_iam_ip_allow_list
+  oidc_provider_arn         = var.oidc_provider_arn
+  oidc_issuer_url           = var.oidc_issuer_url
+  cluster_subnet_ids        = var.cluster_subnet_ids
+  ip_restrictions_enabled   = var.ip_restrictions_enabled
 }
 
 resource "kubernetes_secret" "grafana_creds" {
@@ -471,11 +483,12 @@ resource "kubernetes_secret" "grafana_creds" {
     name      = "grafana-creds"
     namespace = local.namespace
   }
-  data = {
-    admin-user         = "admin"
-    admin-password     = random_password.grafana_admin_pw.result
-    oidc-client-secret = vault_identity_oidc_client.oidc.client_secret
-  }
+  data = merge({
+    admin-user     = "admin"
+    admin-password = random_password.grafana_admin_pw.result
+    }, var.grafana_oidc_enabled ? {
+    oidc-client-secret = vault_identity_oidc_client.oidc[0].client_secret
+  } : {})
 }
 
 module "prometheus_cert" {
@@ -552,7 +565,7 @@ resource "helm_release" "prometheus_stack" {
             enabled     = true
             labels      = module.util_webhook.labels
             podLabels   = module.util_webhook.labels
-            replicas    = 2
+            replicas    = var.operator_webhook_replicas
             tolerations = module.util_webhook.tolerations
             affinity    = module.util_webhook.affinity
             service = {
@@ -665,10 +678,10 @@ resource "helm_release" "prometheus_stack" {
         tolerations    = module.util_ksm.tolerations
         resources = {
           requests = {
-            memory = "300Mi"
+            memory = "${var.kube_state_metrics_memory_request_mb}Mi"
           }
           limits = {
-            memory = "390Mi"
+            memory = "${var.kube_state_metrics_memory_limit_mb}Mi"
           }
         }
 
@@ -879,7 +892,7 @@ resource "helm_release" "prometheus_stack" {
           podMetadata = {
             labels = module.util_prometheus.labels
           }
-          replicas                  = 2
+          replicas                  = var.prometheus_replicas
           tolerations               = module.util_prometheus.tolerations
           affinity                  = module.util_prometheus.affinity
           podAntiAffinity           = "" // Disable chart's built-in anti-affinity; we provide our own via affinity
@@ -887,10 +900,10 @@ resource "helm_release" "prometheus_stack" {
           priorityClassName         = module.constants.cluster_important_priority_class_name
           resources = {
             requests = {
-              memory = "1000Mi"
+              memory = "${var.prometheus_memory_request_mb}Mi"
             }
             limits = {
-              memory = "1300Mi"
+              memory = "${var.prometheus_memory_limit_mb}Mi"
             }
           }
 
@@ -1007,7 +1020,7 @@ resource "helm_release" "prometheus_stack" {
             }
           }
 
-          replicas                  = 2
+          replicas                  = var.alertmanager_replicas
           resources                 = local.default_resources
           affinity                  = module.util_alertmanager.affinity
           podAntiAffinity           = "" // Disable chart's built-in anti-affinity; we provide our own via affinity
@@ -1037,7 +1050,7 @@ resource "helm_release" "prometheus_stack" {
           userKey        = "admin-user"
           passwordKey    = "admin-password"
         }
-        envValueFrom = {
+        envValueFrom = merge({
           GF_DATABASE_PASSWORD = {
             secretKeyRef = {
               name = module.grafana_db.superuser_creds_secret
@@ -1050,13 +1063,14 @@ resource "helm_release" "prometheus_stack" {
               key  = "username"
             }
           }
+          }, var.grafana_oidc_enabled ? {
           GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET = {
             secretKeyRef = {
               name = kubernetes_secret.grafana_creds.metadata[0].name
               key  = "oidc-client-secret"
             }
           }
-        }
+        } : {})
         sidecar = {
           resources = local.default_resources
           datasources = {
@@ -1189,24 +1203,24 @@ resource "helm_release" "prometheus_stack" {
           }
 
           "auth.generic_oauth" = {
-            enabled                    = true
+            enabled                    = var.grafana_oidc_enabled
             name                       = "Vault"
-            client_id                  = vault_identity_oidc_client.oidc.client_id
+            client_id                  = var.grafana_oidc_enabled ? vault_identity_oidc_client.oidc[0].client_id : null
             client_secret              = "replace-me" # Replaced by environment variable, but a default must be set
             auth_url                   = "https://${var.vault_domain}/ui/vault/identity/oidc/provider/grafana/authorize?with=oidc"
-            api_url                    = "${vault_identity_oidc_provider.oidc.issuer}/userinfo"
-            token_url                  = "${vault_identity_oidc_provider.oidc.issuer}/token"
+            api_url                    = var.grafana_oidc_enabled ? "${vault_identity_oidc_provider.oidc[0].issuer}/userinfo" : null
+            token_url                  = var.grafana_oidc_enabled ? "${vault_identity_oidc_provider.oidc[0].issuer}/token" : null
             scopes                     = "openid profile"
             role_attribute_path        = "contains(groups[*], 'rbac-superusers') && 'Admin' || contains(groups[*], 'rbac-admins') && 'Editor' || 'Viewer'"
             email_attribute_path       = "email"
             name_attribute_path        = "name"
             allow_assign_grafana_admin = true
-            auto_login                 = !var.grafana_basic_auth_enabled
+            auto_login                 = var.grafana_oidc_enabled && !var.grafana_basic_auth_enabled
             use_pkce                   = true
           }
         }
 
-        replicas = 2
+        replicas = var.grafana_replicas
         deploymentStrategy = {
           type          = "Recreate"
           rollingUpdate = null
@@ -1223,7 +1237,8 @@ resource "helm_release" "prometheus_stack" {
         assertNoLeakedSecrets = false
       }
 
-    })
+    }),
+    yamlencode(var.prometheus_extra_helm_values)
   ]
 
   postrender = {
@@ -1238,7 +1253,13 @@ resource "helm_release" "prometheus_stack" {
 * Vault IdP Setup
 ***************************************/
 
+moved {
+  from = vault_identity_oidc_key.oidc
+  to   = vault_identity_oidc_key.oidc[0]
+}
+
 resource "vault_identity_oidc_key" "oidc" {
+  count              = var.grafana_oidc_enabled ? 1 : 0
   name               = "grafana"
   allowed_client_ids = ["*"]
   rotation_period    = 60 * 60 * 8
@@ -1246,35 +1267,53 @@ resource "vault_identity_oidc_key" "oidc" {
 }
 
 data "vault_identity_group" "rbac_groups" {
-  for_each   = toset(["rbac-superusers", "rbac-admins", "rbac-readers", "rbac-restricted-readers"])
+  for_each   = var.grafana_oidc_enabled ? toset(["rbac-superusers", "rbac-admins", "rbac-readers", "rbac-restricted-readers"]) : toset([])
   group_name = each.key
 }
 
+moved {
+  from = vault_identity_oidc_assignment.oidc
+  to   = vault_identity_oidc_assignment.oidc[0]
+}
+
 resource "vault_identity_oidc_assignment" "oidc" {
+  count     = var.grafana_oidc_enabled ? 1 : 0
   name      = "grafana"
   group_ids = [for group in data.vault_identity_group.rbac_groups : group.id]
 }
 
+moved {
+  from = vault_identity_oidc_client.oidc
+  to   = vault_identity_oidc_client.oidc[0]
+}
+
 resource "vault_identity_oidc_client" "oidc" {
-  name = "grafana"
-  key  = vault_identity_oidc_key.oidc.name
+  count = var.grafana_oidc_enabled ? 1 : 0
+  name  = "grafana"
+  key   = vault_identity_oidc_key.oidc[0].name
   redirect_uris = [
     "https://${var.grafana_domain}/login/generic_oauth",
   ]
   assignments = [
-    vault_identity_oidc_assignment.oidc.name
+    vault_identity_oidc_assignment.oidc[0].name
   ]
   id_token_ttl     = 60 * 60 * 8
   access_token_ttl = 60 * 60 * 8
 }
 
+moved {
+  from = vault_identity_oidc_provider.oidc
+  to   = vault_identity_oidc_provider.oidc[0]
+}
+
 resource "vault_identity_oidc_provider" "oidc" {
-  name = "grafana"
+  count = var.grafana_oidc_enabled ? 1 : 0
+  name  = "grafana"
 
   https_enabled = true
   issuer_host   = var.vault_domain
   allowed_client_ids = [
-    vault_identity_oidc_client.oidc.client_id
+    vault_identity_oidc_client.oidc[0].client_id
   ]
   scopes_supported = [
     "profile"
@@ -1301,6 +1340,10 @@ module "aws_permissions_thanos_compactor" {
   service_account_namespace = local.namespace
   iam_policy_json           = data.aws_iam_policy_document.prometheus.json
   ip_allow_list             = var.aws_iam_ip_allow_list
+  oidc_provider_arn         = var.oidc_provider_arn
+  oidc_issuer_url           = var.oidc_issuer_url
+  cluster_subnet_ids        = var.cluster_subnet_ids
+  ip_restrictions_enabled   = var.ip_restrictions_enabled
 }
 
 resource "kubernetes_service_account" "thanos_store_gateway" {
@@ -1318,6 +1361,10 @@ module "aws_permissions_thanos_store_gateway" {
   service_account_namespace = local.namespace
   iam_policy_json           = data.aws_iam_policy_document.prometheus.json
   ip_allow_list             = var.aws_iam_ip_allow_list
+  oidc_provider_arn         = var.oidc_provider_arn
+  oidc_issuer_url           = var.oidc_issuer_url
+  cluster_subnet_ids        = var.cluster_subnet_ids
+  ip_restrictions_enabled   = var.ip_restrictions_enabled
 }
 
 resource "kubernetes_service_account" "thanos_ruler" {
@@ -1335,6 +1382,10 @@ module "aws_permissions_thanos_ruler" {
   service_account_namespace = local.namespace
   iam_policy_json           = data.aws_iam_policy_document.prometheus.json
   ip_allow_list             = var.aws_iam_ip_allow_list
+  oidc_provider_arn         = var.oidc_provider_arn
+  oidc_issuer_url           = var.oidc_issuer_url
+  cluster_subnet_ids        = var.cluster_subnet_ids
+  ip_restrictions_enabled   = var.ip_restrictions_enabled
 }
 
 resource "kubernetes_service_account" "thanos_bucket_web" {
@@ -1352,6 +1403,10 @@ module "aws_permissions_thanos_bucket_web" {
   service_account_namespace = local.namespace
   iam_policy_json           = data.aws_iam_policy_document.prometheus.json
   ip_allow_list             = var.aws_iam_ip_allow_list
+  oidc_provider_arn         = var.oidc_provider_arn
+  oidc_issuer_url           = var.oidc_issuer_url
+  cluster_subnet_ids        = var.cluster_subnet_ids
+  ip_restrictions_enabled   = var.ip_restrictions_enabled
 }
 
 
@@ -1395,7 +1450,7 @@ resource "helm_release" "thanos" {
         service = {
           labels = module.util_thanos_query.labels
         }
-        replicaCount              = 2
+        replicaCount              = var.thanos_query_replicas
         priorityClassName         = module.constants.cluster_important_priority_class_name
         topologySpreadConstraints = module.util_thanos_query.topology_spread_constraints
         affinity                  = module.util_thanos_query.affinity
@@ -1457,7 +1512,7 @@ resource "helm_release" "thanos" {
         service = {
           labels = module.util_thanos_frontend.labels
         }
-        replicaCount              = 2
+        replicaCount              = var.thanos_frontend_replicas
         priorityClassName         = module.constants.cluster_important_priority_class_name
         topologySpreadConstraints = module.util_thanos_frontend.topology_spread_constraints
         affinity                  = module.util_thanos_frontend.affinity
@@ -1616,7 +1671,7 @@ resource "helm_release" "thanos" {
           storageClass = var.thanos_store_gateway_storage_class_name
         }
         podLabels                 = module.util_thanos_store_gateway.labels
-        replicaCount              = 2
+        replicaCount              = var.thanos_store_gateway_replicas
         priorityClassName         = module.constants.cluster_important_priority_class_name
         topologySpreadConstraints = module.util_thanos_store_gateway.topology_spread_constraints
         affinity                  = module.util_thanos_store_gateway.affinity
@@ -1680,7 +1735,8 @@ resource "helm_release" "thanos" {
           }
         }
       )
-    })
+    }),
+    yamlencode(var.thanos_extra_helm_values)
   ]
 
   timeout    = 60 * 15
@@ -1939,7 +1995,7 @@ resource "kubectl_manifest" "alertmanager" {
 ***************************************/
 
 resource "kubernetes_annotations" "prometheus_pvc" {
-  count       = 2
+  count       = var.prometheus_replicas
   api_version = "v1"
   kind        = "PersistentVolumeClaim"
   metadata {
@@ -1958,7 +2014,7 @@ resource "kubernetes_annotations" "prometheus_pvc" {
 }
 
 resource "kubernetes_annotations" "alertmanager_pvc" {
-  count       = 2
+  count       = var.alertmanager_replicas
   api_version = "v1"
   kind        = "PersistentVolumeClaim"
   metadata {
@@ -1977,7 +2033,7 @@ resource "kubernetes_annotations" "alertmanager_pvc" {
 }
 
 resource "kubernetes_annotations" "thanos_store_gateway_pvc" {
-  count       = 2
+  count       = var.thanos_store_gateway_replicas
   api_version = "v1"
   kind        = "PersistentVolumeClaim"
   metadata {
@@ -2295,7 +2351,7 @@ resource "kubectl_manifest" "vpa_thanos_store_gateway" {
         containerPolicies = [{
           containerName = "storegateway"
           minAllowed = {
-            memory = "1000Mi"
+            memory = "${var.thanos_vpa_minimum_memory_mb}Mi"
           }
         }]
       }
@@ -2333,7 +2389,7 @@ resource "kubectl_manifest" "vpa_thanos_query_frontend" {
         containerPolicies = [{
           containerName = "query-frontend"
           minAllowed = {
-            memory = "1000Mi"
+            memory = "${var.thanos_vpa_minimum_memory_mb}Mi"
           }
         }]
       }
@@ -2371,7 +2427,7 @@ resource "kubectl_manifest" "vpa_thanos_query" {
         containerPolicies = [{
           containerName = "query"
           minAllowed = {
-            memory = "1000Mi"
+            memory = "${var.thanos_vpa_minimum_memory_mb}Mi"
           }
         }]
       }

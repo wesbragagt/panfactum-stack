@@ -1,0 +1,13 @@
+# Chart-contract fixture for bitnamicharts/thanos 17.3.1.
+# Real module also supplies S3, certificates and Redis configuration.
+fullnameOverride: thanos
+image: {repository: bitnamilegacy/thanos}
+query: {replicaCount: 1}
+queryFrontend: {enabled: true, replicaCount: 1}
+storegateway: {enabled: true, replicaCount: 1}
+bucketweb: {enabled: false}
+objstoreConfig: |
+  type: S3
+  config:
+    bucket: render-only
+    region: us-east-2
