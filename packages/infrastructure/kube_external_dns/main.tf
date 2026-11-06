@@ -45,11 +45,11 @@ locals {
 
     included_domains = [domain]
     excluded_domains = [
-      for excluded_domain, config in local.all_domains :
+      for excluded_domain in local.all_domains :
       excluded_domain
       if excluded_domain != domain &&
       alltrue([
-        for included_domain, config in local.all_domains :
+        for included_domain in local.all_domains :
         !endswith(included_domain, excluded_domain) || included_domain == excluded_domain
       ])
     ]
@@ -144,6 +144,10 @@ module "aws_permissions" {
   service_account_namespace = local.namespace
   iam_policy_json           = data.aws_iam_policy_document.permissions[each.key].json
   ip_allow_list             = var.aws_iam_ip_allow_list
+  oidc_provider_arn         = var.oidc_provider_arn
+  oidc_issuer_url           = var.oidc_issuer_url
+  ip_restrictions_enabled   = var.ip_restrictions_enabled
+  cluster_subnet_ids        = var.cluster_subnet_ids
 }
 
 
