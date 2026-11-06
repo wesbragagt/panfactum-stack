@@ -120,3 +120,9 @@ variable "cluster_subnet_ids" {
   type        = set(string)
   default     = null
 }
+
+variable "linkerd_enabled" {
+  description = "Inject Linkerd into controller pods. Disable for clusters using unmeshed bootstrap."
+  type        = bool
+  default     = true
+}

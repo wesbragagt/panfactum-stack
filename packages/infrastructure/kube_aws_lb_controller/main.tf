@@ -478,7 +478,7 @@ resource "helm_release" "alb_controller" {
         "reloader.stakater.com/auto" = "true"
       }
       podAnnotations = {
-        "linkerd.io/inject"                      = "enabled"
+        "linkerd.io/inject"                      = var.linkerd_enabled ? "enabled" : "disabled"
         "config.linkerd.io/proxy-memory-request" = "5Mi"
       }
       podLabels        = module.util_controller.labels
