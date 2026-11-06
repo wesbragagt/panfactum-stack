@@ -235,3 +235,14 @@ variable "cluster_subnet_ids" {
   type        = list(string)
   default     = null
 }
+
+variable "db_node_selector" {
+  description = "Required labels for database placement."
+  type        = map(string)
+  default     = {}
+}
+variable "redis_controller_nodes_required" {
+  description = "Require retained controller placement for Redis."
+  type        = bool
+  default     = false
+}

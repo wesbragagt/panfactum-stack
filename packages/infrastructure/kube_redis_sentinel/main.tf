@@ -46,7 +46,8 @@ data "pf_kube_labels" "labels" {
 data "pf_metadata" "metadata" {}
 
 module "util" {
-  source = "../kube_workload_utility"
+  source                    = "../kube_workload_utility"
+  controller_nodes_required = var.controller_nodes_required
 
   workload_name                        = random_id.id.hex
   controller_nodes_enabled             = var.controller_nodes_enabled

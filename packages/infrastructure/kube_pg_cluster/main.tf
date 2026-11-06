@@ -541,6 +541,7 @@ resource "kubernetes_manifest" "postgres_cluster" {
       affinity = { for k, v in {
         // The default affinity rules are broken as they result in anti-affinity with the poolers
         enablePodAntiAffinity = false
+        nodeSelector          = var.node_selector
 
         // These still work even if 'enablePodAntiAffinity' is false
         additionalPodAntiAffinity = lookup(module.util_cluster.affinity, "podAntiAffinity", null)

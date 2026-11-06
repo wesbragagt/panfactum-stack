@@ -88,6 +88,7 @@ module "namespace" {
 module "database" {
   source = "../kube_pg_cluster"
 
+  node_selector                        = var.db_node_selector
   pg_cluster_namespace                 = local.namespace
   pg_initial_storage_gb                = var.db_initial_storage_gb
   pg_instances                         = var.db_instances
@@ -125,6 +126,7 @@ module "redis" {
   source = "../kube_redis_sentinel"
 
   namespace                            = local.namespace
+  controller_nodes_required            = var.redis_controller_nodes_required
   replica_count                        = var.redis_replicas
   allow_single_node                    = var.redis_allow_single_node
   spot_nodes_enabled                   = var.spot_nodes_enabled

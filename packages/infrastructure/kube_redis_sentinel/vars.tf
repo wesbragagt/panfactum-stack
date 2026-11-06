@@ -195,3 +195,9 @@ variable "linkerd_enabled" {
   type        = bool
   default     = true
 }
+
+variable "controller_nodes_required" {
+  description = "Require Redis to run on retained controller nodes."
+  type        = bool
+  default     = false
+}

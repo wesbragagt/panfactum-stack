@@ -668,3 +668,9 @@ variable "linkerd_enabled" {
   type        = bool
   default     = true
 }
+
+variable "node_selector" {
+  description = "Explicit node labels required for PostgreSQL instances, including bootstrap jobs."
+  type        = map(string)
+  default     = {}
+}
