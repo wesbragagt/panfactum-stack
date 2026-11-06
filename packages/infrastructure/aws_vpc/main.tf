@@ -125,7 +125,7 @@ locals {
   # Default the subnet configuration based on the SLA level
   subnets = length(keys(var.subnets)) == 0 && var.vpc_cidr == "10.0.0.0/16" ? (data.pf_metadata.metadata.sla_target == 1 ? local.default_subnets_single_az : local.default_subnets_multi_az) : var.subnets
 
-  nat_subnets        = { for source, destination in local.nat_associations : destination => source }
+  nat_subnets        = { for destination, sources in { for source, destination in local.nat_associations : destination => source... } : destination => sort(sources)[0] }
   peering_route_list = flatten([for subnet in keys(local.subnets) : [for label, config in var.vpc_peer_acceptances : merge({ subnet = subnet, vpc = label }, config)]])
   peering_routes     = { for peer_route in local.peering_route_list : "${peer_route.subnet}_${peer_route.vpc}" => peer_route }
   public_subnets     = { for name, subnet in local.subnets : name => subnet if subnet.public }
@@ -730,4 +730,12 @@ resource "aws_flow_log" "flow_logs" {
   vpc_id                   = aws_vpc.main.id
   traffic_type             = "ALL"
   tags                     = data.pf_aws_tags.tags.tags
+}
+
+// Additional private subnets sharing an existing NAT retain its discovery IP.
+resource "aws_ec2_tag" "additional_nat_subnet_ips" {
+  for_each    = { for source, destination in local.nat_associations : source => destination if source != local.nat_subnets[destination] }
+  resource_id = aws_subnet.subnets[each.key].id
+  key         = "panfactum.com/public-ip"
+  value       = aws_eip.nat_ips[each.value].public_ip
 }
