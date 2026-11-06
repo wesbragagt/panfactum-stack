@@ -89,19 +89,25 @@ module "database" {
   source = "../kube_pg_cluster"
 
   pg_cluster_namespace                 = local.namespace
-  pg_initial_storage_gb                = 10
-  pg_instances                         = 2
+  pg_initial_storage_gb                = var.db_initial_storage_gb
+  pg_instances                         = var.db_instances
   pg_smart_shutdown_timeout            = 1
-  pg_minimum_memory_mb                 = 1000
+  pg_minimum_memory_mb                 = var.db_minimum_memory_mb
   aws_iam_ip_allow_list                = var.aws_iam_ip_allow_list
   pull_through_cache_enabled           = var.pull_through_cache_enabled
   pgbouncer_pool_mode                  = "transaction" // See https://github.com/goauthentik/authentik/issues/9152
   burstable_nodes_enabled              = var.burstable_nodes_enabled
   spot_nodes_enabled                   = var.spot_nodes_enabled
-  controller_nodes_enabled             = false // should not run on controller nodes which can cause disruptions
+  controller_nodes_enabled             = var.db_controller_nodes_enabled
   monitoring_enabled                   = var.monitoring_enabled
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   instance_type_anti_affinity_required = var.sla_target == 3
+
+  az_spread_required      = var.db_az_spread_required
+  oidc_provider_arn       = var.oidc_provider_arn
+  oidc_issuer_url         = var.oidc_issuer_url
+  ip_restrictions_enabled = var.ip_restrictions_enabled
+  cluster_subnet_ids      = var.cluster_subnet_ids
 
   pg_backup_directory      = var.db_backup_directory
   pg_recovery_mode_enabled = var.db_recovery_mode_enabled
@@ -119,7 +125,8 @@ module "redis" {
   source = "../kube_redis_sentinel"
 
   namespace                            = local.namespace
-  replica_count                        = 3
+  replica_count                        = var.redis_replicas
+  allow_single_node                    = var.redis_allow_single_node
   spot_nodes_enabled                   = var.spot_nodes_enabled
   burstable_nodes_enabled              = var.burstable_nodes_enabled
   controller_nodes_enabled             = var.controller_nodes_enabled
@@ -373,7 +380,7 @@ resource "helm_release" "authentik" {
           enabled = false // We use our own ingress module
         }
 
-        replicas                  = 2
+        replicas                  = var.server_replicas
         priorityClassName         = module.constants.workload_important_priority_class_name
         affinity                  = module.util_server.affinity
         tolerations               = module.util_server.tolerations

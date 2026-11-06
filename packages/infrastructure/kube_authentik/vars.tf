@@ -164,3 +164,74 @@ variable "organization_name" {
   description = "The name of the organization for which Authentik serves as the IdP"
   type        = string
 }
+variable "db_initial_storage_gb" {
+  description = "Optional db initial storage gb override; preserves the existing deployment default."
+  type        = number
+  default     = 10
+}
+
+variable "db_instances" {
+  description = "Optional db instances override; preserves the existing deployment default."
+  type        = number
+  default     = 2
+}
+
+variable "db_minimum_memory_mb" {
+  description = "Optional db minimum memory mb override; preserves the existing deployment default."
+  type        = number
+  default     = 1000
+}
+
+variable "db_controller_nodes_enabled" {
+  description = "Optional db controller nodes enabled override; preserves the existing deployment default."
+  type        = bool
+  default     = false
+}
+
+variable "db_az_spread_required" {
+  description = "Optional db az spread required override; preserves the existing deployment default."
+  type        = bool
+  default     = true
+}
+
+variable "redis_replicas" {
+  description = "Optional redis replicas override; preserves the existing deployment default."
+  type        = number
+  default     = 3
+}
+
+variable "redis_allow_single_node" {
+  description = "Optional redis allow single node override; preserves the existing deployment default."
+  type        = bool
+  default     = false
+}
+
+variable "server_replicas" {
+  description = "Optional server replicas override; preserves the existing deployment default."
+  type        = number
+  default     = 2
+}
+
+variable "oidc_provider_arn" {
+  description = "Optional oidc provider arn override; preserves the existing deployment default."
+  type        = string
+  default     = null
+}
+
+variable "oidc_issuer_url" {
+  description = "Optional oidc issuer url override; preserves the existing deployment default."
+  type        = string
+  default     = null
+}
+
+variable "ip_restrictions_enabled" {
+  description = "Optional ip restrictions enabled override; preserves the existing deployment default."
+  type        = bool
+  default     = true
+}
+
+variable "cluster_subnet_ids" {
+  description = "Optional cluster subnet ids override; preserves the existing deployment default."
+  type        = list(string)
+  default     = null
+}
