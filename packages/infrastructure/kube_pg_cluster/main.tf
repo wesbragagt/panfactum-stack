@@ -130,7 +130,7 @@ module "util_cluster" {
   controller_nodes_enabled             = var.controller_nodes_enabled
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   instance_type_anti_affinity_required = var.instance_type_anti_affinity_required || (var.burstable_nodes_enabled || var.spot_nodes_enabled) // Force override instance_type_anti_affinity_required if using disruptible nodes as this can lead to a crash loop if all nodes are terminated at once
-  az_spread_required                   = true
+  az_spread_required                   = var.az_spread_required
   az_spread_preferred                  = true // stateful so always on
   lifetime_evictions_enabled           = false
   extra_labels                         = data.pf_kube_labels.labels.labels
@@ -146,7 +146,7 @@ module "util_pooler" {
   controller_nodes_enabled             = var.controller_nodes_enabled
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   instance_type_anti_affinity_required = var.instance_type_anti_affinity_required
-  az_spread_required                   = true
+  az_spread_required                   = var.az_spread_required
   pod_affinity_match_labels            = module.util_cluster.match_labels
   lifetime_evictions_enabled           = false
   extra_labels                         = data.pf_kube_labels.labels.labels
@@ -216,6 +216,11 @@ module "irsa" {
   // Due to a limitation in the cluster resource api, the cluster resource is the one that creates
   // the service account for us, so we let it to the annotations
   annotate_service_account = false
+  oidc_provider_arn        = var.oidc_provider_arn
+  oidc_issuer_url          = var.oidc_issuer_url
+  cluster_subnet_ids       = var.cluster_subnet_ids
+  ip_restrictions_enabled  = var.ip_restrictions_enabled
+
 }
 
 moved {
@@ -357,7 +362,7 @@ resource "kubernetes_manifest" "postgres_cluster" {
           }
         )
         annotations = {
-          "linkerd.io/inject"                    = "enabled"
+          "linkerd.io/inject"                    = var.linkerd_enabled ? "enabled" : "disabled"
           "config.linkerd.io/skip-inbound-ports" = "5432" # Postgres communication is already tls-secured by CNPG
           "resize.topolvm.io/storage_limit"      = "${(var.pg_storage_limit_gb != null ? var.pg_storage_limit_gb : max(100, 10 * var.pg_initial_storage_gb)) + var.pg_max_slot_wal_keep_size_gb}Gi"
           "resize.topolvm.io/increase"           = "${var.pg_storage_increase_gb}Gi"
@@ -1775,8 +1780,9 @@ resource "kubectl_manifest" "pdb" {
 ***************************************/
 
 module "schema_init_job" {
-  count  = length(var.extra_schemas) > 0 ? 1 : 0
-  source = "../kube_job"
+  linkerd_enabled = var.linkerd_enabled
+  count           = length(var.extra_schemas) > 0 ? 1 : 0
+  source          = "../kube_job"
 
   namespace = var.pg_cluster_namespace
   name      = "pg-schema-init-${local.cluster_name}-${substr(sha256(join(",", var.extra_schemas)), 0, 8)}"

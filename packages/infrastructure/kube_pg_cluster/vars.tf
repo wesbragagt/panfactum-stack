@@ -632,3 +632,39 @@ variable "gc_failed_backups" {
   type        = bool
   default     = true
 }
+
+variable "az_spread_required" {
+  description = "Require AZ spread for database and pooler; disable explicitly for single-zone labs"
+  type        = bool
+  default     = true
+}
+
+variable "oidc_provider_arn" {
+  description = "Existing OIDC provider ARN; null retains EKS discovery."
+  type        = string
+  default     = null
+}
+
+variable "oidc_issuer_url" {
+  description = "Existing OIDC issuer URL paired with its ARN."
+  type        = string
+  default     = null
+}
+
+variable "cluster_subnet_ids" {
+  description = "Explicit subnets for source-IP policy discovery."
+  type        = set(string)
+  default     = null
+}
+
+variable "ip_restrictions_enabled" {
+  description = "Enable source-IP deny policies."
+  type        = bool
+  default     = true
+}
+
+variable "linkerd_enabled" {
+  description = "Inject Linkerd into database pods and schema initialization jobs."
+  type        = bool
+  default     = true
+}
