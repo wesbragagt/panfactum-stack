@@ -1,3 +1,9 @@
+variable "namespace_labels" {
+  description = "Additional namespace labels; defaults preserve existing namespace security policy"
+  type        = map(string)
+  default     = {}
+}
+
 variable "linkerd_helm_version" {
   description = "The version of the linkerd-crd and linkerd-control-plane helm charts to deploy (edge)"
   type        = string
@@ -82,4 +88,22 @@ variable "bootstrap_mode_enabled" {
   description = "Whether the cluster is being bootstrapped and does not yet have the autoscaler enabled"
   type        = bool
   default     = false
+}
+
+variable "cni_extra_helm_values" {
+  description = "Explicit deployment-specific Helm overrides applied after module defaults"
+  type        = any
+  default     = {}
+}
+
+variable "extra_helm_values" {
+  description = "Explicit deployment-specific Helm overrides applied after module defaults"
+  type        = any
+  default     = {}
+}
+
+variable "viz_extra_helm_values" {
+  description = "Explicit deployment-specific Helm overrides applied after module defaults"
+  type        = any
+  default     = {}
 }

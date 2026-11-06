@@ -157,7 +157,7 @@ module "namespace" {
 
   namespace = local.name
 
-  extra_labels = var.monitoring_enabled ? { "linkerd.io/extension" = "viz" } : {}
+  extra_labels = merge(var.monitoring_enabled ? { "linkerd.io/extension" = "viz" } : {}, var.namespace_labels)
 }
 
 
@@ -303,7 +303,8 @@ resource "helm_release" "linkerd_cni" {
         }
       }
       tolerations = module.util_cni.tolerations
-    })
+    }),
+    yamlencode(var.cni_extra_helm_values)
   ]
 
   depends_on = [kubectl_manifest.vpa_cni]
@@ -662,7 +663,8 @@ resource "helm_release" "linkerd" {
         }
       }
 
-    })
+    }),
+    yamlencode(var.extra_helm_values)
   ]
 
   // (1) The default pod monitor scrapes all pods, even
@@ -960,7 +962,8 @@ resource "helm_release" "viz" {
         replicas = 2
       }
 
-    })
+    }),
+    yamlencode(var.viz_extra_helm_values)
   ]
 
 
