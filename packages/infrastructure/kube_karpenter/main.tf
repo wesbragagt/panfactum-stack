@@ -612,6 +612,8 @@ resource "helm_release" "karpenter_crds" {
 }
 
 resource "helm_release" "karpenter" {
+  # Projected credentials must be present when the Pod is admitted.
+  depends_on      = [module.aws_permissions]
   namespace       = local.namespace
   name            = "karpenter"
   repository      = "oci://public.ecr.aws/karpenter"
