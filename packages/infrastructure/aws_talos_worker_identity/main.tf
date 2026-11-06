@@ -13,9 +13,9 @@ data "aws_region" "current" {}
 
 locals {
   tags = {
-    "Name"                                      = "${var.name_prefix}-talos-worker"
-    "panfactum.com/module"                      = "aws_talos_worker_identity"
-    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
+    "Name"                  = "${var.name_prefix}-talos-worker"
+    "panfactum.com/module"  = "aws_talos_worker_identity"
+    "panfactum.com/cluster" = var.cluster_name
   }
 }
 
