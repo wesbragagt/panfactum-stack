@@ -51,8 +51,8 @@ variable "replica_count" {
   default     = 3
 
   validation {
-    condition     = var.replica_count >= 3
-    error_message = "You must use at least three replicas for high-availability"
+    condition     = var.replica_count == 1 || var.replica_count >= 3
+    error_message = "Use at least three replicas for high availability, or exactly one with allow_single_node enabled"
   }
 }
 
@@ -181,6 +181,17 @@ variable "disabled_commands" {
 
 variable "wait" {
   description = "Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment failures."
+  type        = bool
+  default     = true
+}
+variable "allow_single_node" {
+  description = "Explicitly permit one non-HA Redis/Sentinel replica with quorum one, relaxed scheduling and retained PVCs. False preserves HA defaults."
+  type        = bool
+  default     = false
+}
+
+variable "linkerd_enabled" {
+  description = "Whether to inject Linkerd into the credential synchronizer; namespace policy controls chart Pods"
   type        = bool
   default     = true
 }

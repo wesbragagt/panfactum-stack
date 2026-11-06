@@ -55,10 +55,10 @@ module "util" {
   arm_nodes_enabled                    = var.arm_nodes_enabled
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
-  instance_type_anti_affinity_required = var.instance_type_anti_affinity_required != null ? var.instance_type_anti_affinity_required : local.sla_target == 3
-  host_anti_affinity_required          = local.sla_target >= 2
-  az_spread_required                   = true
-  az_spread_preferred                  = true // stateful
+  instance_type_anti_affinity_required = var.allow_single_node ? false : (var.instance_type_anti_affinity_required != null ? var.instance_type_anti_affinity_required : local.sla_target == 3)
+  host_anti_affinity_required          = var.allow_single_node ? false : local.sla_target >= 2
+  az_spread_required                   = !var.allow_single_node
+  az_spread_preferred                  = !var.allow_single_node // stateful unless explicitly single-node
   lifetime_evictions_enabled           = false
   extra_labels                         = data.pf_kube_labels.labels.labels
 }
@@ -123,6 +123,13 @@ resource "helm_release" "redis" {
   wait_for_jobs   = true
   timeout         = 60 * 15
   max_history     = 5
+
+  lifecycle {
+    precondition {
+      condition     = var.allow_single_node ? var.replica_count == 1 : var.replica_count >= 3
+      error_message = "Redis requires at least three replicas unless allow_single_node is explicitly enabled with exactly one replica"
+    }
+  }
 
   values = [
     yamlencode({
@@ -248,7 +255,7 @@ resource "helm_release" "redis" {
 
         // Recommended by the helm chart docs
         podSecurityContext = {
-          sysctls = [
+          sysctls = var.allow_single_node ? [] : [
             {
               name  = "net.core.somaxconn"
               value = "10000"
@@ -261,8 +268,8 @@ resource "helm_release" "redis" {
           size    = "${var.persistence_size_gb}Gi"
           persistentVolumeClaimRetentionPolicy = {
             enabled     = true
-            whenScaled  = "Delete"
-            whenDeleted = "Delete"
+            whenScaled  = var.allow_single_node ? "Retain" : "Delete"
+            whenDeleted = var.allow_single_node ? "Retain" : "Delete"
           }
           labels = {
             "panfactum.com/pvc-group" = "${var.namespace}.${random_id.id.hex}"
@@ -283,6 +290,7 @@ resource "helm_release" "redis" {
 
       sentinel = {
         enabled                 = true
+        quorum                  = var.allow_single_node ? 1 : 2
         automateClusterRecovery = true
         downAfterMilliseconds   = 2000
         failoverTimeout         = 1000 * 60 * 3
@@ -299,8 +307,8 @@ resource "helm_release" "redis" {
 
         persistentVolumeClaimRetentionPolicy = {
           enabled     = true
-          whenScaled  = "Delete"
-          whenDeleted = "Delete"
+          whenScaled  = var.allow_single_node ? "Retain" : "Delete"
+          whenDeleted = var.allow_single_node ? "Retain" : "Delete"
         }
 
         resources = {
@@ -605,6 +613,8 @@ resource "kubernetes_role_binding" "creds_syncer" {
 
 module "secrets_sync" {
   source = "../kube_deployment"
+
+  linkerd_enabled = var.linkerd_enabled
 
   name      = "${random_id.id.hex}-creds-syncer"
   namespace = var.namespace
