@@ -209,17 +209,17 @@ locals {
 
   expire_after = "24h"
 
-  node_class_template = {
+  node_class_template = var.cluster_type == "talos" ? null : {
     amiFamily                  = "Bottlerocket"
     subnetSelectorTerms        = [for subnet in data.aws_subnet.node_subnets : { id = subnet.id }]
     securityGroupSelectorTerms = [{ id = var.node_security_group_id }]
     instanceProfile            = var.node_instance_profile
     amiSelectorTerms = [
       {
-        id = data.aws_ami.arm64_ami.id
+        id = data.aws_ami.arm64_ami[0].id
       },
       {
-        id = data.aws_ami.amd64_ami.id
+        id = data.aws_ami.amd64_ami[0].id
       }
     ]
 
@@ -229,7 +229,7 @@ locals {
       httpPutResponseHopLimit = 1 // don't allow pods to access the node roles
       httpTokens              = "required"
     }
-    userData = module.node_settings.user_data
+    userData = module.node_settings[0].user_data
     blockDeviceMappings = [
       {
         deviceName = "/dev/xvda"
@@ -278,19 +278,19 @@ locals {
   burstable_node_class_ref = {
     group = "karpenter.k8s.aws"
     kind  = "EC2NodeClass"
-    name  = kubectl_manifest.burstable_node_class.name
+    name  = try(kubectl_manifest.burstable_node_class[0].name, null)
   }
 
   spot_node_class_ref = {
     group = "karpenter.k8s.aws"
     kind  = "EC2NodeClass"
-    name  = kubectl_manifest.spot_node_class.name
+    name  = try(kubectl_manifest.spot_node_class[0].name, null)
   }
 
   worker_node_class_ref = {
     group = "karpenter.k8s.aws"
     kind  = "EC2NodeClass"
-    name  = kubectl_manifest.default_node_class.name
+    name  = try(kubectl_manifest.default_node_class[0].name, null)
   }
 
   spot_grace_period      = "2m0s"
@@ -308,6 +308,7 @@ module "constants" {
 }
 
 module "node_settings_burstable" {
+  count  = var.cluster_type == "eks" ? 1 : 0
   source = "../kube_node_settings"
 
   cluster_name           = local.cluster_name
@@ -317,6 +318,7 @@ module "node_settings_burstable" {
 }
 
 module "node_settings_spot" {
+  count  = var.cluster_type == "eks" ? 1 : 0
   source = "../kube_node_settings"
 
   cluster_name           = local.cluster_name
@@ -327,6 +329,7 @@ module "node_settings_spot" {
 }
 
 module "node_settings" {
+  count  = var.cluster_type == "eks" ? 1 : 0
   source = "../kube_node_settings"
 
   cluster_name           = local.cluster_name
@@ -347,6 +350,7 @@ data "aws_subnet" "node_subnets" {
 
 // This is purposefully pinned as AWS is known to publish AMI updates that break clusters
 data "aws_ami" "arm64_ami" {
+  count       = var.cluster_type == "eks" ? 1 : 0
   most_recent = true
   owners      = ["amazon"]
   filter {
@@ -365,6 +369,7 @@ data "aws_ami" "arm64_ami" {
 }
 
 data "aws_ami" "amd64_ami" {
+  count       = var.cluster_type == "eks" ? 1 : 0
   most_recent = true
   owners      = ["amazon"]
   filter {
@@ -388,6 +393,7 @@ data "aws_ami" "amd64_ami" {
 *********************************************************************************************************************/
 
 resource "random_id" "default_node_class_name" {
+  count       = var.cluster_type == "eks" ? 1 : 0
   byte_length = 4
   prefix      = "default-"
   keepers = {
@@ -398,11 +404,12 @@ resource "random_id" "default_node_class_name" {
   }
 }
 resource "kubectl_manifest" "default_node_class" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.k8s.aws/v1"
     kind       = "EC2NodeClass"
     metadata = {
-      name   = random_id.default_node_class_name.hex
+      name   = random_id.default_node_class_name[0].hex
       labels = data.pf_kube_labels.labels.labels
     }
     spec = local.node_class_template
@@ -415,6 +422,7 @@ resource "kubectl_manifest" "default_node_class" {
 }
 
 resource "random_id" "spot_node_class_name" {
+  count       = var.cluster_type == "eks" ? 1 : 0
   byte_length = 4
   prefix      = "spot-"
   keepers = {
@@ -425,17 +433,18 @@ resource "random_id" "spot_node_class_name" {
   }
 }
 resource "kubectl_manifest" "spot_node_class" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.k8s.aws/v1"
     kind       = "EC2NodeClass"
     metadata = {
-      name   = random_id.spot_node_class_name.hex
+      name   = random_id.spot_node_class_name[0].hex
       labels = data.pf_kube_labels.labels.labels
     }
     spec = merge(
       local.node_class_template,
       {
-        userData = module.node_settings_spot.user_data
+        userData = module.node_settings_spot[0].user_data
       }
     )
   })
@@ -447,6 +456,7 @@ resource "kubectl_manifest" "spot_node_class" {
 }
 
 resource "random_id" "burstable_node_class_name" {
+  count       = var.cluster_type == "eks" ? 1 : 0
   byte_length = 4
   prefix      = "burstable-"
   keepers = {
@@ -457,17 +467,18 @@ resource "random_id" "burstable_node_class_name" {
   }
 }
 resource "kubectl_manifest" "burstable_node_class" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.k8s.aws/v1"
     kind       = "EC2NodeClass"
     metadata = {
-      name   = random_id.burstable_node_class_name.hex
+      name   = random_id.burstable_node_class_name[0].hex
       labels = data.pf_kube_labels.labels.labels
     }
     spec = merge(
       local.node_class_template,
       {
-        userData = module.node_settings_burstable.user_data
+        userData = module.node_settings_burstable[0].user_data
       }
     )
   })
@@ -484,6 +495,7 @@ resource "kubectl_manifest" "burstable_node_class" {
 *********************************************************************************************************************/
 
 resource "random_id" "burstable_node_pool_name" {
+  count       = var.cluster_type == "eks" ? 1 : 0
   byte_length = 4
   prefix      = "burstable-"
   keepers = {
@@ -494,11 +506,12 @@ resource "random_id" "burstable_node_pool_name" {
   }
 }
 resource "kubectl_manifest" "burstable_node_pool" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
     metadata = {
-      name   = random_id.burstable_node_pool_name.hex
+      name   = random_id.burstable_node_pool_name[0].hex
       labels = data.pf_kube_labels.labels.labels
     }
     spec = {
@@ -532,11 +545,12 @@ resource "kubectl_manifest" "burstable_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_burstable_node_pool" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
     metadata = {
-      name   = "wf-${random_id.burstable_node_pool_name.hex}"
+      name   = "wf-${random_id.burstable_node_pool_name[0].hex}"
       labels = data.pf_kube_labels.labels.labels
     }
     spec = {
@@ -574,6 +588,7 @@ resource "kubectl_manifest" "wf_burstable_node_pool" {
 }
 
 resource "random_id" "burstable_arm_node_pool_name" {
+  count       = var.cluster_type == "eks" ? 1 : 0
   byte_length = 4
   prefix      = "burstable-arm-"
   keepers = {
@@ -585,11 +600,12 @@ resource "random_id" "burstable_arm_node_pool_name" {
 }
 
 resource "kubectl_manifest" "burstable_arm_node_pool" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
     metadata = {
-      name   = random_id.burstable_arm_node_pool_name.hex
+      name   = random_id.burstable_arm_node_pool_name[0].hex
       labels = data.pf_kube_labels.labels.labels
     }
     spec = {
@@ -626,11 +642,12 @@ resource "kubectl_manifest" "burstable_arm_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_burstable_arm_node_pool" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
     metadata = {
-      name   = "wf-${random_id.burstable_arm_node_pool_name.hex}"
+      name   = "wf-${random_id.burstable_arm_node_pool_name[0].hex}"
       labels = data.pf_kube_labels.labels.labels
     }
     spec = {
@@ -672,6 +689,7 @@ resource "kubectl_manifest" "wf_burstable_arm_node_pool" {
 }
 
 resource "random_id" "spot_node_pool_name" {
+  count       = var.cluster_type == "eks" ? 1 : 0
   byte_length = 4
   prefix      = "spot-"
   keepers = {
@@ -682,11 +700,12 @@ resource "random_id" "spot_node_pool_name" {
   }
 }
 resource "kubectl_manifest" "spot_node_pool" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
     metadata = {
-      name   = random_id.spot_node_pool_name.hex
+      name   = random_id.spot_node_pool_name[0].hex
       labels = data.pf_kube_labels.labels.labels
     }
     spec = {
@@ -720,11 +739,12 @@ resource "kubectl_manifest" "spot_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_spot_node_pool" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
     metadata = {
-      name   = "wf-${random_id.spot_node_pool_name.hex}"
+      name   = "wf-${random_id.spot_node_pool_name[0].hex}"
       labels = data.pf_kube_labels.labels.labels
     }
     spec = {
@@ -762,6 +782,7 @@ resource "kubectl_manifest" "wf_spot_node_pool" {
 }
 
 resource "random_id" "spot_arm_node_pool_name" {
+  count       = var.cluster_type == "eks" ? 1 : 0
   byte_length = 4
   prefix      = "spot-arm-"
   keepers = {
@@ -772,11 +793,12 @@ resource "random_id" "spot_arm_node_pool_name" {
   }
 }
 resource "kubectl_manifest" "spot_arm_node_pool" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
     metadata = {
-      name   = random_id.spot_arm_node_pool_name.hex
+      name   = random_id.spot_arm_node_pool_name[0].hex
       labels = data.pf_kube_labels.labels.labels
     }
     spec = {
@@ -813,11 +835,12 @@ resource "kubectl_manifest" "spot_arm_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_spot_arm_node_pool" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
     metadata = {
-      name   = "wf-${random_id.spot_arm_node_pool_name.hex}"
+      name   = "wf-${random_id.spot_arm_node_pool_name[0].hex}"
       labels = data.pf_kube_labels.labels.labels
     }
     spec = {
@@ -859,6 +882,7 @@ resource "kubectl_manifest" "wf_spot_arm_node_pool" {
 }
 
 resource "random_id" "on_demand_arm_node_pool_name" {
+  count       = var.cluster_type == "eks" ? 1 : 0
   byte_length = 4
   prefix      = "on-demand-arm-"
   keepers = {
@@ -869,11 +893,12 @@ resource "random_id" "on_demand_arm_node_pool_name" {
   }
 }
 resource "kubectl_manifest" "on_demand_arm_node_pool" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
     metadata = {
-      name   = random_id.on_demand_arm_node_pool_name.hex
+      name   = random_id.on_demand_arm_node_pool_name[0].hex
       labels = data.pf_kube_labels.labels.labels
     }
     spec = {
@@ -907,11 +932,12 @@ resource "kubectl_manifest" "on_demand_arm_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_on_demand_arm_node_pool" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
     metadata = {
-      name   = "wf-${random_id.on_demand_arm_node_pool_name.hex}"
+      name   = "wf-${random_id.on_demand_arm_node_pool_name[0].hex}"
       labels = data.pf_kube_labels.labels.labels
     }
     spec = {
@@ -949,6 +975,7 @@ resource "kubectl_manifest" "wf_on_demand_arm_node_pool" {
 }
 
 resource "random_id" "on_demand_node_pool_name" {
+  count       = var.cluster_type == "eks" ? 1 : 0
   byte_length = 4
   prefix      = "on-demand-"
   keepers = {
@@ -959,11 +986,12 @@ resource "random_id" "on_demand_node_pool_name" {
   }
 }
 resource "kubectl_manifest" "on_demand_node_pool" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
     metadata = {
-      name   = random_id.on_demand_node_pool_name.hex
+      name   = random_id.on_demand_node_pool_name[0].hex
       labels = data.pf_kube_labels.labels.labels
     }
     spec = {
@@ -997,11 +1025,12 @@ resource "kubectl_manifest" "on_demand_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_on_demand_node_pool" {
+  count = var.cluster_type == "eks" ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
     metadata = {
-      name   = "wf-${random_id.on_demand_node_pool_name.hex}"
+      name   = "wf-${random_id.on_demand_node_pool_name[0].hex}"
       labels = data.pf_kube_labels.labels.labels
     }
     spec = {

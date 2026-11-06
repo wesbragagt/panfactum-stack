@@ -92,3 +92,61 @@ variable "default_termination_grace_period" {
   type        = string
   default     = "1h0m0s"
 }
+
+variable "cluster_type" {
+  description = "Existing EKS/Bottlerocket path or opt-in Talos Custom AMI path."
+  type        = string
+  default     = "eks"
+  validation {
+    condition     = contains(["eks", "talos"], var.cluster_type)
+    error_message = "cluster_type must be eks or talos."
+  }
+}
+variable "talos_ami_id" {
+  description = "Immutable Talos AMI matching the worker config version and architecture."
+  type        = string
+  default     = null
+}
+variable "talos_worker_config" {
+  description = "Complete worker-only Talos YAML. Never supply control-plane CA/private keys. Stored in EC2 user data and the NodeClass."
+  type        = string
+  sensitive   = true
+  default     = null
+}
+variable "talos_node_pool_name" {
+  type        = string
+  default     = "talos-spot"
+  description = "Stable name for the dedicated Talos Spot NodePool and NodeClass."
+}
+variable "talos_architecture" {
+  type    = string
+  default = "arm64"
+  validation {
+    condition     = contains(["arm64", "amd64"], var.talos_architecture)
+    error_message = "Talos architecture must be arm64 or amd64."
+  }
+}
+variable "talos_cpu_limit" {
+  type        = number
+  default     = 4
+  description = "Total worker CPU limit; pair with 2-vCPU instance requirements for at most two workers."
+  validation {
+    condition     = var.talos_cpu_limit >= 2 && var.talos_cpu_limit <= 4
+    error_message = "Initial Talos worker CPU limit must be between 2 and 4."
+  }
+}
+variable "talos_memory_limit" {
+  type        = string
+  default     = "16Gi"
+  description = "Total Talos pool memory limit."
+}
+variable "talos_instance_families" {
+  type        = list(string)
+  default     = ["c6g", "c7g", "c8g", "m6g", "m7g", "m8g"]
+  description = "Diversified non-burstable ARM Spot families."
+}
+variable "talos_startup_taints" {
+  type        = list(object({ key = string, value = optional(string), effect = string }))
+  default     = [{ key = "node.cilium.io/agent-not-ready", value = "true", effect = "NoSchedule" }]
+  description = "Only taints with a deployed remover. Linkerd CNI taint is deliberately not a Talos default."
+}
