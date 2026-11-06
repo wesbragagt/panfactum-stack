@@ -123,13 +123,14 @@ resource "helm_release" "descheduler" {
       cmdOptions = {
         v              = "${var.log_verbosity}"
         logging-format = "json"
+        dry-run        = tostring(var.dry_run)
       }
       kind = "Deployment"
       podLabels = merge(
         module.util_controller.labels,
         {
           customizationHash = md5(join("", [
-            for filename in sort(fileset(path.module, "kustomize/*")) : filesha256(filename)
+            for filename in sort(fileset(path.module, "kustomize/*")) : filesha256("${path.module}/${filename}")
           ]))
         }
       )

@@ -73,3 +73,9 @@ variable "controller_nodes_enabled" {
   type        = bool
   default     = true
 }
+
+variable "dry_run" {
+  description = "Simulate descheduling decisions without evicting Pods. Enable for observation-only rollouts."
+  type        = bool
+  default     = false
+}
