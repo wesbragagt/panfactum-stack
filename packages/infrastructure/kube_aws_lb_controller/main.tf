@@ -380,6 +380,10 @@ module "aws_permissions" {
   service_account_namespace = local.namespace
   iam_policy_json           = data.aws_iam_policy_document.alb.json
   ip_allow_list             = var.aws_iam_ip_allow_list
+  oidc_provider_arn         = var.oidc_provider_arn
+  oidc_issuer_url           = var.oidc_issuer_url
+  ip_restrictions_enabled   = var.ip_restrictions_enabled
+  cluster_subnet_ids        = var.cluster_subnet_ids
 }
 
 resource "aws_security_group" "backend" {
