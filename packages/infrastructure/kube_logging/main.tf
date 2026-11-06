@@ -38,6 +38,8 @@ terraform {
 data "aws_region" "current" {}
 
 locals {
+  loki_replicas = var.single_node_enabled ? 1 : 3
+
 
   name      = "logging"
   namespace = module.namespace.namespace
@@ -71,8 +73,9 @@ module "util_read" {
   controller_nodes_enabled             = var.controller_nodes_enabled
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
-  instance_type_anti_affinity_required = var.enhanced_ha_enabled
-  az_spread_required                   = var.enhanced_ha_enabled
+  instance_type_anti_affinity_required = var.single_node_enabled ? false : var.enhanced_ha_enabled
+  host_anti_affinity_required          = !var.single_node_enabled
+  az_spread_required                   = var.single_node_enabled ? false : var.enhanced_ha_enabled
   extra_labels                         = data.pf_kube_labels.labels.labels
 }
 
@@ -85,8 +88,9 @@ module "util_write" {
   controller_nodes_enabled             = var.controller_nodes_enabled
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
-  instance_type_anti_affinity_required = var.enhanced_ha_enabled
-  az_spread_required                   = true // stateful
+  instance_type_anti_affinity_required = var.single_node_enabled ? false : var.enhanced_ha_enabled
+  host_anti_affinity_required          = !var.single_node_enabled
+  az_spread_required                   = !var.single_node_enabled // stateful except explicit one-node deployment
   extra_labels                         = data.pf_kube_labels.labels.labels
 }
 
@@ -99,8 +103,9 @@ module "util_backend" {
   controller_nodes_enabled             = var.controller_nodes_enabled
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
-  instance_type_anti_affinity_required = var.enhanced_ha_enabled
-  az_spread_required                   = true // stateful
+  instance_type_anti_affinity_required = var.single_node_enabled ? false : var.enhanced_ha_enabled
+  host_anti_affinity_required          = !var.single_node_enabled
+  az_spread_required                   = !var.single_node_enabled // stateful except explicit one-node deployment
   extra_labels                         = data.pf_kube_labels.labels.labels
 }
 
@@ -140,17 +145,19 @@ module "redis_cache" {
   source = "../kube_redis_sentinel"
 
   namespace                            = local.namespace
-  replica_count                        = 3
+  replica_count                        = local.loki_replicas
+  allow_single_node                    = var.single_node_enabled
+  linkerd_enabled                      = var.redis_linkerd_enabled
   lfu_cache_enabled                    = true
   burstable_nodes_enabled              = var.burstable_nodes_enabled
   spot_nodes_enabled                   = var.spot_nodes_enabled
   controller_nodes_enabled             = var.controller_nodes_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
   vpa_enabled                          = var.vpa_enabled
-  minimum_memory_mb                    = 1000
+  minimum_memory_mb                    = var.redis_minimum_memory_mb
   monitoring_enabled                   = var.monitoring_enabled
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
-  instance_type_anti_affinity_required = var.enhanced_ha_enabled
+  instance_type_anti_affinity_required = var.single_node_enabled ? false : var.enhanced_ha_enabled
 }
 
 /***************************************
@@ -233,6 +240,10 @@ module "loki_aws_permissions" {
   service_account_namespace = local.namespace
   iam_policy_json           = data.aws_iam_policy_document.loki.json
   ip_allow_list             = var.aws_iam_ip_allow_list
+  oidc_provider_arn         = var.oidc_provider_arn
+  oidc_issuer_url           = var.oidc_issuer_url
+  ip_restrictions_enabled   = var.ip_restrictions_enabled
+  cluster_subnet_ids        = var.cluster_subnet_ids
 }
 
 resource "helm_release" "loki" {
@@ -276,7 +287,7 @@ resource "helm_release" "loki" {
           common = {
             compactor_address  = "http://loki-backend.${local.namespace}.svc.cluster.local:3100"
             path_prefix        = "/var/loki"
-            replication_factor = 3
+            replication_factor = local.loki_replicas
             storage = {
               s3 = {
                 bucketnames      = module.logs_bucket.bucket_name
@@ -570,7 +581,7 @@ resource "helm_release" "loki" {
       }
 
       backend = {
-        replicas = 3
+        replicas = local.loki_replicas
         podLabels = merge(
           module.util_backend.labels,
           local.kustomization_labels
@@ -611,14 +622,14 @@ resource "helm_release" "loki" {
         resources                     = local.default_resources
         persistence = {
           volumeClaimsEnabled            = true
-          enableStatefulSetAutoDeletePVC = true
+          enableStatefulSetAutoDeletePVC = !var.single_node_enabled
           size                           = "2Gi"
           storageClass                   = var.loki_storage_class_name
         }
       }
 
       read = {
-        replicas = 3
+        replicas = local.loki_replicas
         podLabels = merge(
           module.util_read.labels,
           local.kustomization_labels
@@ -660,7 +671,7 @@ resource "helm_release" "loki" {
       }
 
       write = {
-        replicas = 3
+        replicas = local.loki_replicas
         podLabels = merge(
           module.util_write.labels,
           local.kustomization_labels
@@ -703,7 +714,7 @@ resource "helm_release" "loki" {
           enabled                        = true
           size                           = "2Gi"
           storageClass                   = var.loki_storage_class_name
-          enableStatefulSetAutoDeletePVC = true
+          enableStatefulSetAutoDeletePVC = !var.single_node_enabled
         }
       }
 
@@ -766,7 +777,8 @@ resource "helm_release" "loki" {
           }
         }
       }
-    })
+    }),
+    yamlencode(var.extra_helm_values)
   ]
 
   depends_on = [module.redis_cache]
@@ -821,7 +833,7 @@ resource "kubernetes_config_map" "dashboard" {
 ***************************************/
 
 resource "kubernetes_annotations" "loki_write" {
-  count       = 3
+  count       = local.loki_replicas
   api_version = "v1"
   kind        = "PersistentVolumeClaim"
   metadata {
@@ -839,7 +851,7 @@ resource "kubernetes_annotations" "loki_write" {
 }
 
 resource "kubernetes_annotations" "loki_backend" {
-  count       = 3
+  count       = local.loki_replicas
   api_version = "v1"
   kind        = "PersistentVolumeClaim"
   metadata {

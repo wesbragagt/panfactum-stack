@@ -86,3 +86,55 @@ variable "controller_nodes_enabled" {
   type        = bool
   default     = true
 }
+
+variable "extra_helm_values" {
+  description = "Additional chart values applied after module defaults for explicit deployment-specific overrides"
+  type        = any
+  default     = {}
+}
+
+variable "oidc_provider_arn" {
+  description = "Existing OIDC provider ARN; null retains EKS discovery."
+  type        = string
+  default     = null
+}
+
+variable "oidc_issuer_url" {
+  description = "Existing OIDC issuer URL paired with its ARN."
+  type        = string
+  default     = null
+}
+
+variable "ip_restrictions_enabled" {
+  description = "Enable source-IP deny policies."
+  type        = bool
+  default     = true
+}
+
+variable "cluster_subnet_ids" {
+  description = "Explicit subnets for source-IP policy discovery."
+  type        = set(string)
+  default     = null
+}
+
+variable "single_node_enabled" {
+  description = "Explicitly deploy one non-HA read/write/backend replica with Redis quorum one, relaxed scheduling and retained PVCs. False preserves HA defaults."
+  type        = bool
+  default     = false
+}
+
+variable "redis_minimum_memory_mb" {
+  description = "Memory request for each Redis cache node; reduce only after workload sizing"
+  type        = number
+  default     = 1000
+  validation {
+    condition     = var.redis_minimum_memory_mb >= 25
+    error_message = "Redis cache memory must be at least 25 MiB"
+  }
+}
+
+variable "redis_linkerd_enabled" {
+  description = "Whether the nested Redis credential synchronizer uses Linkerd; disable explicitly for unmeshed deployments"
+  type        = bool
+  default     = true
+}

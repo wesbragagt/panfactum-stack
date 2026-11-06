@@ -39,3 +39,9 @@ variable "wait" {
   default     = true
 }
 
+
+variable "extra_helm_values" {
+  description = "Additional chart values applied after module defaults for explicit deployment-specific overrides"
+  type        = any
+  default     = {}
+}

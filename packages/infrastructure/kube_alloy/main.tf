@@ -141,7 +141,8 @@ resource "helm_release" "alloy" {
         enabled  = var.monitoring_enabled
         interval = "60s"
       }
-    })
+    }),
+    yamlencode(var.extra_helm_values)
   ]
 
   timeout = 300
