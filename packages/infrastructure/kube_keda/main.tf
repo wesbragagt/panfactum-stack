@@ -136,6 +136,10 @@ resource "kubectl_manifest" "cert_fixup" {
 }
 
 resource "helm_release" "keda" {
+  # The pinned chart hardcodes RSA2048, but Panfactum's internal issuer requires EC256.
+  postrender = {
+    binary_path = "${path.module}/kustomize/kustomize.sh"
+  }
   namespace       = local.namespace
   name            = "keda"
   repository      = "https://kedacore.github.io/charts"
