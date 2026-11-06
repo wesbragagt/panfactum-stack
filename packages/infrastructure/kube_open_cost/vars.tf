@@ -25,16 +25,19 @@ variable "aws_iam_ip_allow_list" {
 variable "spot_data_feed_bucket_arn" {
   description = "The arn of the spot data feed bucket"
   type        = string
+  default     = null
 }
 
 variable "spot_data_feed_bucket" {
   description = "The name of the spot data feed bucket"
   type        = string
+  default     = null
 }
 
 variable "spot_data_feed_bucket_region" {
   description = "The region of the spot data feed bucket"
   type        = string
+  default     = null
 }
 
 variable "panfactum_scheduler_enabled" {
@@ -65,4 +68,62 @@ variable "controller_nodes_enabled" {
   description = "Whether to allow pods to schedule on EKS Node Group nodes (controller nodes)"
   type        = bool
   default     = true
+}
+
+variable "prometheus_endpoint" {
+  description = "Explicit Prometheus query URL; null retains the monitoring Thanos frontend endpoint"
+  type        = string
+  default     = null
+  validation {
+    condition     = var.prometheus_endpoint == null ? true : can(regex("^https?://[^/]+", var.prometheus_endpoint))
+    error_message = "prometheus_endpoint must be an HTTP or HTTPS URL."
+  }
+}
+
+variable "monitoring_enabled" {
+  description = "Create ServiceMonitor and PodMonitor resources; requires Prometheus Operator CRDs"
+  type        = bool
+  default     = true
+}
+
+variable "network_cost_enabled" {
+  description = "Deploy the privileged network-cost DaemonSet and its supporting resources"
+  type        = bool
+  default     = true
+}
+
+variable "spot_data_feed_enabled" {
+  description = "Configure the AWS Spot data feed and create its service-account IAM role"
+  type        = bool
+  default     = true
+}
+
+variable "extra_helm_values" {
+  description = "Explicit deployment-specific chart values applied after module defaults"
+  type        = any
+  default     = {}
+}
+
+variable "oidc_provider_arn" {
+  description = "Existing OIDC provider ARN; null retains EKS discovery"
+  type        = string
+  default     = null
+}
+
+variable "oidc_issuer_url" {
+  description = "Existing OIDC issuer URL paired with its ARN"
+  type        = string
+  default     = null
+}
+
+variable "ip_restrictions_enabled" {
+  description = "Enable source-IP deny policies for the Spot feed role"
+  type        = bool
+  default     = true
+}
+
+variable "cluster_subnet_ids" {
+  description = "Explicit subnets for source-IP policy discovery; null retains EKS discovery"
+  type        = set(string)
+  default     = null
 }

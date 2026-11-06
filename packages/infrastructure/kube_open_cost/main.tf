@@ -86,6 +86,17 @@ module "namespace" {
 
 
 data "aws_iam_policy_document" "spot_data" {
+  count = var.spot_data_feed_enabled ? 1 : 0
+  lifecycle {
+    precondition {
+      condition = alltrue([for value in [
+        var.spot_data_feed_bucket_arn,
+        var.spot_data_feed_bucket,
+        var.spot_data_feed_bucket_region
+      ] : value == null ? false : length(trimspace(value)) > 0])
+      error_message = "Spot data feed requires bucket ARN, name and region; otherwise set spot_data_feed_enabled=false."
+    }
+  }
   statement {
     effect = "Allow"
     actions = [
@@ -114,12 +125,17 @@ data "aws_iam_policy_document" "spot_data" {
 }
 
 module "aws_permissions" {
+  count  = var.spot_data_feed_enabled ? 1 : 0
   source = "../kube_sa_auth_aws"
 
   service_account           = kubernetes_service_account.open_cost.metadata[0].name
   service_account_namespace = local.namespace
-  iam_policy_json           = data.aws_iam_policy_document.spot_data.json
+  iam_policy_json           = data.aws_iam_policy_document.spot_data[0].json
   ip_allow_list             = var.aws_iam_ip_allow_list
+  oidc_provider_arn         = var.oidc_provider_arn
+  oidc_issuer_url           = var.oidc_issuer_url
+  cluster_subnet_ids        = var.cluster_subnet_ids
+  ip_restrictions_enabled   = var.ip_restrictions_enabled
 }
 
 /***************************************
@@ -167,16 +183,17 @@ resource "helm_release" "open_cost" {
         customPricing = {
           enabled  = true
           provider = "aws"
-          costModel = {
+          costModel = merge({
             zoneNetworkEgress     = "0.02"
             regionNetworkEgress   = "0.02"
             internetNetworkEgress = "0.09"
             spotLabel             = "karpenter.sh/capacity-type"
             spotLabelValue        = "spot"
             projectID             = data.aws_caller_identity.current.account_id
-            awsSpotDataBucket     = var.spot_data_feed_bucket
-            awsSpotDataRegion     = var.spot_data_feed_bucket_region
-          }
+            }, var.spot_data_feed_enabled ? {
+            awsSpotDataBucket = var.spot_data_feed_bucket
+            awsSpotDataRegion = var.spot_data_feed_bucket_region
+          } : {})
         }
         cloudCost = {
           enabled = false
@@ -203,15 +220,19 @@ resource "helm_release" "open_cost" {
         }
         metrics = {
           serviceMonitor = {
-            enabled        = true
+            enabled        = var.monitoring_enabled
             scrapeInterval = "60s"
             namespace      = local.namespace
             honorLabels    = true
           }
         }
         prometheus = {
+          external = {
+            enabled = var.prometheus_endpoint != null
+            url     = var.prometheus_endpoint
+          }
           internal = {
-            enabled       = true
+            enabled       = var.prometheus_endpoint == null
             namespaceName = "monitoring"
             serviceName   = "thanos-query-frontend"
             port          = 9090
@@ -226,7 +247,8 @@ resource "helm_release" "open_cost" {
           labels = module.util.labels
         }
       }
-    })
+    }),
+    yamlencode(var.extra_helm_values)
   ]
 }
 
@@ -273,6 +295,7 @@ resource "kubectl_manifest" "vpa" {
 ***************************************/
 
 resource "kubernetes_service_account" "network_cost" {
+  count = var.network_cost_enabled ? 1 : 0
   metadata {
     name      = "network-cost"
     labels    = module.util_network_cost.labels
@@ -281,6 +304,7 @@ resource "kubernetes_service_account" "network_cost" {
 }
 
 resource "kubernetes_cluster_role" "network_cost" {
+  count = var.network_cost_enabled ? 1 : 0
   metadata {
     name   = "network-cost"
     labels = module.util_network_cost.labels
@@ -344,6 +368,7 @@ resource "kubernetes_cluster_role" "network_cost" {
 }
 
 resource "kubernetes_cluster_role_binding" "network_cost" {
+  count = var.network_cost_enabled ? 1 : 0
   metadata {
     name   = "network-cost"
     labels = module.util_network_cost.labels
@@ -351,11 +376,11 @@ resource "kubernetes_cluster_role_binding" "network_cost" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "ClusterRole"
-    name      = kubernetes_cluster_role.network_cost.metadata[0].name
+    name      = kubernetes_cluster_role.network_cost[0].metadata[0].name
   }
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.network_cost.metadata[0].name
+    name      = kubernetes_service_account.network_cost[0].metadata[0].name
     namespace = local.namespace
   }
 }
@@ -363,11 +388,13 @@ resource "kubernetes_cluster_role_binding" "network_cost" {
 # We consider s3 IPs to be "in-zone" b/c we use the
 # s3 endpoint
 data "aws_ip_ranges" "s3" {
+  count    = var.network_cost_enabled ? 1 : 0
   regions  = [data.aws_region.current.region]
   services = ["s3"]
 }
 
 resource "kubernetes_config_map" "network_cost" {
+  count = var.network_cost_enabled ? 1 : 0
   metadata {
     name      = "network-cost-config"
     labels    = module.util_network_cost.labels
@@ -381,7 +408,7 @@ resource "kubernetes_config_map" "network_cost" {
           "169.254.0.0/16",
           "172.16.0.0/12",
           "192.168.0.0/16"
-        ], data.aws_ip_ranges.s3.cidr_blocks)
+        ], data.aws_ip_ranges.s3[0].cidr_blocks)
         direct-classification = [
           {
             region = "us-east-2"
@@ -419,6 +446,7 @@ resource "kubernetes_config_map" "network_cost" {
 }
 
 resource "kubectl_manifest" "network_cost" {
+  count = var.network_cost_enabled ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "apps/v1"
     kind       = "DaemonSet"
@@ -445,7 +473,7 @@ resource "kubectl_manifest" "network_cost" {
         spec = {
           hostNetwork = true
 
-          serviceAccountName = kubernetes_service_account.network_cost.metadata[0].name
+          serviceAccountName = kubernetes_service_account.network_cost[0].metadata[0].name
           priorityClassName  = module.constants.cluster_important_priority_class_name
           tolerations        = module.util_network_cost.tolerations
           affinity           = module.util_network_cost.affinity
@@ -486,7 +514,7 @@ resource "kubectl_manifest" "network_cost" {
                 mountPath = "/netfilter"
               },
               {
-                name      = kubernetes_config_map.network_cost.metadata[0].name
+                name      = kubernetes_config_map.network_cost[0].metadata[0].name
                 mountPath = "/network-costs/config"
               }
             ]
@@ -502,9 +530,9 @@ resource "kubectl_manifest" "network_cost" {
           }]
           volumes = [
             {
-              name = kubernetes_config_map.network_cost.metadata[0].name
+              name = kubernetes_config_map.network_cost[0].metadata[0].name
               configMap = {
-                name = kubernetes_config_map.network_cost.metadata[0].name
+                name = kubernetes_config_map.network_cost[0].metadata[0].name
               }
             },
             {
@@ -529,6 +557,7 @@ resource "kubectl_manifest" "network_cost" {
 }
 
 resource "kubectl_manifest" "network_cost_pod_monitor" {
+  count = var.network_cost_enabled && var.monitoring_enabled ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "monitoring.coreos.com/v1"
     kind       = "PodMonitor"
@@ -562,7 +591,7 @@ resource "kubectl_manifest" "network_cost_pod_monitor" {
 }
 
 resource "kubectl_manifest" "vpa_network_cost" {
-  count = var.vpa_enabled ? 1 : 0
+  count = var.network_cost_enabled && var.vpa_enabled ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "autoscaling.k8s.io/v1"
     kind       = "VerticalPodAutoscaler"
@@ -582,4 +611,41 @@ resource "kubectl_manifest" "vpa_network_cost" {
   server_side_apply = true
   force_conflicts   = true
   depends_on        = [kubectl_manifest.network_cost]
+}
+
+// Preserve existing state addresses when introducing optional components.
+
+moved {
+  from = kubernetes_service_account.network_cost
+  to   = kubernetes_service_account.network_cost[0]
+}
+
+moved {
+  from = kubernetes_cluster_role.network_cost
+  to   = kubernetes_cluster_role.network_cost[0]
+}
+
+moved {
+  from = kubernetes_cluster_role_binding.network_cost
+  to   = kubernetes_cluster_role_binding.network_cost[0]
+}
+
+moved {
+  from = kubernetes_config_map.network_cost
+  to   = kubernetes_config_map.network_cost[0]
+}
+
+moved {
+  from = kubectl_manifest.network_cost
+  to   = kubectl_manifest.network_cost[0]
+}
+
+moved {
+  from = kubectl_manifest.network_cost_pod_monitor
+  to   = kubectl_manifest.network_cost_pod_monitor[0]
+}
+
+moved {
+  from = module.aws_permissions
+  to   = module.aws_permissions[0]
 }
