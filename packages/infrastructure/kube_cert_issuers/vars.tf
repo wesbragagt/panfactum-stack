@@ -52,3 +52,27 @@ variable "kube_domain" {
   description = "The domain under which cluster utilities have subdomains registered."
   type        = string
 }
+
+variable "oidc_provider_arn" {
+  description = "Existing OIDC provider ARN; null retains EKS discovery."
+  type        = string
+  default     = null
+}
+
+variable "oidc_issuer_url" {
+  description = "Existing OIDC issuer URL paired with its ARN."
+  type        = string
+  default     = null
+}
+
+variable "ip_restrictions_enabled" {
+  description = "Enable source-IP deny policies."
+  type        = bool
+  default     = true
+}
+
+variable "cluster_subnet_ids" {
+  description = "Explicit subnets for source-IP policy discovery."
+  type        = set(string)
+  default     = null
+}

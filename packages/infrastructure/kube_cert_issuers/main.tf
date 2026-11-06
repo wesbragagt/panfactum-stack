@@ -101,6 +101,10 @@ module "aws_permissions" {
   service_account_namespace = var.namespace
   iam_policy_json           = data.aws_iam_policy_document.permissions.json
   ip_allow_list             = var.aws_iam_ip_allow_list
+  oidc_provider_arn         = var.oidc_provider_arn
+  oidc_issuer_url           = var.oidc_issuer_url
+  cluster_subnet_ids        = var.cluster_subnet_ids
+  ip_restrictions_enabled   = var.ip_restrictions_enabled
 }
 
 resource "kubernetes_secret" "cloudflare_api_token" {
@@ -169,10 +173,10 @@ resource "vault_pki_secret_backend_root_cert" "pki_internal" {
 resource "vault_pki_secret_backend_config_urls" "pki_internal" {
   backend = vault_mount.pki_internal.path
   issuing_certificates = [
-    "${var.vault_internal_url}/v1/pki/ca"
+    "${var.vault_internal_url}/v1/${vault_mount.pki_internal.path}/ca"
   ]
   crl_distribution_points = [
-    "${var.vault_internal_url}/v1/pki/crl"
+    "${var.vault_internal_url}/v1/${vault_mount.pki_internal.path}/crl"
   ]
 }
 
