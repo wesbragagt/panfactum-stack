@@ -93,7 +93,7 @@ data "aws_iam_policy_document" "velero" {
       "ec2:CreateTags",
       "ec2:CreateVolume",
       "ec2:CreateSnapshot",
-      "ec2:DeleteSnapshots"
+      "ec2:DeleteSnapshot"
     ]
     resources = ["*"]
   }
@@ -134,6 +134,10 @@ module "aws_permissions" {
   service_account_namespace      = local.namespace
   iam_policy_json                = data.aws_iam_policy_document.velero.json
   ip_allow_list                  = var.aws_iam_ip_allow_list
+  oidc_provider_arn              = var.oidc_provider_arn
+  oidc_issuer_url                = var.oidc_issuer_url
+  cluster_subnet_ids             = var.cluster_subnet_ids
+  ip_restrictions_enabled        = var.ip_restrictions_enabled
   allow_public_s3_presigned_urls = true // Velero uses presigned URLs to show backup status and logs
 }
 
@@ -216,7 +220,7 @@ resource "helm_release" "velero" {
         }
       ]
 
-      cleanUpCRDs = true
+      cleanUpCRDs = var.cleanup_crds_enabled
       upgradeCRDs = true
       kubectl = {
         image = {
@@ -275,6 +279,7 @@ resource "helm_release" "velero" {
           }
         }]
         volumeSnapshotLocation = [{
+          name     = "s3"
           provider = "velero.io/aws"
           config = {
             region = data.aws_region.current.region
@@ -309,7 +314,8 @@ resource "helm_release" "velero" {
           }
         }
       }
-    })
+    }),
+    yamlencode(var.extra_helm_values)
   ]
 
   depends_on = [module.aws_permissions]

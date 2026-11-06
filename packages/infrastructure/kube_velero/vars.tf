@@ -55,3 +55,39 @@ variable "wait" {
   type        = bool
   default     = true
 }
+
+variable "cleanup_crds_enabled" {
+  description = "Run the destructive CRD deletion hook on uninstall; true preserves legacy behavior. Set false for retained backups."
+  type        = bool
+  default     = true
+}
+
+variable "extra_helm_values" {
+  description = "Explicit chart values applied after module defaults"
+  type        = any
+  default     = {}
+}
+
+variable "oidc_provider_arn" {
+  description = "Existing OIDC provider ARN; null retains EKS discovery"
+  type        = string
+  default     = null
+}
+
+variable "oidc_issuer_url" {
+  description = "Existing OIDC issuer URL paired with its ARN"
+  type        = string
+  default     = null
+}
+
+variable "ip_restrictions_enabled" {
+  description = "Enable source-IP deny policies for the Velero AWS role"
+  type        = bool
+  default     = true
+}
+
+variable "cluster_subnet_ids" {
+  description = "Explicit subnets for source-IP policy discovery; null retains EKS discovery"
+  type        = set(string)
+  default     = null
+}
