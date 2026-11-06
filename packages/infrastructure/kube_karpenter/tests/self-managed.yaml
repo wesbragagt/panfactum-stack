@@ -1,0 +1,19 @@
+replicas: 1
+podAnnotations: {linkerd.io/inject: disabled}
+serviceAccount: {create: false, name: karpenter}
+nodeSelector: {kubernetes.io/os: linux, panfactum.com/class: controller}
+affinity: {}
+topologySpreadConstraints: []
+controller:
+  env:
+    - {name: AWS_REGION, value: us-east-2}
+    - {name: AWS_DEFAULT_REGION, value: us-east-2}
+    - {name: AWS_EC2_METADATA_DISABLED, value: 'true'}
+  resources:
+    requests: {memory: 400Mi}
+    limits: {memory: 520Mi}
+settings:
+  clusterName: self-managed-render
+  clusterEndpoint: https://kubernetes.example.invalid:6443
+  eksControlPlane: false
+  interruptionQueue: render-only
