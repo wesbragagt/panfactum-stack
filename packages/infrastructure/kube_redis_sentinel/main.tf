@@ -579,7 +579,7 @@ resource "kubernetes_role" "creds_syncer" {
     api_groups     = [""]
     resources      = ["pods"]
     verbs          = ["get", "list"]
-    resource_names = [for i in range(3) : "${random_id.id.hex}-node-${i}"]
+    resource_names = [for i in range(var.replica_count) : "${random_id.id.hex}-node-${i}"]
   }
   rule {
     api_groups = [""]
@@ -614,7 +614,8 @@ resource "kubernetes_role_binding" "creds_syncer" {
 module "secrets_sync" {
   source = "../kube_deployment"
 
-  linkerd_enabled = var.linkerd_enabled
+  linkerd_enabled             = var.linkerd_enabled
+  panfactum_scheduler_enabled = var.panfactum_scheduler_enabled
 
   name      = "${random_id.id.hex}-creds-syncer"
   namespace = var.namespace

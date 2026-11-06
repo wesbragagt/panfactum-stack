@@ -29,7 +29,7 @@ for single in [False, True]:
         "fullnameOverride": "redis-proof", "global": {"security": {"allowInsecureImages": True}}, "auth": {"password": "nonsecret-test-placeholder"},
         "image": {"repository": "bitnamilegacy/redis"},
         "rbac": {"create": True}, "serviceAccount": {"create": True, "automountServiceAccountToken": True},
-        "replica": {"replicaCount": replicas, "automountServiceAccountToken": True, "persistence": {"enabled": True, "size": "1Gi"}},
+        "replica": {"podSecurityContext": {"sysctls": [] if single else [{"name": "net.core.somaxconn", "value": "10000"}]}, "replicaCount": replicas, "automountServiceAccountToken": True, "persistence": {"enabled": True, "size": "1Gi"}},
         "sentinel": {"enabled": True, "quorum": quorum,
                      "image": {"repository": "bitnamilegacy/redis-sentinel"},
                      "service": {"createMaster": True},
@@ -44,6 +44,8 @@ for single in [False, True]:
     assert len(stateful) == 1
     assert stateful[0]["spec"]["replicas"] == replicas
     assert stateful[0]["spec"]["persistentVolumeClaimRetentionPolicy"] == {"whenScaled": retention, "whenDeleted": retention}
+    sysctls = stateful[0]["spec"]["template"]["spec"].get("securityContext", {}).get("sysctls", [])
+    assert sysctls == ([] if single else [{"name": "net.core.somaxconn", "value": "10000"}]), sysctls
     configs = [o for o in objects if o["kind"] == "ConfigMap"]
     lines = [line for o in configs for line in o.get("data", {}).get("sentinel.conf", "").splitlines() if line.startswith("sentinel monitor ")]
     assert len(lines) == 1 and lines[0].split()[-1] == str(quorum), lines
