@@ -307,3 +307,9 @@ variable "component_memory_limit_mb" {
   type        = number
   default     = 65
 }
+
+variable "db_backup_schedule_name" {
+  description = "Optional stable database ScheduledBackup name for archive generation changes."
+  type        = string
+  default     = null
+}

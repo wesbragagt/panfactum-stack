@@ -674,3 +674,9 @@ variable "node_selector" {
   type        = map(string)
   default     = {}
 }
+
+variable "pg_backup_schedule_name" {
+  description = "Optional stable ScheduledBackup name when changing archive directories."
+  type        = string
+  default     = null
+}

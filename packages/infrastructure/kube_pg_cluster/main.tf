@@ -657,7 +657,7 @@ resource "kubectl_manifest" "scheduled_backup" {
     apiVersion = "postgresql.cnpg.io/v1"
     kind       = "ScheduledBackup"
     metadata = {
-      name      = "${local.cluster_name}-default-${var.pg_backup_directory}"
+      name      = var.pg_backup_schedule_name != null ? var.pg_backup_schedule_name : "${local.cluster_name}-default-${var.pg_backup_directory}"
       namespace = var.pg_cluster_namespace
     }
     spec = {
