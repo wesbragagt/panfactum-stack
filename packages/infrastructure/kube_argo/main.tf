@@ -464,7 +464,7 @@ resource "helm_release" "argo" {
           name   = kubernetes_service_account.argo_server.metadata[0].name
         }
         authModes = var.sso_enabled ? ["sso", "client"] : ["client"]
-        sso = var.sso_enabled ? {
+        sso = jsondecode(var.sso_enabled ? jsonencode({
           enabled     = true
           issuer      = vault_identity_oidc_provider.argo[0].issuer
           redirectUrl = "https://${var.argo_domain}/oauth2/callback"
@@ -481,7 +481,7 @@ resource "helm_release" "argo" {
           }
           scopes        = ["openid", "groups"]
           sessionExpiry = "8h"
-        } : { enabled = false }
+        }) : jsonencode({ enabled = false }))
         deploymentAnnotations = {
           "configmap.reloader.stakater.com/reload" = local.configmap_name
           "secret.reloader.stakater.com/reload"    = join(",", concat(kubernetes_secret.sso_info[*].metadata[0].name, [module.database.superuser_creds_secret]))
