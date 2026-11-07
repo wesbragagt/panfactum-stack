@@ -15,3 +15,23 @@ variable "cluster_name" {
     error_message = "cluster_name must be 1-100 letters, digits, dots, underscores or hyphens, beginning with a letter or digit."
   }
 }
+
+variable "ecr_cache_prefixes" {
+  description = "Opt-in first-import/create access to existing account/region pull-through cache prefixes; empty preserves read-only defaults."
+  type        = set(string)
+  default     = []
+  validation {
+    condition     = alltrue([for prefix in var.ecr_cache_prefixes : contains(["github", "docker-hub", "quay", "kubernetes", "ecr-public"], prefix)])
+    error_message = "Only the five established pull-through cache prefixes are allowed."
+  }
+}
+
+variable "controller_instance_id" {
+  description = "Optional existing Talos controller identity opt-in. Creates a dedicated ECR-only profile; guarded in-place association refuses any conflicting profile. Does not create compute."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.controller_instance_id == null ? true : can(regex("^i-[0-9a-f]+$", var.controller_instance_id))
+    error_message = "controller_instance_id must be an EC2 instance ID."
+  }
+}

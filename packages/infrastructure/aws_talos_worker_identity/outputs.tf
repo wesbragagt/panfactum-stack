@@ -12,3 +12,8 @@ output "node_instance_profile_arn" {
   description = "EC2 worker instance profile ARN"
   value       = aws_iam_instance_profile.worker.arn
 }
+
+output "controller_instance_profile" {
+  description = "Optional ECR-only controller profile; guarded association is tracked without compute ownership."
+  value       = try(aws_iam_instance_profile.controller[0].name, null)
+}
