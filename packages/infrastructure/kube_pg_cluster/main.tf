@@ -123,6 +123,7 @@ resource "random_id" "pooler_r_id" {
 module "util_cluster" {
   source = "../kube_workload_utility"
 
+  pull_through_cache_enabled           = var.pull_through_cache_enabled
   workload_name                        = "pg-${random_id.cluster_id.hex}"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
   spot_nodes_enabled                   = var.spot_nodes_enabled
@@ -140,6 +141,7 @@ module "util_pooler" {
   for_each = toset(["r", "rw"])
   source   = "../kube_workload_utility"
 
+  pull_through_cache_enabled           = var.pull_through_cache_enabled
   workload_name                        = "pg-pooler-${each.key}-${random_id.cluster_id.hex}"
   burstable_nodes_enabled              = true
   arm_nodes_enabled                    = true
