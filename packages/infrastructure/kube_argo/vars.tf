@@ -213,3 +213,97 @@ variable "controller_nodes_enabled" {
   type        = bool
   default     = true
 }
+variable "sso_enabled" {
+  description = "Explicit sso enabled override; defaults preserve existing deployments."
+  type        = bool
+  default     = true
+}
+
+variable "events_enabled" {
+  description = "Explicit events enabled override; defaults preserve existing deployments."
+  type        = bool
+  default     = true
+}
+
+variable "server_replicas" {
+  description = "Explicit server replicas override; defaults preserve existing deployments."
+  type        = number
+  default     = 2
+}
+
+variable "linkerd_enabled" {
+  description = "Explicit linkerd enabled override; defaults preserve existing deployments."
+  type        = bool
+  default     = true
+}
+
+variable "namespace_labels" {
+  description = "Explicit namespace labels override; defaults preserve existing deployments."
+  type        = map(string)
+  default     = {}
+}
+
+variable "oidc_provider_arn" {
+  description = "Explicit oidc provider arn override; defaults preserve existing deployments."
+  type        = string
+  default     = null
+}
+
+variable "oidc_issuer_url" {
+  description = "Explicit oidc issuer url override; defaults preserve existing deployments."
+  type        = string
+  default     = null
+}
+
+variable "cluster_subnet_ids" {
+  description = "Explicit cluster subnet ids override; defaults preserve existing deployments."
+  type        = set(string)
+  default     = null
+}
+
+variable "ip_restrictions_enabled" {
+  description = "Explicit ip restrictions enabled override; defaults preserve existing deployments."
+  type        = bool
+  default     = true
+}
+
+variable "db_node_selector" {
+  description = "Explicit db node selector override; defaults preserve existing deployments."
+  type        = map(string)
+  default     = {}
+}
+
+variable "db_az_spread_required" {
+  description = "Explicit db az spread required override; defaults preserve existing deployments."
+  type        = bool
+  default     = true
+}
+
+variable "db_controller_nodes_enabled" {
+  description = "Explicit db controller nodes enabled override; defaults preserve existing deployments."
+  type        = bool
+  default     = false
+}
+
+variable "db_spot_nodes_enabled" {
+  description = "Database Spot override; null inherits spot_nodes_enabled."
+  type        = bool
+  default     = null
+}
+
+variable "db_backups_force_delete" {
+  description = "Explicit db backups force delete override; defaults preserve existing deployments."
+  type        = bool
+  default     = true
+}
+
+variable "component_memory_request_mb" {
+  description = "Memory request for Workflows controller and server in MiB."
+  type        = number
+  default     = 50
+}
+variable "component_memory_limit_mb" {
+  description = "Memory limit for Workflows controller and server in MiB."
+  type        = number
+  default     = 65
+}

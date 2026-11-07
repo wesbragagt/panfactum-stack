@@ -115,7 +115,9 @@ module "constants" {
 module "namespace" {
   source = "../kube_namespace"
 
-  namespace = local.name
+  namespace      = local.name
+  linkerd_inject = var.linkerd_enabled
+  extra_labels   = var.namespace_labels
 }
 
 /***************************************
@@ -123,6 +125,7 @@ module "namespace" {
 ***************************************/
 
 resource "vault_identity_oidc_key" "argo" {
+  count              = var.sso_enabled ? 1 : 0
   name               = "argo"
   allowed_client_ids = ["*"]
   rotation_period    = 60 * 60 * 8
@@ -130,43 +133,47 @@ resource "vault_identity_oidc_key" "argo" {
 }
 
 data "vault_identity_group" "rbac_groups" {
-  for_each   = toset(["rbac-superusers", "rbac-admins", "rbac-readers", "rbac-restricted-readers"])
+  for_each   = var.sso_enabled ? toset(["rbac-superusers", "rbac-admins", "rbac-readers", "rbac-restricted-readers"]) : toset([])
   group_name = each.key
 }
 
 resource "vault_identity_oidc_assignment" "argo" {
+  count     = var.sso_enabled ? 1 : 0
   name      = "argo"
   group_ids = [for group in data.vault_identity_group.rbac_groups : group.id]
 }
 
 resource "vault_identity_oidc_client" "argo" {
-  name = "argo"
-  key  = vault_identity_oidc_key.argo.name
+  count = var.sso_enabled ? 1 : 0
+  name  = "argo"
+  key   = vault_identity_oidc_key.argo[0].name
   redirect_uris = [
     "https://${var.argo_domain}/oauth2/callback"
   ]
   assignments = [
-    vault_identity_oidc_assignment.argo.name
+    vault_identity_oidc_assignment.argo[0].name
   ]
   id_token_ttl     = 60 * 60 * 8
   access_token_ttl = 60 * 60 * 8
 }
 
 resource "vault_identity_oidc_scope" "groups" {
+  count       = var.sso_enabled ? 1 : 0
   name        = "groups"
   template    = "{\"groups\": {{identity.entity.groups.names}}}" // This MUST be this exact string (not JSON-encoded)
   description = "Groups scope"
 }
 
 resource "vault_identity_oidc_provider" "argo" {
+  count         = var.sso_enabled ? 1 : 0
   name          = "argo"
   https_enabled = true
   issuer_host   = var.vault_domain
   allowed_client_ids = [
-    vault_identity_oidc_client.argo.client_id
+    vault_identity_oidc_client.argo[0].client_id
   ]
   scopes_supported = [
-    vault_identity_oidc_scope.groups.name
+    vault_identity_oidc_scope.groups[0].name
   ]
 }
 
@@ -209,13 +216,17 @@ data "aws_iam_policy_document" "argo" {
     actions = [
       "s3:GetBucketLocation"
     ]
-    resources = ["arn:aws:s3:::*"]
+    resources = var.oidc_provider_arn == null ? ["arn:aws:s3:::*"] : [module.artifact_bucket.bucket_arn]
   }
 }
 
 module "aws_permissions" {
   source = "../kube_sa_auth_aws"
 
+  oidc_provider_arn         = var.oidc_provider_arn
+  oidc_issuer_url           = var.oidc_issuer_url
+  cluster_subnet_ids        = var.cluster_subnet_ids
+  ip_restrictions_enabled   = var.ip_restrictions_enabled
   service_account           = kubernetes_service_account.argo_server.metadata[0].name
   service_account_namespace = local.namespace
   iam_policy_json           = data.aws_iam_policy_document.argo.json
@@ -234,9 +245,10 @@ resource "kubernetes_config_map" "artifacts" {
   data = {
     s3 = yamlencode({
       s3 = {
-        endpoint = "s3.amazonaws.com"
-        bucket   = module.artifact_bucket.bucket_name
-        region   = data.aws_region.current.region
+        endpoint    = "s3.amazonaws.com"
+        useSDKCreds = var.oidc_provider_arn != null
+        bucket      = module.artifact_bucket.bucket_name
+        region      = data.aws_region.current.region
       }
     })
   }
@@ -256,6 +268,13 @@ module "sync_artifact_config_map" {
 module "database" {
   source = "../kube_pg_cluster"
 
+  oidc_provider_arn                    = var.oidc_provider_arn
+  oidc_issuer_url                      = var.oidc_issuer_url
+  cluster_subnet_ids                   = var.cluster_subnet_ids
+  ip_restrictions_enabled              = var.ip_restrictions_enabled
+  node_selector                        = var.db_node_selector
+  az_spread_required                   = var.db_az_spread_required
+  linkerd_enabled                      = var.linkerd_enabled
   pg_cluster_namespace                 = local.namespace
   pg_initial_storage_gb                = 2
   pg_instances                         = var.sla_target >= 2 ? 2 : 1
@@ -263,9 +282,9 @@ module "database" {
   aws_iam_ip_allow_list                = var.aws_iam_ip_allow_list
   pull_through_cache_enabled           = var.pull_through_cache_enabled
   burstable_nodes_enabled              = var.burstable_nodes_enabled
-  spot_nodes_enabled                   = var.spot_nodes_enabled
-  controller_nodes_enabled             = false // should not run on controller nodes which can cause disruptions
-  backups_force_delete                 = true
+  spot_nodes_enabled                   = coalesce(var.db_spot_nodes_enabled, var.spot_nodes_enabled)
+  controller_nodes_enabled             = var.db_controller_nodes_enabled
+  backups_force_delete                 = var.db_backups_force_delete
   monitoring_enabled                   = var.monitoring_enabled
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   instance_type_anti_affinity_required = var.sla_target == 3
@@ -308,14 +327,15 @@ resource "kubernetes_service_account" "argo_server" {
 }
 
 resource "kubernetes_secret" "sso_info" {
+  count = var.sso_enabled ? 1 : 0
   metadata {
     name      = "argo-server-sso"
     namespace = local.namespace
     labels    = module.util_server.labels
   }
   data = {
-    client-id     = vault_identity_oidc_client.argo.client_id
-    client-secret = vault_identity_oidc_client.argo.client_secret
+    client-id     = vault_identity_oidc_client.argo[0].client_id
+    client-secret = vault_identity_oidc_client.argo[0].client_secret
   }
 }
 
@@ -338,7 +358,8 @@ resource "helm_release" "argo" {
 
       workflow = {
         serviceAccount = {
-          create = true
+          name   = var.oidc_provider_arn == null ? null : kubernetes_service_account.workflow[0].metadata[0].name
+          create = var.oidc_provider_arn == null
         }
         rbac = {
           create = true
@@ -349,9 +370,10 @@ resource "helm_release" "argo" {
       artifactRepository = {
         archiveLogs = true
         s3 = {
-          endpoint = "s3.amazonaws.com"
-          bucket   = module.artifact_bucket.bucket_name
-          region   = data.aws_region.current.region
+          endpoint    = "s3.amazonaws.com"
+          useSDKCreds = var.oidc_provider_arn != null
+          bucket      = module.artifact_bucket.bucket_name
+          region      = data.aws_region.current.region
         }
       }
 
@@ -391,7 +413,7 @@ resource "helm_release" "argo" {
 
         deploymentAnnotations = {
           "configmap.reloader.stakater.com/reload" = local.configmap_name
-          "secret.reloader.stakater.com/reload"    = "${kubernetes_secret.sso_info.metadata[0].name},${module.database.superuser_creds_secret}"
+          "secret.reloader.stakater.com/reload"    = join(",", concat(kubernetes_secret.sso_info[*].metadata[0].name, [module.database.superuser_creds_secret]))
         }
 
         logging = {
@@ -415,11 +437,11 @@ resource "helm_release" "argo" {
         }
         resources = {
           requests = {
-            memory = "50Mi"
+            memory = "${var.component_memory_request_mb}Mi"
             cpu    = "100m"
           }
           limits = {
-            memory = "${floor(50 * 1.3)}Mi"
+            memory = "${var.component_memory_limit_mb}Mi"
           }
         }
       }
@@ -441,17 +463,17 @@ resource "helm_release" "argo" {
           create = false
           name   = kubernetes_service_account.argo_server.metadata[0].name
         }
-        authModes = ["sso", "client"]
-        sso = {
+        authModes = var.sso_enabled ? ["sso", "client"] : ["client"]
+        sso = var.sso_enabled ? {
           enabled     = true
-          issuer      = vault_identity_oidc_provider.argo.issuer
+          issuer      = vault_identity_oidc_provider.argo[0].issuer
           redirectUrl = "https://${var.argo_domain}/oauth2/callback"
           clientId = {
-            name = kubernetes_secret.sso_info.metadata[0].name
+            name = kubernetes_secret.sso_info[0].metadata[0].name
             key  = "client-id"
           }
           clientSecret = {
-            name = kubernetes_secret.sso_info.metadata[0].name
+            name = kubernetes_secret.sso_info[0].metadata[0].name
             key  = "client-secret"
           }
           rbac = {
@@ -459,10 +481,10 @@ resource "helm_release" "argo" {
           }
           scopes        = ["openid", "groups"]
           sessionExpiry = "8h"
-        }
+        } : { enabled = false }
         deploymentAnnotations = {
           "configmap.reloader.stakater.com/reload" = local.configmap_name
-          "secret.reloader.stakater.com/reload"    = "${kubernetes_secret.sso_info.metadata[0].name},${module.database.superuser_creds_secret}"
+          "secret.reloader.stakater.com/reload"    = join(",", concat(kubernetes_secret.sso_info[*].metadata[0].name, [module.database.superuser_creds_secret]))
         }
         logging = {
           format = "json"
@@ -470,7 +492,7 @@ resource "helm_release" "argo" {
         }
         podLabels = module.util_server.labels
 
-        replicas                  = 2
+        replicas                  = var.server_replicas
         priorityClassName         = module.constants.cluster_important_priority_class_name
         tolerations               = module.util_server.tolerations
         affinity                  = module.util_server.affinity
@@ -480,11 +502,11 @@ resource "helm_release" "argo" {
         }
         resources = {
           requests = {
-            memory = "50Mi"
+            memory = "${var.component_memory_request_mb}Mi"
             cpu    = "100m"
           }
           limits = {
-            memory = "${floor(50 * 1.3)}Mi"
+            memory = "${var.component_memory_limit_mb}Mi"
           }
         }
 
@@ -532,7 +554,7 @@ resource "kubectl_manifest" "vpa_controller" {
         containerPolicies = [{
           containerName = "controller"
           minAllowed = {
-            memory = "50Mi"
+            memory = "${var.component_memory_request_mb}Mi"
           }
         }]
       }
@@ -592,7 +614,7 @@ resource "kubectl_manifest" "vpa_server" {
         containerPolicies = [{
           containerName = "argo-server"
           minAllowed = {
-            memory = "50Mi"
+            memory = "${var.component_memory_request_mb}Mi"
           }
         }]
       }
@@ -642,6 +664,7 @@ resource "kubectl_manifest" "pdb_server" {
 ***************************************/
 
 resource "helm_release" "argo_events" {
+  count           = var.events_enabled ? 1 : 0
   namespace       = local.namespace
   name            = "argo-events"
   repository      = "https://argoproj.github.io/argo-helm"
@@ -686,7 +709,7 @@ resource "helm_release" "argo_events" {
         }
         resources = {
           requests = {
-            memory = "50Mi"
+            memory = "${var.component_memory_request_mb}Mi"
             cpu    = "100m"
           }
           limits = {
@@ -719,7 +742,7 @@ resource "helm_release" "argo_events" {
         }
         resources = {
           requests = {
-            memory = "50Mi"
+            memory = "${var.component_memory_request_mb}Mi"
             cpu    = "100m"
           }
           limits = {
@@ -736,7 +759,7 @@ resource "helm_release" "argo_events" {
 }
 
 resource "kubectl_manifest" "vpa_events_controller" {
-  count = var.vpa_enabled ? 1 : 0
+  count = var.events_enabled && var.vpa_enabled ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "autoscaling.k8s.io/v1"
     kind       = "VerticalPodAutoscaler"
@@ -766,6 +789,7 @@ resource "kubectl_manifest" "vpa_events_controller" {
 }
 
 resource "kubectl_manifest" "pdb_events_controller" {
+  count = var.events_enabled ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "policy/v1"
     kind       = "PodDisruptionBudget"
@@ -788,7 +812,7 @@ resource "kubectl_manifest" "pdb_events_controller" {
 }
 
 resource "kubectl_manifest" "vpa_webhook" {
-  count = var.vpa_enabled ? 1 : 0
+  count = var.events_enabled && var.vpa_enabled ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "autoscaling.k8s.io/v1"
     kind       = "VerticalPodAutoscaler"
@@ -818,6 +842,7 @@ resource "kubectl_manifest" "vpa_webhook" {
 }
 
 resource "kubectl_manifest" "pdb_webhook" {
+  count = var.events_enabled ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "policy/v1"
     kind       = "PodDisruptionBudget"
@@ -905,6 +930,7 @@ resource "kubernetes_cluster_role_binding" "superuser_binding" {
 }
 
 resource "kubernetes_cluster_role_binding" "superuser_events_binding" {
+  count = var.events_enabled ? 1 : 0
   metadata {
     name   = "argo-events-superuser"
     labels = module.util_server.labels
@@ -1002,6 +1028,7 @@ resource "kubernetes_cluster_role_binding" "admin_binding" {
 }
 
 resource "kubernetes_cluster_role_binding" "admin_events_binding" {
+  count = var.events_enabled ? 1 : 0
   metadata {
     name   = "argo-events-admin"
     labels = module.util_server.labels
@@ -1081,6 +1108,7 @@ resource "kubernetes_cluster_role_binding" "reader_binding" {
 }
 
 resource "kubernetes_cluster_role_binding" "reader_events_binding" {
+  count = var.events_enabled ? 1 : 0
   metadata {
     name   = "argo-events-reader"
     labels = module.util_server.labels
@@ -1197,3 +1225,23 @@ resource "kubectl_manifest" "test_workflow_template" {
 
 
 
+
+resource "kubernetes_service_account" "workflow" {
+  count = var.oidc_provider_arn == null ? 0 : 1
+  metadata {
+    name      = "argo-workflow"
+    namespace = local.namespace
+  }
+}
+module "workflow_aws_permissions" {
+  count                     = var.oidc_provider_arn == null ? 0 : 1
+  source                    = "../kube_sa_auth_aws"
+  service_account           = kubernetes_service_account.workflow[0].metadata[0].name
+  service_account_namespace = local.namespace
+  iam_policy_json           = data.aws_iam_policy_document.argo.json
+  oidc_provider_arn         = var.oidc_provider_arn
+  oidc_issuer_url           = var.oidc_issuer_url
+  cluster_subnet_ids        = var.cluster_subnet_ids
+  ip_restrictions_enabled   = var.ip_restrictions_enabled
+  ip_allow_list             = var.aws_iam_ip_allow_list
+}
