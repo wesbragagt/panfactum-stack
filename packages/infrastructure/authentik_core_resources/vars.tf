@@ -68,3 +68,9 @@ variable "favicon_ico_b64" {
   type        = string
   default     = null
 }
+
+variable "brand_enabled" {
+  description = "Create and activate the custom default brand. Set false to provision flows and groups while retaining the existing login brand until operator MFA and recovery are verified."
+  type        = bool
+  default     = true
+}

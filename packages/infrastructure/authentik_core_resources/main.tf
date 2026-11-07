@@ -47,8 +47,9 @@ resource "kubernetes_config_map_v1_data" "media" {
   force         = true
 }
 
-// Note: Must first disable the default brand
+// When enabled, first review the existing brand and operator recovery access.
 resource "authentik_brand" "custom" {
+  count               = var.brand_enabled ? 1 : 0
   branding_title      = var.organization_name
   domain              = var.organization_domain
   branding_logo       = "/media/public/logo.svg"
@@ -447,3 +448,9 @@ resource "authentik_flow_stage_binding" "authenticate_login" {
 
 
 
+
+# Preserve the existing resource identity when upgrading an already deployed module.
+moved {
+  from = authentik_brand.custom
+  to   = authentik_brand.custom[0]
+}
