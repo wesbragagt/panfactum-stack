@@ -1,5 +1,8 @@
 locals {
   pull_through_cache_registry = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com"
+  // Match only private registry hostnames, never repository paths or public.ecr.aws.
+  // AWS standard/China and FIPS hostnames: https://aws.amazon.com/compliance/fips/
+  private_ecr_image_pattern = "^[0-9]{12}[.]dkr[.]ecr(-fips)?[.][a-z0-9-]+[.]amazonaws[.]com([.]cn)?/"
   registry_replacements = [
     { original = "^ghcr\\.io/(.*)$", new = "github/$1" },
     { original = "^cr\\.l5d\\.io/(.*)$", new = "github/$1" }, // Linkerd uses their own registry, but also hosts the images on GitHub
@@ -31,7 +34,7 @@ locals {
       exclude = local.exclude_pull_through_cache
       mutate = {
         foreach = [for config in local.registry_replacements : {
-          list = "request.object.spec.containers"
+          list = "request.object.spec.containers[?!regex_match('${local.private_ecr_image_pattern}', image)]"
           patchStrategicMerge = {
             spec = {
               containers = [{
@@ -58,7 +61,7 @@ locals {
       mutate = {
         foreach = [for config in local.registry_replacements :
           {
-            list = "request.object.spec.initContainers"
+            list = "request.object.spec.initContainers[?!regex_match('${local.private_ecr_image_pattern}', image)]"
             patchStrategicMerge = {
               spec = {
                 initContainers = [{
