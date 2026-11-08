@@ -1,0 +1,205 @@
+{/* lint disable no-duplicate-headings */}
+
+{/* eslint-disable import-x/order */}
+
+## Inputs
+
+The following input variables are supported:
+
+### aws\_cli\_cache\_directory
+
+Description: The chosen image's absolute HOME/.aws path, mounted as private ephemeral workspace so AWS CLI web-identity caching works with a read-only root filesystem.
+
+Type: `string`
+
+Default: n/a
+
+### cluster\_subnet\_ids
+
+Description: Explicit subnet IDs for IAM source-IP restrictions; null preserves tagged discovery.
+
+Type: `set(string)`
+
+Default: `null`
+
+### image
+
+Description: Digest-pinned image containing bash, curl, jq, aws CLI and sha256sum. Supply an index digest for multiple architectures.
+
+Type: `string`
+
+Default: n/a
+
+### ip\_restrictions\_enabled
+
+Description: Use the nested auth module's source-IP restrictions; false is an explicit self-managed-cluster choice.
+
+Type: `bool`
+
+Default: `true`
+
+### labels
+
+Description: Additional metadata labels; immutable image/cache-safety labels are controlled by the module.
+
+Type: `map(string)`
+
+Default: `{}`
+
+### max\_snapshot\_mb
+
+Description: Snapshot size bound; workspace reserves space for the snapshot and a downloaded verification copy.
+
+Type: `number`
+
+Default: `64`
+
+### name
+
+Description: Dedicated CronJob and ServiceAccount name.
+
+Type: `string`
+
+Default: `"vault-raft-backup"`
+
+### namespace
+
+Description: Existing namespace; this module never owns or deletes it.
+
+Type: `string`
+
+Default: `"vault"`
+
+### node\_selector
+
+Description: Explicit placement; reserve backup resources before installation.
+
+Type: `map(string)`
+
+Default: `{}`
+
+### oidc\_issuer\_url
+
+Description: Explicit HTTPS issuer paired with oidc\_provider\_arn.
+
+Type: `string`
+
+Default: `null`
+
+### oidc\_provider\_arn
+
+Description: Explicit self-managed issuer provider; null retains the nested module's EKS discovery behavior.
+
+Type: `string`
+
+Default: `null`
+
+### s3\_bucket
+
+Description: Existing private snapshot bucket; its policy, lifecycle and contents remain separately owned.
+
+Type: `string`
+
+Default: n/a
+
+### s3\_kms\_key\_arn
+
+Description: Existing SSE-KMS key ARN required by the bucket, not the Vault unseal key.
+
+Type: `string`
+
+Default: n/a
+
+### s3\_prefix
+
+Description: Dedicated object prefix, excluding every production etcd prefix.
+
+Type: `string`
+
+Default: `"vault/raft-scheduled"`
+
+### schedule
+
+Description: Cron expression. Check the cluster power schedule before selecting it.
+
+Type: `string`
+
+Default: `"20 * * * *"`
+
+### suspended
+
+Description: Suspend scheduled jobs while still permitting controlled manual verification.
+
+Type: `bool`
+
+Default: `false`
+
+### time\_zone
+
+Description: IANA time zone for CronJob scheduling.
+
+Type: `string`
+
+Default: `"Etc/UTC"`
+
+### tolerations
+
+Description: Pod tolerations for the selected backup nodes.
+
+Type: `list(object({ key = optional(string), operator = optional(string), value = optional(string), effect = optional(string) }))`
+
+Default: `[]`
+
+### vault\_address
+
+Description: Existing private Vault-compatible API endpoint.
+
+Type: `string`
+
+Default: `"http://vault-active.vault.svc.cluster.local:8200"`
+
+### vault\_auth\_mount
+
+Description: Existing Kubernetes auth mount, without auth/ prefix.
+
+Type: `string`
+
+Default: `"kubernetes"`
+
+## Outputs
+
+The following outputs are exported:
+
+### cron\_job\_name
+
+Description: CronJob used for scheduled and controlled manual snapshot jobs.
+
+### namespace
+
+Description: Existing namespace containing the backup CronJob.
+
+### role\_arn
+
+Description: Scoped AWS web-identity role; no credentials are returned.
+
+### snapshot\_uri\_prefix
+
+Description: Protected snapshot destination; no bucket lifecycle or deletion is managed here.
+
+## Providers
+
+The following providers are needed by this module:
+
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.40.0/docs) (6.40.0)
+
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
+
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/2.35.0/docs) (2.35.0)
+
+- [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
+
+- [vault](https://registry.terraform.io/providers/hashicorp/vault/4.8.0/docs) (4.8.0)
+
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}
