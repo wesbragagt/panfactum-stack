@@ -1,0 +1,77 @@
+{/* lint disable no-duplicate-headings */}
+
+{/* eslint-disable import-x/order */}
+
+## Inputs
+
+The following input variables are supported:
+
+### cluster\_name
+
+Description: Name of the existing self-managed Talos Kubernetes cluster
+
+Type: `string`
+
+Default: n/a
+
+### controller\_additional\_ecr\_repositories
+
+Description: Opt-in read-only access for the controller to these exact same-account/region repository names. Does not grant cache import, repository creation or image push.
+
+Type: `set(string)`
+
+Default: `[]`
+
+### controller\_instance\_id
+
+Description: Optional existing Talos controller identity opt-in. Creates a dedicated ECR-only profile; guarded in-place association refuses any conflicting profile. Does not create compute.
+
+Type: `string`
+
+Default: `null`
+
+### ecr\_cache\_prefixes
+
+Description: Opt-in first-import/create access to existing account/region pull-through cache prefixes; empty preserves read-only defaults.
+
+Type: `set(string)`
+
+Default: `[]`
+
+### name\_prefix
+
+Description: Short IAM resource name prefix, without a trailing hyphen
+
+Type: `string`
+
+Default: n/a
+
+## Outputs
+
+The following outputs are exported:
+
+### controller\_instance\_profile
+
+Description: Optional ECR-only controller profile; guarded association is tracked without compute ownership.
+
+### node\_instance\_profile
+
+Description: Existing instance profile name to pass to the Custom EC2NodeClass
+
+### node\_instance\_profile\_arn
+
+Description: EC2 worker instance profile ARN
+
+### node\_role\_arn
+
+Description: EC2 worker IAM role ARN for Karpenter's scoped PassRole policy
+
+## Providers
+
+The following providers are needed by this module:
+
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.40.0/docs) (6.40.0)
+
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

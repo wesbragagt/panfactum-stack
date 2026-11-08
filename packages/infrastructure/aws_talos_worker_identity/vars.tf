@@ -35,3 +35,15 @@ variable "controller_instance_id" {
     error_message = "controller_instance_id must be an EC2 instance ID."
   }
 }
+
+variable "controller_additional_ecr_repositories" {
+  description = "Opt-in read-only access for the controller to these exact same-account/region repository names. Does not grant cache import, repository creation or image push."
+  type        = set(string)
+  default     = []
+  validation {
+    condition = alltrue([for name in var.controller_additional_ecr_repositories :
+      length(name) >= 2 && length(name) <= 256 && can(regex("^[a-z0-9]+([._/-][a-z0-9]+)*$", name))
+    ])
+    error_message = "Use exact lowercase ECR repository names without wildcards or ARNs."
+  }
+}

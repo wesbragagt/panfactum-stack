@@ -102,6 +102,14 @@ data "aws_iam_policy_document" "controller_read" {
       resources = [for prefix in sort(tolist(var.ecr_cache_prefixes)) : "arn:${data.aws_partition.current.partition}:ecr:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:repository/${prefix}/*"]
     }
   }
+  dynamic "statement" {
+    for_each = length(var.controller_additional_ecr_repositories) == 0 ? [] : [1]
+    content {
+      sid       = "AdditionalExactRepositoryReads"
+      actions   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"]
+      resources = [for name in sort(tolist(var.controller_additional_ecr_repositories)) : "arn:${data.aws_partition.current.partition}:ecr:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:repository/${name}"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "controller_read" {
