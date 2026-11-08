@@ -80,3 +80,18 @@ variable "redaction_extra_patterns" {
     error_message = "Extra patterns must be valid nonempty RE2 expressions up to 2048 characters."
   }
 }
+
+variable "redaction_profiles_enabled" {
+  description = "Enable annotation-selected additional Pod redaction; requires global baseline enabled. Events remain global."
+  type        = bool
+  default     = false
+}
+variable "redaction_profiles" {
+  description = "Central additional categories per allowed Pod profile; baseline always runs once."
+  type        = map(list(string))
+  default     = { standard = [], strict = ["phones", "personal_fields"] }
+  validation {
+    condition     = alltrue([for k, categories in var.redaction_profiles : contains(["standard", "strict"], k) && alltrue([for c in categories : contains(["credentials", "email", "ssn", "cards", "phones", "personal_fields"], c)])])
+    error_message = "Only standard/strict profiles and catalog categories are supported."
+  }
+}

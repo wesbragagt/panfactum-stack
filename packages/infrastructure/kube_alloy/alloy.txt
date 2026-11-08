@@ -14,6 +14,7 @@ discovery.kubernetes "pods" {
 
 discovery.relabel "pod_logs" {
   targets = discovery.kubernetes.pods.targets
+${REDACTION_PROFILE_RELABEL}
   rule {
     source_labels = ["__meta_kubernetes_namespace"]
     target_label  = "namespace"

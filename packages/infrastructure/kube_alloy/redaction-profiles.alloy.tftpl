@@ -1,0 +1,16 @@
+%{ for profile, expressions in profiles ~}
+%{ if length(expressions) > 0 ~}
+  stage.match {
+    selector = ${jsonencode("{pf_log_redaction_profile=\"${profile}\"}")}
+%{ for expression in expressions ~}
+    stage.replace {
+      expression = ${jsonencode(expression)}
+      replace = "[REDACTED]"
+    }
+%{ endfor ~}
+  }
+%{ endif ~}
+%{ endfor ~}
+  stage.label_drop {
+    values = ["pf_log_redaction_profile"]
+  }

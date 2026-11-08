@@ -23,6 +23,6 @@
     "\\b(\\+?[0-9]{1,3}[ -][0-9]{3}[ -][0-9]{3}[ -][0-9]{4})\\b"
   ],
   "personal_fields": [
-    "(?i)\"(?:full_name|first_name|last_name|street_address|phone|ip_address)\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\""
+    "(?i)\"(?:full_name|first_name|last_name|street_address|phone)\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\""
   ]
 }
