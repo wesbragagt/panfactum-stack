@@ -13,15 +13,19 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-func wireClient(t *testing.T) extproc.ExternalProcessorClient {
+func wireClient(t *testing.T, overrides ...*policy) extproc.ExternalProcessorClient {
 	t.Helper()
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer()
-	extproc.RegisterExternalProcessorServer(server, &policy{values: map[string]string{
+	p := &policy{values: map[string]string{
 		"csp": "synthetic-html-policy", "csp_non_html": "synthetic-non-html-policy",
 		"permissions_policy": "synthetic-permissions", "x_frame_options": "SAMEORIGIN",
 		"x_xss_protection": "1; mode=block", "referrer_policy": "no-referrer",
-	}})
+	}}
+	if len(overrides) > 0 {
+		p = overrides[0]
+	}
+	extproc.RegisterExternalProcessorServer(server, p)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
 	connection, err := grpc.NewClient("passthrough:///synthetic", grpc.WithTransportCredentials(insecure.NewCredentials()),

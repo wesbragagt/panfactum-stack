@@ -1,5 +1,5 @@
 // A header-only ExtProc candidate for Panfactum's nginx Lua policy semantics.
-// Body, rate, connection and production qualification are separate gates.
+// Request limits are opt-in experimental; body and production gates remain.
 package main
 
 import (
@@ -10,11 +10,13 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extproc "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	typepb "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
@@ -24,6 +26,7 @@ import (
 type policy struct {
 	extproc.UnimplementedExternalProcessorServer
 	values map[string]string
+	limits *requestLimits
 }
 
 func header(headers *core.HeaderMap, name string) (string, bool) {
@@ -79,6 +82,13 @@ func (p *policy) response(headers *core.HeaderMap, https bool) *extproc.HeaderMu
 
 func (p *policy) Process(stream extproc.ExternalProcessor_ProcessServer) error {
 	https := false
+	var release func()
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
+	seenRequest := false
 	for {
 		message, err := stream.Recv()
 		if err == io.EOF {
@@ -90,6 +100,20 @@ func (p *policy) Process(stream extproc.ExternalProcessor_ProcessServer) error {
 		var response *extproc.ProcessingResponse
 		switch item := message.Request.(type) {
 		case *extproc.ProcessingRequest_RequestHeaders:
+			if seenRequest {
+				return io.ErrUnexpectedEOF
+			}
+			seenRequest = true
+			if p.limits != nil {
+				key, valid := clientKey(message)
+				var accepted bool
+				if valid {
+					release, accepted = p.limits.acquire(key, time.Now())
+				}
+				if !accepted {
+					return stream.Send(&extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_ImmediateResponse{ImmediateResponse: &extproc.ImmediateResponse{Status: &typepb.HttpStatus{Code: typepb.StatusCode_TooManyRequests}, Details: "policy_request_limit"}}})
+				}
+			}
 			scheme, _ := header(item.RequestHeaders.Headers, ":scheme")
 			https = scheme == "https"
 			response = &extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_RequestHeaders{
@@ -101,6 +125,10 @@ func (p *policy) Process(stream extproc.ExternalProcessor_ProcessServer) error {
 					HeaderMutation: p.response(item.ResponseHeaders.Headers, https),
 				}},
 			}}
+		case *extproc.ProcessingRequest_RequestTrailers:
+			response = &extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_RequestTrailers{RequestTrailers: &extproc.TrailersResponse{}}}
+		case *extproc.ProcessingRequest_ResponseTrailers:
+			response = &extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_ResponseTrailers{ResponseTrailers: &extproc.TrailersResponse{}}}
 		default:
 			// A header-only configuration must never request body/trailer processing.
 			return io.ErrUnexpectedEOF
@@ -115,6 +143,7 @@ func main() {
 	address := flag.String("listen", "127.0.0.1:18083", "gRPC listener; loopback by default")
 	configuration := flag.String("config", "/config/headers.json", "public policy values")
 	check := flag.Bool("check", false, "check the loopback gRPC health service and exit")
+	limitsEnabled := flag.Bool("request-limits", false, "experimental per-client limits; requires trusted source.address and trailer SEND")
 	flag.Parse()
 	if *check {
 		connection, err := grpc.NewClient(*address, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -141,6 +170,21 @@ func main() {
 	for _, key := range []string{"csp", "csp_non_html", "permissions_policy", "x_frame_options", "x_xss_protection", "referrer_policy"} {
 		if p.values[key] == "" || strings.ContainsAny(p.values[key], "\r\n\x00") {
 			log.Fatal("required public policy value invalid")
+		}
+	}
+	if *limitsEnabled {
+		keys := []string{"limit_rps", "limit_rpm", "limit_concurrency", "limit_clients"}
+		values := make([]int, len(keys))
+		for i, key := range keys {
+			value, e := strconv.Atoi(p.values[key])
+			if e != nil {
+				log.Fatal("required request limit invalid")
+			}
+			values[i] = value
+		}
+		p.limits, err = newRequestLimits(values[0], values[1], values[2], values[3])
+		if err != nil {
+			log.Fatal("request limit configuration invalid")
 		}
 	}
 	listener, err := net.Listen("tcp", *address)

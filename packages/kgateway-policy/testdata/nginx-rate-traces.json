@@ -1,0 +1,5014 @@
+{
+  "observed_at": "2026-11-08T23:00:14.317283+00:00",
+  "scope": "Actual nginx1.27.1 single worker, synthetic loopback clients only. Rewrite-phase frozen msec and decisions, grouped by exact millisecond; no production traffic.",
+  "nginx_image": "registry.k8s.io/ingress-nginx/controller@sha256:594ceea76b01c592858f803f9ff4d2cb40542cae2060410b2c95f75907d659e1",
+  "configuration_sha256": "684bfed49cb52713e0dff52e26cd58d7d9bb6db0505ea393735c67cc935f7d5c",
+  "burst_multiplier": 3,
+  "nodelay": true,
+  "parallel_connections": 8,
+  "cases": [
+    {
+      "name": "combined",
+      "rps": 60,
+      "rpm": 1000,
+      "concurrent": 60,
+      "requests": 2000,
+      "observations": [
+        {
+          "ms": 0,
+          "accepted": 8,
+          "rejected": 0
+        },
+        {
+          "ms": 2,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 3,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 4,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 5,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 6,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 7,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 8,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 1022,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1023,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 1024,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1025,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1026,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1027,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1028,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1029,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1030,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1031,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1032,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1033,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1034,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1035,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1036,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1037,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1038,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1039,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 1040,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1041,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 1044,
+          "accepted": 8,
+          "rejected": 0
+        },
+        {
+          "ms": 1045,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1046,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1047,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1048,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1049,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 1050,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1051,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1052,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1053,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1054,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1055,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1056,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1057,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1058,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1059,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 1060,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1061,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1062,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1063,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1064,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1065,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1066,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1067,
+          "accepted": 3,
+          "rejected": 1
+        },
+        {
+          "ms": 1068,
+          "accepted": 0,
+          "rejected": 14
+        },
+        {
+          "ms": 1069,
+          "accepted": 0,
+          "rejected": 12
+        },
+        {
+          "ms": 1070,
+          "accepted": 0,
+          "rejected": 18
+        },
+        {
+          "ms": 1071,
+          "accepted": 0,
+          "rejected": 12
+        },
+        {
+          "ms": 1072,
+          "accepted": 1,
+          "rejected": 14
+        },
+        {
+          "ms": 1073,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 1074,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 1075,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 1076,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 1077,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 1078,
+          "accepted": 0,
+          "rejected": 17
+        },
+        {
+          "ms": 1079,
+          "accepted": 0,
+          "rejected": 13
+        },
+        {
+          "ms": 1080,
+          "accepted": 0,
+          "rejected": 17
+        },
+        {
+          "ms": 1081,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 1082,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 1083,
+          "accepted": 0,
+          "rejected": 18
+        },
+        {
+          "ms": 1084,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 1085,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 1086,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 1087,
+          "accepted": 0,
+          "rejected": 17
+        },
+        {
+          "ms": 1088,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 1089,
+          "accepted": 1,
+          "rejected": 15
+        },
+        {
+          "ms": 1090,
+          "accepted": 0,
+          "rejected": 18
+        },
+        {
+          "ms": 1091,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 1092,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 1093,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 1094,
+          "accepted": 0,
+          "rejected": 23
+        },
+        {
+          "ms": 1095,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 1096,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 1097,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 1098,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 1099,
+          "accepted": 0,
+          "rejected": 23
+        },
+        {
+          "ms": 1100,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 1101,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 1102,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 1103,
+          "accepted": 0,
+          "rejected": 17
+        },
+        {
+          "ms": 1104,
+          "accepted": 0,
+          "rejected": 17
+        },
+        {
+          "ms": 1105,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 1106,
+          "accepted": 1,
+          "rejected": 14
+        },
+        {
+          "ms": 1107,
+          "accepted": 0,
+          "rejected": 12
+        },
+        {
+          "ms": 1108,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 1109,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 1110,
+          "accepted": 0,
+          "rejected": 15
+        },
+        {
+          "ms": 1111,
+          "accepted": 0,
+          "rejected": 17
+        },
+        {
+          "ms": 1112,
+          "accepted": 0,
+          "rejected": 14
+        },
+        {
+          "ms": 1113,
+          "accepted": 0,
+          "rejected": 13
+        },
+        {
+          "ms": 1114,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 1115,
+          "accepted": 0,
+          "rejected": 18
+        },
+        {
+          "ms": 1116,
+          "accepted": 0,
+          "rejected": 17
+        },
+        {
+          "ms": 1117,
+          "accepted": 0,
+          "rejected": 18
+        },
+        {
+          "ms": 1118,
+          "accepted": 0,
+          "rejected": 14
+        },
+        {
+          "ms": 1119,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 1120,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 1121,
+          "accepted": 0,
+          "rejected": 18
+        },
+        {
+          "ms": 1122,
+          "accepted": 1,
+          "rejected": 18
+        },
+        {
+          "ms": 1123,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 1124,
+          "accepted": 0,
+          "rejected": 18
+        },
+        {
+          "ms": 1125,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 1126,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 1127,
+          "accepted": 0,
+          "rejected": 18
+        },
+        {
+          "ms": 1128,
+          "accepted": 0,
+          "rejected": 15
+        },
+        {
+          "ms": 1129,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 1130,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 1131,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 1132,
+          "accepted": 0,
+          "rejected": 18
+        },
+        {
+          "ms": 1133,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 1134,
+          "accepted": 0,
+          "rejected": 18
+        },
+        {
+          "ms": 1135,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 1136,
+          "accepted": 0,
+          "rejected": 13
+        },
+        {
+          "ms": 1137,
+          "accepted": 0,
+          "rejected": 15
+        },
+        {
+          "ms": 1138,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 1139,
+          "accepted": 1,
+          "rejected": 12
+        },
+        {
+          "ms": 1140,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 1141,
+          "accepted": 0,
+          "rejected": 17
+        },
+        {
+          "ms": 1142,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 1143,
+          "accepted": 0,
+          "rejected": 17
+        },
+        {
+          "ms": 1144,
+          "accepted": 0,
+          "rejected": 17
+        },
+        {
+          "ms": 1145,
+          "accepted": 0,
+          "rejected": 17
+        },
+        {
+          "ms": 1146,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 1147,
+          "accepted": 0,
+          "rejected": 14
+        },
+        {
+          "ms": 1148,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 1149,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 1150,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 1151,
+          "accepted": 0,
+          "rejected": 23
+        },
+        {
+          "ms": 1152,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 1153,
+          "accepted": 0,
+          "rejected": 23
+        },
+        {
+          "ms": 1154,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 1155,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 1156,
+          "accepted": 1,
+          "rejected": 15
+        },
+        {
+          "ms": 1157,
+          "accepted": 0,
+          "rejected": 18
+        },
+        {
+          "ms": 1158,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 1159,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 1160,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 1161,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 1162,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 1163,
+          "accepted": 0,
+          "rejected": 24
+        },
+        {
+          "ms": 1164,
+          "accepted": 0,
+          "rejected": 26
+        },
+        {
+          "ms": 1165,
+          "accepted": 0,
+          "rejected": 12
+        }
+      ]
+    },
+    {
+      "name": "minute_isolated",
+      "rps": 100000,
+      "rpm": 1000,
+      "concurrent": 60,
+      "requests": 4000,
+      "observations": [
+        {
+          "ms": 0,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 1,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 3,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 4,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 5,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 6,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 7,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 8,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 9,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 10,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 11,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 12,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 13,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 14,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 15,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 16,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 17,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 18,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 19,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 20,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 21,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 22,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 23,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 24,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 25,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 26,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 27,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 28,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 29,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 30,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 31,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 32,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 33,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 34,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 35,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 36,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 37,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 38,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 39,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 40,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 41,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 42,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 43,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 44,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 45,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 46,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 47,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 48,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 49,
+          "accepted": 7,
+          "rejected": 0
+        },
+        {
+          "ms": 50,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 51,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 52,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 53,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 54,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 55,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 56,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 57,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 58,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 59,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 60,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 61,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 62,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 63,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 64,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 65,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 66,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 67,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 68,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 69,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 70,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 71,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 72,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 73,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 74,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 75,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 76,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 77,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 78,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 79,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 80,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 81,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 82,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 83,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 84,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 85,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 86,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 87,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 88,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 89,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 90,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 91,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 92,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 93,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 94,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 95,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 96,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 97,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 98,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 99,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 100,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 101,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 102,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 103,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 104,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 105,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 106,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 107,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 108,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 109,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 110,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 111,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 112,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 113,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 114,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 115,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 116,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 117,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 118,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 119,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 120,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 121,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 122,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 123,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 124,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 125,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 126,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 127,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 128,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 129,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 130,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 131,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 132,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 133,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 134,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 135,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 136,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 137,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 138,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 139,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 140,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 141,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 142,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 143,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 144,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 145,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 146,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 147,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 148,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 149,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 150,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 151,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 152,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 153,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 154,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 155,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 156,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 157,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 158,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 159,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 160,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 161,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 162,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 163,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 164,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 165,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 166,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 167,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 168,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 169,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 170,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 171,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 172,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 173,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 174,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 175,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 176,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 177,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 178,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 179,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 180,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 181,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 182,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 183,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 184,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 185,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 187,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 188,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 189,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 190,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 191,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 192,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 193,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 194,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 195,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 196,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 197,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 198,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 199,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 200,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 201,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 202,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 203,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 204,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 205,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 206,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 207,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 208,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 209,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 210,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 211,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 212,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 213,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 214,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 215,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 216,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 217,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 218,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 219,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 220,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 221,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 222,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 223,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 224,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 225,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 226,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 227,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 228,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 229,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 230,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 231,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 232,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 233,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 234,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 235,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 236,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 237,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 238,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 239,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 240,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 241,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 242,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 243,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 244,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 245,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 246,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 247,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 248,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 249,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 250,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 251,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 252,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 253,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 254,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 255,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 256,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 257,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 258,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 259,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 260,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 261,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 262,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 263,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 264,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 265,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 266,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 267,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 268,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 269,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 270,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 271,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 272,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 273,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 274,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 275,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 276,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 277,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 278,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 279,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 280,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 281,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 282,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 283,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 284,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 285,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 286,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 287,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 288,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 289,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 290,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 291,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 292,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 293,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 294,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 295,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 296,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 297,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 298,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 299,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 300,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 301,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 302,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 303,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 304,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 305,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 306,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 307,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 308,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 309,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 310,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 311,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 312,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 313,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 314,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 315,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 316,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 317,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 318,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 319,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 320,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 321,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 322,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 323,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 324,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 325,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 326,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 327,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 328,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 329,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 330,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 331,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 332,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 333,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 334,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 335,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 336,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 337,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 338,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 339,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 340,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 341,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 342,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 343,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 344,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 346,
+          "accepted": 7,
+          "rejected": 0
+        },
+        {
+          "ms": 347,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 348,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 349,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 350,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 351,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 352,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 353,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 354,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 355,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 356,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 357,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 358,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 359,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 360,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 361,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 362,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 363,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 364,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 365,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 366,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 367,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 368,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 369,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 370,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 371,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 372,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 373,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 374,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 375,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 376,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 377,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 378,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 379,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 380,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 381,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 382,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 383,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 384,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 385,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 386,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 387,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 388,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 389,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 390,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 391,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 392,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 393,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 394,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 395,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 396,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 397,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 398,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 399,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 400,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 401,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 402,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 403,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 404,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 405,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 406,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 407,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 408,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 409,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 410,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 411,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 412,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 413,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 414,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 415,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 416,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 417,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 418,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 419,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 420,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 421,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 422,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 423,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 424,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 425,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 426,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 427,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 428,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 429,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 430,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 431,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 432,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 433,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 434,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 435,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 436,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 437,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 438,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 439,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 440,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 441,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 442,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 443,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 444,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 445,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 446,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 447,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 448,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 449,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 450,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 451,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 452,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 453,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 454,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 455,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 456,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 457,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 458,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 459,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 460,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 461,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 462,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 463,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 464,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 465,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 466,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 469,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 470,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 471,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 472,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 473,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 474,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 475,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 476,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 477,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 478,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 479,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 480,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 481,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 482,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 483,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 484,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 485,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 486,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 487,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 488,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 489,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 490,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 491,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 492,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 493,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 494,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 495,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 496,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 497,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 498,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 499,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 501,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 502,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 503,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 504,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 505,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 506,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 507,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 508,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 509,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 510,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 511,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 512,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 513,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 514,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 515,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 516,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 517,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 518,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 519,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 520,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 521,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 522,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 523,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 524,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 525,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 526,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 527,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 528,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 529,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 530,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 531,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 532,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 533,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 534,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 535,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 536,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 537,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 538,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 539,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 540,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 541,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 542,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 543,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 544,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 545,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 546,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 547,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 548,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 549,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 550,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 551,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 552,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 553,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 554,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 555,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 556,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 557,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 558,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 559,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 560,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 561,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 562,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 563,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 564,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 565,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 566,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 567,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 568,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 569,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 570,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 571,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 572,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 573,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 574,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 575,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 576,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 577,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 578,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 579,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 580,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 581,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 582,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 583,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 584,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 585,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 586,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 587,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 588,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 589,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 590,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 591,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 592,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 594,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 595,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 596,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 597,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 598,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 1649,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1650,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 1651,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1652,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1653,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1654,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1655,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1656,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 1657,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1658,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1659,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1660,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 1661,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1662,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1663,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1664,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1665,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1666,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1667,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1668,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1669,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1670,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1671,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1672,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1673,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1674,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 1675,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1676,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1677,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1678,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 1679,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1680,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1681,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1682,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1683,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1684,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1685,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 1686,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1687,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1688,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 1689,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1690,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 1691,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1692,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 1693,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 1694,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 1695,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 2736,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2737,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2738,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2739,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2740,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2741,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2742,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2743,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2744,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2745,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2746,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2747,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2748,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2749,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2750,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2751,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 2752,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 2753,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2754,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 2755,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 2756,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2757,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 2759,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2760,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2761,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 2762,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2763,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2764,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 2765,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 2767,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 2768,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2769,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 2770,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2771,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2772,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2773,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2774,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2775,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2776,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2777,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2778,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2779,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 2780,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2781,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2782,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2783,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2784,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 2785,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2786,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2787,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2788,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2789,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2790,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2791,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2792,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 2793,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2794,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2795,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2797,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2798,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2799,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2800,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2801,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2802,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2803,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 2804,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2805,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2806,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2807,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2808,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2809,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2810,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2811,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2812,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2813,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2814,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2815,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2816,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2817,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2818,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2819,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2820,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2821,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2822,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2823,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2824,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2825,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2826,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2827,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2828,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2829,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2830,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2831,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2832,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2833,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2834,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2835,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 2836,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2837,
+          "accepted": 1,
+          "rejected": 0
+        },
+        {
+          "ms": 2838,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2839,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2840,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2841,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2842,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2843,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2844,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2845,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2846,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 2847,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2848,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2849,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2850,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2851,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2852,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2853,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2854,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2855,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2856,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2857,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2858,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2859,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2860,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2861,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2862,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2863,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2864,
+          "accepted": 6,
+          "rejected": 0
+        },
+        {
+          "ms": 2865,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2866,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2867,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2868,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2869,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2870,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 2871,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2872,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2873,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2874,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2875,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2876,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2877,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2878,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2879,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 2880,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2881,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2882,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2883,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2884,
+          "accepted": 2,
+          "rejected": 0
+        },
+        {
+          "ms": 2885,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2886,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2887,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2888,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2889,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2890,
+          "accepted": 4,
+          "rejected": 0
+        },
+        {
+          "ms": 2891,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2892,
+          "accepted": 5,
+          "rejected": 0
+        },
+        {
+          "ms": 2893,
+          "accepted": 3,
+          "rejected": 0
+        },
+        {
+          "ms": 2894,
+          "accepted": 0,
+          "rejected": 11
+        },
+        {
+          "ms": 2895,
+          "accepted": 0,
+          "rejected": 11
+        },
+        {
+          "ms": 2896,
+          "accepted": 0,
+          "rejected": 14
+        },
+        {
+          "ms": 2897,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 2898,
+          "accepted": 0,
+          "rejected": 9
+        },
+        {
+          "ms": 2899,
+          "accepted": 0,
+          "rejected": 17
+        },
+        {
+          "ms": 2900,
+          "accepted": 0,
+          "rejected": 18
+        },
+        {
+          "ms": 2901,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 2902,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 2903,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 2904,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 2905,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 2906,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 2907,
+          "accepted": 0,
+          "rejected": 23
+        },
+        {
+          "ms": 2908,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 2909,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 2910,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 2911,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 2912,
+          "accepted": 1,
+          "rejected": 18
+        },
+        {
+          "ms": 2913,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 2914,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 2915,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 2916,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 2917,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 2918,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 2919,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 2920,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 2921,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 2922,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 2923,
+          "accepted": 0,
+          "rejected": 22
+        },
+        {
+          "ms": 2924,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 2925,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 2926,
+          "accepted": 0,
+          "rejected": 15
+        },
+        {
+          "ms": 2927,
+          "accepted": 0,
+          "rejected": 14
+        },
+        {
+          "ms": 2928,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 2929,
+          "accepted": 0,
+          "rejected": 14
+        },
+        {
+          "ms": 2930,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 2931,
+          "accepted": 0,
+          "rejected": 17
+        },
+        {
+          "ms": 2932,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 2933,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 2934,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 2935,
+          "accepted": 0,
+          "rejected": 13
+        },
+        {
+          "ms": 2936,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 2937,
+          "accepted": 0,
+          "rejected": 17
+        },
+        {
+          "ms": 2938,
+          "accepted": 0,
+          "rejected": 16
+        },
+        {
+          "ms": 2939,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 2940,
+          "accepted": 0,
+          "rejected": 19
+        },
+        {
+          "ms": 2941,
+          "accepted": 0,
+          "rejected": 15
+        },
+        {
+          "ms": 2942,
+          "accepted": 0,
+          "rejected": 18
+        },
+        {
+          "ms": 2943,
+          "accepted": 0,
+          "rejected": 21
+        },
+        {
+          "ms": 2944,
+          "accepted": 0,
+          "rejected": 20
+        },
+        {
+          "ms": 2945,
+          "accepted": 0,
+          "rejected": 10
+        }
+      ]
+    }
+  ]
+}

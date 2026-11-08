@@ -8,8 +8,9 @@ Permissions-Policy headers. The source policy is
 provide its evaluated policy strings as public JSON configuration.
 
 Status: isolated qualification candidate. This is not a complete ingress policy
-implementation or a production installation. Rate and connection limits,
-request-size/timeout enforcement, arbitrary CORS/override profiles, certificate
+implementation or a production installation. Experimental per-client request
+limits are default-off and have bounded local qualification only. Request-size/
+timeout enforcement, arbitrary CORS/override profiles, certificate
 renewal and authenticated application sessions require separate implementation
 and qualification. Do not silently replace those features with this processor.
 
@@ -29,8 +30,9 @@ Server header with `ListenerPolicy` HTTP setting
 after the route modifier.
 
 Use a loopback backend in the same proxy Pod and explicitly configure
-`GatewayExtension.spec.extProc.failOpen: false`. Body and trailer modes must be
-`NONE`/`SKIP`. The default gRPC listener is `127.0.0.1:18083`; `/policy --check`
+`GatewayExtension.spec.extProc.failOpen: false`. In the default header-only mode, body/trailer modes are `NONE`/`SKIP`.
+The experimental request-limit mode instead requires both trailer modes `SEND`
+while both body modes remain `NONE`; see the lifetime contract below. The default gRPC listener is `127.0.0.1:18083`; `/policy --check`
 checks its standard gRPC health service. No Kubernetes or AWS identity, writable
 filesystem, shell, runtime downloads or external network dependency is required.
 
@@ -54,3 +56,38 @@ dropped capabilities, 32Mi memory request / 64Mi limit, `GOMEMLIMIT=48MiB` and
 `GOMAXPROCS=1`. A real local kgateway/Envoy run must validate the generated
 sidecar overlay, loopback HTTP/2 cluster, fail-closed behavior and actual emitted
 headers. Version/hash-only ARM64 execution does not prove policy translation.
+
+
+## Experimental per-client limits (default off)
+
+`--request-limits` requires these additional public JSON string values:
+`limit_rps`, `limit_rpm`, `limit_concurrency` and `limit_clients`. The local
+candidate uses60/1000/60/8192. Both rate buckets use nginx1.27.1's thousandth-unit
+leaky-debt arithmetic, integer millisecond clock and burst multiplier3, with no
+delay queue. Both buckets and concurrency must accept atomically; rejected
+requests do not add debt. Each identity is scoped to a normalized DNS authority
+and canonical source IP. Source socket ports, DNS letter case, terminal dot and
+authority ports do not split its quota. IP-literal authorities are unsupported.
+
+Configure `GatewayExtension.spec.extProc.requestAttributes: [source.address]`.
+The processor reads this Envoy attribute, never XFF/CF/client-supplied identity
+headers. Missing or invalid identity returns429. Correct ListenerPolicy original
+IP detection and actual connector-only networking are separate mandatory
+qualifications; a successful local direct-source test is not production proxy
+trust proof. Only one canonical-host route profile is qualified so far.
+
+**Both trailer modes must be SEND.** Envoy otherwise closes its header-only RPC
+after response headers, before a streaming request finishes. With trailer SEND
+and body NONE, the tested HTTP/1.1 stream stays open until completion or client
+cancellation; the server releases its concurrency slot when that RPC closes.
+HEAD completion and cancellation are tested. Actual HTTP/2 and WebSocket
+lifetime remain required before production enablement. Unexpected body messages
+fail closed. No bodies are copied or logged by this processor.
+
+The fixed identity capacity fails closed with429 when it cannot reclaim a fully
+drained inactive entry; it never evicts an active client to admit a new one.
+Capacity is per proxy, not globally shared across replicas, matching nginx's
+per-controller scope. Exact overload/expiry behavior is an explicit operational
+difference requiring capacity testing. No production module enables this flag.
+The published header-only image predates this experimental implementation;
+rebuild, scan and qualify both architectures again before distributing a new image.
