@@ -105,3 +105,25 @@ variable "oidc_issuer_url" {
   description = "Explicit issuer URL paired with the provider ARN."
   type        = string
 }
+
+variable "token_review_proxy_enabled" {
+  description = "Install an isolated lab-only TokenReview bridge; never give the restored server direct Kubernetes API access."
+  type        = bool
+  default     = false
+}
+
+variable "token_review_proxy_secret_name" {
+  description = "Existing lab Secret with a random token key; no authorization value enters module inputs/state."
+  type        = string
+  default     = null
+}
+
+variable "token_review_proxy_image" {
+  description = "Immutable Python runtime for the optional bounded lab verifier."
+  type        = string
+  default     = "docker.io/library/python@sha256:1e1f6334529d1fb26a2ef619d7cffb30a7c7d7cc1cc7338ebee283a58d1aeaca"
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.token_review_proxy_image))
+    error_message = "The lab verifier requires an immutable runtime image."
+  }
+}

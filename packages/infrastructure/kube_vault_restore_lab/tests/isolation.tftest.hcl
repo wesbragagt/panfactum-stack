@@ -130,3 +130,39 @@ run "openbao_requires_local_hash_pinned_plugins" {
     error_message = "Restored startup must not require opening registry network access."
   }
 }
+
+run "reviewer_has_only_tokenreview_rbac_and_no_clone_api_exception" {
+  command = plan
+  variables {
+    token_review_proxy_enabled = true
+    token_review_proxy_secret_name = "synthetic-reviewer-authorization"
+  }
+  assert {
+    condition = (
+      length(kubernetes_cluster_role_v1.reviewer[0].rule) == 1 &&
+      toset(kubernetes_cluster_role_v1.reviewer[0].rule[0].api_groups) == toset(["authentication.k8s.io"]) &&
+      toset(kubernetes_cluster_role_v1.reviewer[0].rule[0].resources) == toset(["tokenreviews"]) &&
+      toset(kubernetes_cluster_role_v1.reviewer[0].rule[0].verbs) == toset(["create"])
+    )
+    error_message = "The verifier must not read Secrets or manage production API objects."
+  }
+  assert {
+    condition = alltrue([for rule in local.network_policy.spec.egress :
+      !contains(keys(rule), "toEntities") && !contains(keys(rule), "toCIDR") && !contains(keys(rule), "toCIDRSet")
+    ]) && local.network_policy.spec.egress[3].toPorts[0].ports[0].port == "8080"
+    error_message = "Only the constrained proxy may reach the API; the restored server gets the private verifier port only."
+  }
+  assert {
+    condition = (
+      !kubernetes_deployment_v1.reviewer[0].spec[0].template[0].spec[0].automount_service_account_token &&
+      kubernetes_deployment_v1.reviewer[0].spec[0].template[0].spec[0].container[0].resources[0].requests["memory"] == "32Mi"
+    )
+    error_message = "Use only the explicit scoped projection within the shared test budget."
+  }
+}
+
+run "reviewer_requires_existing_private_authorization" {
+  command = plan
+  variables { token_review_proxy_enabled = true }
+  expect_failures = [kubernetes_deployment_v1.reviewer]
+}

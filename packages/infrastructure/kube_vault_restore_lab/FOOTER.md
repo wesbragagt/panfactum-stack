@@ -36,3 +36,21 @@ not just one server. Before a later gateway/secret-service overlap, lower the
 quota to its separately verified budget and park unused test processes. Quota
 denial is a stop condition, not permission to raise it or provision another node.
 Retire every secondary instance before deleting the namespace owner's resources.
+
+## Optional lab TokenReview bridge
+
+`token_review_proxy_enabled` defaults to false. Enabling it creates a separate
+32Mi-request verifier with only `create` permission on TokenReview. The restored
+server receives only a private verifier egress exception, never API-server
+network access or an API service-account token. Requests require a separate
+private authorization Secret, exact review endpoint/type/audience, and allowed
+lab ServiceAccount identities. Responses omit the reviewed token and untrusted
+extra fields; request bodies and credentials are never logged. Runtime uses
+verified Kubernetes CA TLS and refuses redirects. The authorization Secret is
+operator-managed and must exist before enablement; its value is not an input.
+
+Use this only for disposable lab auth mounts. It is not a general Kubernetes
+API proxy, a production authentication replacement or a migration acceptance
+claim. Network and effective RBAC must pass live positive/negative tests before
+using it with restored data. The helper shares the namespace's aggregate quota;
+its policy allows only DNS and the API, not AWS credentials, IAM or databases.

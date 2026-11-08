@@ -74,7 +74,14 @@ locals {
         }], [for host in local.aws_hosts : {
         toFQDNs = [{ matchName = host }]
         toPorts = [{ ports = [{ port = "443", protocol = "TCP" }], serverNames = [host] }]
-      }])
+        }], var.token_review_proxy_enabled ? [{
+        toEndpoints = [{ matchLabels = {
+          "k8s:io.kubernetes.pod.namespace" = var.namespace
+          "migration-role"                  = "token-review-proxy"
+          "app.kubernetes.io/name"          = local.reviewer_name
+        } }]
+        toPorts = [{ ports = [{ port = "8080", protocol = "TCP" }] }]
+      }] : [])
     }
   }
   configuration = templatefile("${path.module}/server.hcl.tftpl", {

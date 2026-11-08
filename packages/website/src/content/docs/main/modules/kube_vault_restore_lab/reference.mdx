@@ -136,6 +136,30 @@ Type: `string`
 
 Default: `"1Gi"`
 
+### token\_review\_proxy\_enabled
+
+Description: Install an isolated lab-only TokenReview bridge; never give the restored server direct Kubernetes API access.
+
+Type: `bool`
+
+Default: `false`
+
+### token\_review\_proxy\_image
+
+Description: Immutable Python runtime for the optional bounded lab verifier.
+
+Type: `string`
+
+Default: `"docker.io/library/python@sha256:1e1f6334529d1fb26a2ef619d7cffb30a7c7d7cc1cc7338ebee283a58d1aeaca"`
+
+### token\_review\_proxy\_secret\_name
+
+Description: Existing lab Secret with a random token key; no authorization value enters module inputs/state.
+
+Type: `string`
+
+Default: `null`
+
 ## Outputs
 
 The following outputs are exported:
