@@ -150,3 +150,9 @@ variable "talos_startup_taints" {
   default     = [{ key = "node.cilium.io/agent-not-ready", value = "true", effect = "NoSchedule" }]
   description = "Only taints with a deployed remover. Linkerd CNI taint is deliberately not a Talos default."
 }
+
+variable "talos_drift_disruption_enabled" {
+  type        = bool
+  default     = true
+  description = "Allow voluntary Talos worker replacement for drift. Disable and verify the live zero-Drifted budget before updating bootstrap data when workers must be preserved. Does not block Spot interruption, expiration, repair or manual deletion."
+}

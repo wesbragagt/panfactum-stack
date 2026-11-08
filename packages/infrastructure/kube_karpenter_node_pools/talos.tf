@@ -47,8 +47,15 @@ resource "kubectl_manifest" "talos_node_pool" {
     kind       = "NodePool"
     metadata   = { name = var.talos_node_pool_name, labels = data.pf_kube_labels.labels.labels }
     spec = {
-      limits     = { cpu = tostring(var.talos_cpu_limit), memory = var.talos_memory_limit }
-      disruption = { consolidationPolicy = "WhenEmpty", consolidateAfter = "60s", budgets = [{ nodes = "1" }] }
+      limits = { cpu = tostring(var.talos_cpu_limit), memory = var.talos_memory_limit }
+      disruption = {
+        consolidationPolicy = "WhenEmpty"
+        consolidateAfter    = "60s"
+        budgets = concat(
+          [{ nodes = "1" }],
+          var.talos_drift_disruption_enabled ? [] : [{ nodes = "0", reasons = ["Drifted"] }]
+        )
+      }
       template = {
         metadata = { labels = merge(var.node_labels, { "panfactum.com/class" = "spot" }) }
         spec = {
