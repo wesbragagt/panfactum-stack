@@ -680,3 +680,13 @@ variable "pg_backup_schedule_name" {
   type        = string
   default     = null
 }
+
+variable "pg_non_vpa_memory_limit_mb" {
+  description = "Optional explicit PostgreSQL memory limit when VPA is disabled; leaves requests and database tuning unchanged."
+  type        = number
+  default     = null
+  validation {
+    condition     = var.pg_non_vpa_memory_limit_mb == null ? true : var.pg_non_vpa_memory_limit_mb >= var.pg_minimum_memory_mb
+    error_message = "The explicit memory limit must cover the memory request."
+  }
+}
