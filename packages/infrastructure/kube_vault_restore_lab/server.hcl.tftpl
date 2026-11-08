@@ -1,0 +1,46 @@
+disable_mlock = true
+ui = false
+api_addr = ${jsonencode("http://${node_id}.${namespace}.svc.cluster.local:8200")}
+
+listener "tcp" {
+  address = "0.0.0.0:8200"
+  cluster_address = "0.0.0.0:8201"
+  tls_disable = 1
+}
+
+storage "raft" {
+  path = "/vault/data"
+  node_id = ${jsonencode(node_id)}
+}
+
+# No retry_join or Kubernetes service_registration: this instance must never
+# join production Raft or update production Service selectors.
+plugin_directory = "/plugins"
+%{ if engine == "openbao" ~}
+plugin_auto_download = false
+plugin_auto_register = true
+%{ for plugin in plugins ~}
+plugin ${jsonencode(plugin.type)} ${jsonencode(plugin.name)} {
+  command = ${jsonencode(plugin.command)}
+  version = ${jsonencode(plugin.version)}
+  sha256sum = ${jsonencode(plugin.sha256sum)}
+  env = ${jsonencode([
+    "AWS_ROLE_ARN=${role_arn}",
+    "AWS_WEB_IDENTITY_TOKEN_FILE=/identity/token",
+    "AWS_REGION=${region}",
+    "AWS_DEFAULT_REGION=${region}",
+    "AWS_EC2_METADATA_DISABLED=true",
+    "AWS_STS_REGIONAL_ENDPOINTS=regional"
+  ])}
+}
+%{ endfor ~}
+%{ endif ~}
+
+seal "awskms" {
+  region = ${jsonencode(region)}
+  kms_key_id = ${jsonencode(seal_key_arn)}
+%{ if engine == "vault" ~}
+  role_arn = ${jsonencode(role_arn)}
+  web_identity_token_file = "/identity/token"
+%{ endif ~}
+}

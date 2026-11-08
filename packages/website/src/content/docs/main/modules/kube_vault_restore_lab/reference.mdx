@@ -1,0 +1,173 @@
+{/* lint disable no-duplicate-headings */}
+
+{/* eslint-disable import-x/order */}
+
+## Inputs
+
+The following input variables are supported:
+
+### create\_namespace
+
+Description: Own the lab namespace and aggregate quota. Additional instances must reuse that owner's namespace without co-ownership.
+
+Type: `bool`
+
+Default: `true`
+
+### engine
+
+Description: Server configuration dialect; this never upgrades or restores data automatically.
+
+Type: `string`
+
+Default: `"vault"`
+
+### image
+
+Description: Immutable image containing the exact server and any preinstalled plugins.
+
+Type: `string`
+
+Default: n/a
+
+### isolation\_verified
+
+Description: Explicit assertion backed by current live isolation evidence, not by policy readiness alone.
+
+Type: `bool`
+
+Default: `false`
+
+### memory\_request\_quota\_mi
+
+Description: Aggregate lab memory request budget in MiB; only the namespace owner manages this quota.
+
+Type: `number`
+
+Default: `448`
+
+### name
+
+Description: Dedicated server and identity name.
+
+Type: `string`
+
+Default: `"original-vault-restore"`
+
+### namespace
+
+Description: Dedicated migration namespace; never an existing production namespace.
+
+Type: `string`
+
+Default: `"vault-migration-lab"`
+
+### node\_selector
+
+Description: Explicit placement within the approved migration capacity budget.
+
+Type: `map(string)`
+
+Default: n/a
+
+### oidc\_issuer\_url
+
+Description: Explicit issuer URL paired with the provider ARN.
+
+Type: `string`
+
+Default: n/a
+
+### oidc\_provider\_arn
+
+Description: Explicit provider ARN for the self-managed cluster.
+
+Type: `string`
+
+Default: n/a
+
+### plugins
+
+Description: Preinstalled OpenBao plugins. Binary hashes must be verified against signed release artifacts.
+
+Type:
+
+```hcl
+list(object({
+    type      = string
+    name      = string
+    command   = string
+    version   = string
+    sha256sum = string
+  }))
+```
+
+Default: `[]`
+
+### seal\_key\_arn
+
+Description: Existing regional Vault unseal key ARN; the module never owns or changes this key.
+
+Type: `string`
+
+Default: n/a
+
+### server\_enabled
+
+Description: Start the empty server only after effective network and IAM isolation are verified. Does not initialize or restore.
+
+Type: `bool`
+
+Default: `false`
+
+### storage\_class
+
+Description: Existing encrypted storage class for the dedicated recovery PVC.
+
+Type: `string`
+
+Default: `"ebs-standard-retained"`
+
+### storage\_size
+
+Description: Dedicated bounded recovery volume capacity.
+
+Type: `string`
+
+Default: `"1Gi"`
+
+## Outputs
+
+The following outputs are exported:
+
+### namespace
+
+Description: Dedicated lab namespace.
+
+### persistent\_volume\_claim
+
+Description: Dedicated recovery PVC; include its live UID and volume identity in any cleanup approval.
+
+### role\_arn
+
+Description: KMS-only projected identity for the isolated process.
+
+### service\_name
+
+Description: Private lab API Service; never the production vault-active Service.
+
+## Providers
+
+The following providers are needed by this module:
+
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.40.0/docs) (6.40.0)
+
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
+
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/2.35.0/docs) (2.35.0)
+
+- [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
+
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}
