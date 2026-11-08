@@ -54,10 +54,12 @@ module "constants" {
 module "namespace" {
   source = "../kube_namespace"
 
-  namespace = local.name
+  namespace      = local.name
+  linkerd_inject = var.linkerd_inject
 }
 
 module "cert" {
+  count  = var.serving_certificate_mode == "panfactum" ? 1 : 0
   source = "../kube_internal_cert"
 
   secret_name   = "metrics-server-tls"
@@ -88,14 +90,15 @@ resource "helm_release" "metrics_server" {
         "reloader.stakater.com/auto" = "true"
       }
 
-      args = [
+      args = concat([
         "--v=${var.log_verbosity}",
         "--logging-format=json",
         "--metric-resolution=15s", // kubelets only scrape every 15s so any lower would be pointless
-        "--tls-cert-file=/etc/certs/tls.crt",
-        "--tls-private-key-file=/etc/certs/tls.key",
         "--tls-min-version=VersionTLS13"
-      ]
+        ], var.serving_certificate_mode == "panfactum" ? [
+        "--tls-cert-file=/etc/certs/tls.crt",
+        "--tls-private-key-file=/etc/certs/tls.key"
+      ] : [], var.kubelet_insecure_tls ? ["--kubelet-insecure-tls"] : [])
 
       resources = {
         requests = {
@@ -117,17 +120,13 @@ resource "helm_release" "metrics_server" {
       ///////////////////////////////////////
       // High Availability Config
       ////////////////////////////////////////
-      replicas                  = 2
+      replicas                  = var.replicas
       affinity                  = module.util.affinity
       topologySpreadConstraints = module.util.topology_spread_constraints
       tolerations               = module.util.tolerations
-      podDisruptionBudget = {
-        enabled      = true
-        minAvailable = 1
-      }
-      priorityClassName   = module.constants.cluster_important_priority_class_name
-      podDisruptionBudget = { enabled = false } # Created below
-      schedulerName       = var.panfactum_scheduler_enabled ? module.constants.panfactum_scheduler_name : "default-scheduler"
+      priorityClassName         = var.priority_class_name == null ? module.constants.cluster_important_priority_class_name : var.priority_class_name
+      podDisruptionBudget       = { enabled = false } # Created below
+      schedulerName             = var.panfactum_scheduler_enabled ? module.constants.panfactum_scheduler_name : "default-scheduler"
       updateStrategy = {
         type = "RollingUpdate"
         rollingUpdate = {
@@ -139,22 +138,23 @@ resource "helm_release" "metrics_server" {
       ///////////////////////////////////////
       // Custom Cert Config
       ////////////////////////////////////////
-      extraVolumeMounts = [{
+      tls = { type = var.serving_certificate_mode == "helm" ? "helm" : "metrics-server" }
+      extraVolumeMounts = var.serving_certificate_mode == "panfactum" ? [{
         name      = "certs"
         mountPath = "/etc/certs"
-      }]
-      extraVolumes = [{
+      }] : []
+      extraVolumes = var.serving_certificate_mode == "panfactum" ? [{
         name = "certs"
         secret = {
-          secretName = module.cert.secret_name
+          secretName = module.cert[0].secret_name
           optional   = false
         }
-      }]
+      }] : []
       apiService = {
         insecureSkipTLSVerify = false
-        annotations = {
-          "cert-manager.io/inject-ca-from" = "${local.namespace}/${module.cert.certificate_name}"
-        }
+        annotations = var.serving_certificate_mode == "panfactum" ? {
+          "cert-manager.io/inject-ca-from" = "${local.namespace}/${module.cert[0].certificate_name}"
+        } : {}
       }
 
       ///////////////////////////////////////
@@ -224,4 +224,10 @@ resource "kubectl_manifest" "vpa" {
   force_conflicts   = true
   server_side_apply = true
   depends_on        = [helm_release.metrics_server]
+}
+
+# Preserve existing certificate addresses when opting into configurable TLS.
+moved {
+  from = module.cert
+  to   = module.cert[0]
 }

@@ -69,3 +69,41 @@ variable "controller_nodes_enabled" {
   type        = bool
   default     = true
 }
+
+variable "serving_certificate_mode" {
+  description = "Serving TLS source: panfactum uses the internal cert-manager issuer; helm uses a chart-managed certificate and verified APIService CA bundle. Helm certificates require renewal by an operator before expiry (365 days)."
+  type        = string
+  default     = "panfactum"
+  validation {
+    condition     = contains(["panfactum", "helm"], var.serving_certificate_mode)
+    error_message = "serving_certificate_mode must be panfactum or helm."
+  }
+}
+
+variable "replicas" {
+  description = "Number of metrics-server replicas. Use one for single-node clusters."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.replicas >= 1 && floor(var.replicas) == var.replicas
+    error_message = "replicas must be a positive integer."
+  }
+}
+
+variable "priority_class_name" {
+  description = "Override the Panfactum priority class for clusters without Panfactum core resources."
+  type        = string
+  default     = null
+}
+
+variable "linkerd_inject" {
+  description = "Enable Linkerd injection in the metrics-server namespace."
+  type        = bool
+  default     = true
+}
+
+variable "kubelet_insecure_tls" {
+  description = "Skip verification of kubelet serving certificates, for self-managed clusters with self-signed kubelet certificates. Does not disable APIService serving TLS verification."
+  type        = bool
+  default     = false
+}
