@@ -1,10 +1,11 @@
 {
   "credentials": [
+    "(?i)\\b(?:bearer|basic)\\s+([A-Za-z0-9+/_=.-]+)",
+    "(?i)\\b(?:password|passwd|pwd|api[_-]?key|access[_-]?token|refresh[_-]?token)\\s*=\\s*\\\\\"((?:[^\"\\\\]|\\\\\\\\.)*)\\\\\"",
     "(?i)\\\\\"(?:password|passwd|pwd|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|(?:aws[_-]?)?secret[_-]?access[_-]?key|authorization|ssn|credit[_-]?card|card[_-]?number)\\\\\"\\s*:\\s*\\\\\"((?:[^\"\\\\]|\\\\\\\\.)*)\\\\\"",
     "(?i)\"(?:password|passwd|pwd|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|(?:aws[_-]?)?secret[_-]?access[_-]?key|authorization|ssn|credit[_-]?card|card[_-]?number)\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"",
     "(?i)\\b(?:password|passwd|pwd|api[_-]?key|access[_-]?token|refresh[_-]?token)\\s*=\\s*\"((?:[^\"\\\\]|\\\\.)*)\"",
     "(?i)\\b(?:password|passwd|pwd|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|(?:aws[_-]?)?secret[_-]?access[_-]?key|authorization|ssn|credit[_-]?card|card[_-]?number)\\s*[=:]\\s*([^\\s,\";}]+)",
-    "(?i)\\b(?:bearer|basic)\\s+([A-Za-z0-9+/_=.-]+)",
     "\\b(eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+)\\b",
     "://[^\\s/:@]+:([^\\s/@]+)@",
     "\\b((?:gh[pousr]_[A-Za-z0-9]{20,255}|github_pat_[A-Za-z0-9_]{20,255}|dckr_pat_[A-Za-z0-9_-]{20,255}|(?:AKIA|ASIA)[A-Z0-9]{16}))\\b"

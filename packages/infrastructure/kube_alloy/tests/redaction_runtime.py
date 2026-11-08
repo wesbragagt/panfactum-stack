@@ -27,6 +27,7 @@ try:
    urllib.request.urlopen('http://127.0.0.1:19124/-/ready');break
   except Exception: time.sleep(.2)
  fixtures=[{'level':'info','password':'fake spaced \\" secret','nested':{'api_key':'synthetic-key'},'email':'fake@example.invalid','namespace':'default','name':'kube-apiserver','ip':'10.0.0.1','status':200}, {'level':'warn','message':'password=fake-pass bearer fake-bearer user=fake@example.invalid ssn=123-45-6789 card=4111-1111-1111-1111 https://user:fake-url@host'}, {'level':'info','message':json.dumps({'password':'embedded-secret'})}]
+ fixtures += [{'level':'info','message':v} for v in ['AKIA'+'A'*16, 'ghp_'+'a'*36, 'dckr_pat_'+'b'*32, 'eyJabc.defghi.signature', 'Authorization: Basic ZmFrZTpmYWtl', 'password=\"synthetic spaced password\"', 'https://user:synthetic-url@host']]
  lines=[json.dumps(x) for x in fixtures]+['MULTILINE password=fake-pass\nrequestID=abc123 traceID=def456']
  body=json.dumps({'streams':[{'stream':{'test':'redaction'},'values':[[str(time.time_ns()),x] for x in lines]}]}).encode()
  urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:19123/loki/api/v1/push',data=body,headers={'Content-Type':'application/json'}))
@@ -37,11 +38,11 @@ entries=[json.loads(line) for line in text.splitlines() if line.startswith('{') 
 assert len(entries)==len(lines), (len(entries),len(lines))
 for entry in entries:
  assert '[REDACTED]' in entry['entry']
- for secret in ['fake spaced','synthetic-key','fake@example.invalid','fake-pass','fake-bearer','123-45-6789','4111-1111-1111','fake-url','embedded-secret']:
+ for secret in ['fake spaced','synthetic-key','fake@example.invalid','fake-pass','fake-bearer','123-45-6789','4111-1111-1111','fake-url','embedded-secret','AKIA'+'A'*16,'ghp_'+'a'*36,'dckr_pat_'+'b'*32,'eyJabc.defghi.signature','ZmFrZTpmYWtl','synthetic spaced password','synthetic-url']:
   assert secret not in json.dumps(entry), secret
 for entry in entries[:3]: json.loads(entry['entry'])
 control=json.loads(entries[0]['entry'])
 assert control['ip']=='10.0.0.1' and control['status']==200 and control['name']=='kube-apiserver' and control['namespace']=='default'
 assert 'level=\"info\"' in entries[0]['labels']
-assert 'requestID=abc123 traceID=def456' in entries[3]['entry']
+assert 'requestID=abc123 traceID=def456' in entries[-1]['entry']
 print(f'PASS {len(entries)} actual emitted-line fixtures; JSON, labels, controls and secret absence verified')
