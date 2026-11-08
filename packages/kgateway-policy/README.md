@@ -13,6 +13,10 @@ request-size/timeout enforcement, arbitrary CORS/override profiles, certificate
 renewal and authenticated application sessions require separate implementation
 and qualification. Do not silently replace those features with this processor.
 
+The module pins Go 1.27.3 for qualified builds and patched gRPC/HTTP2 dependencies.
+Binary vulnerability checks must inspect structured findings; a successful
+JSON-mode scanner exit alone does not establish a clean result.
+
 The processor requests headers only, keeps request scheme state inside each
 gRPC stream, and emits no request/response/header/body logs. It preserves
 existing CSP and Permissions-Policy values, including empty and repeated values;
