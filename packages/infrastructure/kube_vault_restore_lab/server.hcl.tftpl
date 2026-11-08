@@ -1,6 +1,10 @@
 disable_mlock = true
 ui = false
 api_addr = ${jsonencode("http://${node_id}.${namespace}.svc.cluster.local:8200")}
+# This recovery module is strictly singleton: never advertise a production peer
+# address or join another Raft member. Raft requires an explicit cluster address
+# even before the empty store is initialized.
+cluster_addr = "https://127.0.0.1:8201"
 
 listener "tcp" {
   address = "0.0.0.0:8200"

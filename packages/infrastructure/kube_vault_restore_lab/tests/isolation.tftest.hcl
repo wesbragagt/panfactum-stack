@@ -83,6 +83,10 @@ run "default_is_stopped_and_scoped" {
     condition     = length(regexall("(?m)^\\s*retry_join|^\\s*service_registration", local.configuration)) == 0
     error_message = "A clone must not join production Raft or register against production Kubernetes Services."
   }
+  assert {
+    condition     = strcontains(local.configuration, "cluster_addr = \"https://127.0.0.1:8201\"")
+    error_message = "Singleton Raft startup still requires an explicit isolated cluster address."
+  }
 }
 
 run "secondary_instance_does_not_coown_namespace" {
