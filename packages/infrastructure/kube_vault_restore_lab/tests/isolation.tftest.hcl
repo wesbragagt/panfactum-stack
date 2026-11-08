@@ -56,6 +56,13 @@ run "default_is_stopped_and_scoped" {
     error_message = "The restored process must not receive a Kubernetes API token."
   }
   assert {
+    condition = (
+      kubernetes_stateful_set_v1.server.spec[0].template[0].spec[0].security_context[0].run_as_non_root &&
+      kubernetes_stateful_set_v1.server.spec[0].template[0].spec[0].container[0].security_context[0].run_as_non_root
+    )
+    error_message = "Explicit container non-root must not override the Pod-level restriction with the provider's false default."
+  }
+  assert {
     condition = length(local.iam_policy.Statement) == 1 && (
       toset(local.iam_policy.Statement[0].Action) == toset(["kms:Encrypt", "kms:Decrypt", "kms:DescribeKey"])
       ) && (

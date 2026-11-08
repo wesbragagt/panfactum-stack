@@ -232,6 +232,7 @@ resource "kubernetes_stateful_set_v1" "server" {
             limits   = { cpu = "500m", memory = "512Mi" }
           }
           security_context {
+            run_as_non_root            = true
             allow_privilege_escalation = false
             read_only_root_filesystem  = true
             capabilities { drop = ["ALL"] }
