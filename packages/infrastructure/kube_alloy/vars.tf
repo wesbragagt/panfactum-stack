@@ -56,3 +56,27 @@ variable "kubernetes_events_image" {
   type        = string
   default     = "docker.io/grafana/alloy:v1.1.0"
 }
+
+variable "redaction_enabled" {
+  description = "Opt in to raw-line redaction before parsing or forwarding (not historical logs)."
+  type        = bool
+  default     = false
+}
+variable "redaction_categories" {
+  description = "Enabled pattern categories. Phone and explicit personal fields are opt in; operational IPs/names remain intact."
+  type        = list(string)
+  default     = ["credentials", "email", "ssn", "cards"]
+  validation {
+    condition     = alltrue([for c in var.redaction_categories : contains(["credentials", "email", "ssn", "cards", "phones", "personal_fields"], c)])
+    error_message = "Unknown redaction category."
+  }
+}
+variable "redaction_extra_patterns" {
+  description = "Additional RE2 expressions with exactly one value capture; no secret literals. Validate with the pinned Alloy binary before deployment."
+  type        = list(string)
+  default     = []
+  validation {
+    condition     = alltrue([for p in var.redaction_extra_patterns : can(regexall(p, "")) && length(p) > 0 && length(p) <= 2048])
+    error_message = "Extra patterns must be valid nonempty RE2 expressions up to 2048 characters."
+  }
+}

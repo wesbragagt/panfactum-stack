@@ -1,0 +1,6 @@
+%{ for expression in expressions ~}
+  stage.replace {
+    expression = ${jsonencode(expression)}
+    replace = "[REDACTED]"
+  }
+%{ endfor ~}

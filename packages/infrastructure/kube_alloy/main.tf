@@ -67,7 +67,9 @@ resource "kubernetes_config_map" "alloy" {
   }
   data = {
     "alloy.config" = templatefile("${path.module}/alloy.txt", {
-      LOG_LEVEL = var.log_level
+      LOG_LEVEL         = var.log_level
+      REDACTION_STAGES  = local.redaction_stages
+      REDACTION_ENABLED = var.redaction_enabled
     })
   }
 }

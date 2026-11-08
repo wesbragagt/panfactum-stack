@@ -84,9 +84,12 @@ loki.process "pod_logs" {
     drop_counter_reason = "buildkitd-runc"
   }
 
-  // Extract the level field from JSON logs
+${REDACTION_STAGES}
+  // Parse the sanitized raw line when redaction is enabled.
   stage.json {
+%{ if !REDACTION_ENABLED ~}
     source = "content"
+%{ endif ~}
     expressions = {
       level = "",
     }

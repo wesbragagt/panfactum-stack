@@ -4,6 +4,10 @@ logging {
 loki.source.kubernetes_events "cluster" {
   job_name = "kubernetes_events"
   log_format = "json"
+  forward_to = [loki.process.redaction.receiver]
+}
+loki.process "redaction" {
+${REDACTION_STAGES}
   forward_to = [loki.relabel.events.receiver]
 }
 loki.relabel "events" {

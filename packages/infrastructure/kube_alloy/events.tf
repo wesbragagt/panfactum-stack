@@ -37,7 +37,7 @@ resource "kubernetes_config_map_v1" "events" {
     namespace = local.namespace
     labels    = module.util.labels
   }
-  data = { "events.alloy" = file("${path.module}/events.alloy") }
+  data = { "events.alloy" = templatefile("${path.module}/events.alloy", { REDACTION_STAGES = local.redaction_stages }) }
 }
 resource "kubernetes_deployment_v1" "events" {
   count = var.kubernetes_events_enabled ? 1 : 0
