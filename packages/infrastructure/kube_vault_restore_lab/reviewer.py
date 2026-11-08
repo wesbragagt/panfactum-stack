@@ -21,13 +21,14 @@ class RefuseRedirect(urllib.request.HTTPRedirectHandler):
 
 def validate_review(value):
     if (not isinstance(value, dict) or
-            not {"apiVersion", "kind", "spec"}.issubset(value) or
-            not set(value).issubset({"apiVersion", "kind", "spec", "metadata"}) or
-            value.get("metadata", {}) not in ({}, {"creationTimestamp": None})):
+            "spec" not in value or
+            not set(value).issubset({"apiVersion", "kind", "spec", "metadata", "status"}) or
+            value.get("metadata", {}) not in ({}, {"creationTimestamp": None}) or
+            value.get("status", {}) not in ({}, {"user": {}})):
         return False
     spec = value.get("spec")
-    return (value["apiVersion"] == "authentication.k8s.io/v1" and
-            value["kind"] == "TokenReview" and isinstance(spec, dict) and
+    return (value.get("apiVersion", "authentication.k8s.io/v1") == "authentication.k8s.io/v1" and
+            value.get("kind", "TokenReview") == "TokenReview" and isinstance(spec, dict) and
             set(spec) == {"token", "audiences"} and spec["audiences"] == [AUDIENCE] and
             isinstance(spec["token"], str) and 0 < len(spec["token"]) <= 8192 and
             re.fullmatch(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", spec["token"]) is not None)
@@ -97,7 +98,10 @@ class Handler(BaseHTTPRequestHandler):
             if not validate_review(value):
                 self.reply(400, {"error": "invalid review"})
                 return
-            result = self.server.review(value)
+            # Vault 1.14.7 marshals an untyped Go TokenReview including empty
+            # metadata/status. Forward only this canonical, typed request.
+            result = self.server.review({"apiVersion": "authentication.k8s.io/v1",
+                                         "kind": "TokenReview", "spec": value["spec"]})
             self.reply(200, filtered_review(result, self.server.namespace, self.server.accounts))
         except Exception:
             self.reply(503, {"error": "verification unavailable"})

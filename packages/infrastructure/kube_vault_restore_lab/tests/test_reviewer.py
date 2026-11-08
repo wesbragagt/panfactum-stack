@@ -69,6 +69,13 @@ class Boundary(unittest.TestCase):
         self.assertEqual(self.request(authorization=False)[0], 401)
         self.assertEqual(self.called, [])
 
+    def test_original_vault_untyped_request_is_canonicalized(self):
+        value = {"metadata": {"creationTimestamp": None}, "spec": self.payload["spec"], "status": {"user": {}}}
+        code, body = self.request(payload=value)
+        self.assertEqual(code, 200)
+        self.assertTrue(json.loads(body)["status"]["authenticated"])
+        self.assertEqual(set(self.called[0]), {"apiVersion", "kind", "spec"})
+
     def test_wrong_audience_and_arbitrary_fields_never_forwarded(self):
         self.payload["spec"]["audiences"] = ["production"]
         self.assertEqual(self.request()[0], 400)
