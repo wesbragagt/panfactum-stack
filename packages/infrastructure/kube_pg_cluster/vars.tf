@@ -686,7 +686,7 @@ variable "pg_non_vpa_memory_limit_mb" {
   type        = number
   default     = null
   validation {
-    condition     = var.pg_non_vpa_memory_limit_mb == null ? true : var.pg_non_vpa_memory_limit_mb >= var.pg_minimum_memory_mb
-    error_message = "The explicit memory limit must cover the memory request."
+    condition     = var.pg_non_vpa_memory_limit_mb == null ? true : var.pg_non_vpa_memory_limit_mb > 0
+    error_message = "The explicit memory limit must be positive."
   }
 }

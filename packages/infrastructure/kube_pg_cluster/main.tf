@@ -959,7 +959,7 @@ resource "kubectl_manifest" "non_vpa_resource_adjustments" {
               {
                 op    = "add"
                 path  = "/spec/resources/limits/memory"
-                value = "${coalesce(var.pg_non_vpa_memory_limit_mb, ceil(var.pg_minimum_memory_mb * 1.1))}Mi"
+                value = "${max(var.pg_minimum_memory_mb, coalesce(var.pg_non_vpa_memory_limit_mb, ceil(var.pg_minimum_memory_mb * 1.1)))}Mi"
               }
             ])
           }
