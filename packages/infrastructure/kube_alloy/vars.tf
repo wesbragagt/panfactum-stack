@@ -45,3 +45,14 @@ variable "extra_helm_values" {
   type        = any
   default     = {}
 }
+
+variable "kubernetes_events_enabled" {
+  description = "Collect cluster-wide Kubernetes events using one independent Alloy collector."
+  type        = bool
+  default     = false
+}
+variable "kubernetes_events_image" {
+  description = "Events collector image; default matches Alloy chart 0.3.1."
+  type        = string
+  default     = "docker.io/grafana/alloy:v1.1.0"
+}

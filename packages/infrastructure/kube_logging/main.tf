@@ -338,8 +338,13 @@ resource "helm_release" "loki" {
             ingestion_rate_mb             = 50
             ingestion_burst_size_mb       = 100
 
-            volume_enabled               = true
-            retention_period             = "${var.log_retention_period_hours}h"
+            volume_enabled   = true
+            retention_period = "${var.log_retention_period_hours}h"
+            retention_stream = var.kubernetes_events_retention_hours == null ? [] : [{
+              selector = "{source=\"kubernetes_events\"}"
+              priority = 1
+              period   = "${var.kubernetes_events_retention_hours}h"
+            }]
             max_concurrent_tail_requests = 100 // Bump this as every loki canary needs a tail slot so we run out very quickly
           }
 

@@ -138,3 +138,13 @@ variable "redis_linkerd_enabled" {
   type        = bool
   default     = true
 }
+
+variable "kubernetes_events_retention_hours" {
+  description = "Optional retention for source=kubernetes_events streams; null preserves default retention."
+  type        = number
+  default     = null
+  validation {
+    condition     = var.kubernetes_events_retention_hours == null ? true : (var.kubernetes_events_retention_hours >= 24 && floor(var.kubernetes_events_retention_hours) == var.kubernetes_events_retention_hours)
+    error_message = "Event retention must be an integer number of hours, at least 24."
+  }
+}

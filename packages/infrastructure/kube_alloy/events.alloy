@@ -1,0 +1,20 @@
+logging {
+  level = "warn"
+}
+loki.source.kubernetes_events "cluster" {
+  job_name = "kubernetes_events"
+  log_format = "json"
+  forward_to = [loki.relabel.events.receiver]
+}
+loki.relabel "events" {
+  rule {
+    target_label = "source"
+    replacement = "kubernetes_events"
+  }
+  forward_to = [loki.write.loki.receiver]
+}
+loki.write "loki" {
+  endpoint {
+    url = "http://loki-write.logging.svc.cluster.local:3100/loki/api/v1/push"
+  }
+}
