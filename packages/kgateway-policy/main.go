@@ -1,5 +1,5 @@
-// A header-only ExtProc candidate for Panfactum's nginx Lua policy semantics.
-// Request limits are opt-in experimental; body and production gates remain.
+// An ExtProc candidate for Panfactum's nginx Lua policy semantics.
+// Request limits and streaming body limits are opt-in experimental.
 package main
 
 import (
@@ -25,8 +25,10 @@ import (
 
 type policy struct {
 	extproc.UnimplementedExternalProcessorServer
-	values map[string]string
-	limits *requestLimits
+	values          map[string]string
+	limits          *requestLimits
+	maxRequestBytes uint64
+	bodyOnly        bool
 }
 
 func header(headers *core.HeaderMap, name string) (string, bool) {
@@ -89,6 +91,7 @@ func (p *policy) Process(stream extproc.ExternalProcessor_ProcessServer) error {
 		}
 	}()
 	seenRequest := false
+	var received uint64
 	for {
 		message, err := stream.Recv()
 		if err == io.EOF {
@@ -100,10 +103,17 @@ func (p *policy) Process(stream extproc.ExternalProcessor_ProcessServer) error {
 		var response *extproc.ProcessingResponse
 		switch item := message.Request.(type) {
 		case *extproc.ProcessingRequest_RequestHeaders:
+			if p.bodyOnly {
+				return io.ErrUnexpectedEOF
+			}
 			if seenRequest {
 				return io.ErrUnexpectedEOF
 			}
 			seenRequest = true
+			if denied := declaredBodyRejection(item.RequestHeaders.Headers, p.maxRequestBytes); denied != nil {
+				return stream.Send(denied)
+			}
+
 			if p.limits != nil {
 				key, valid := clientKey(message)
 				var accepted bool
@@ -111,7 +121,7 @@ func (p *policy) Process(stream extproc.ExternalProcessor_ProcessServer) error {
 					release, accepted = p.limits.acquire(key, time.Now())
 				}
 				if !accepted {
-					return stream.Send(&extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_ImmediateResponse{ImmediateResponse: &extproc.ImmediateResponse{Status: &typepb.HttpStatus{Code: typepb.StatusCode_TooManyRequests}, Details: "policy_request_limit"}}})
+					return stream.Send(reject(typepb.StatusCode_TooManyRequests, "policy_request_limit"))
 				}
 			}
 			scheme, _ := header(item.RequestHeaders.Headers, ":scheme")
@@ -119,12 +129,28 @@ func (p *policy) Process(stream extproc.ExternalProcessor_ProcessServer) error {
 			response = &extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_RequestHeaders{
 				RequestHeaders: &extproc.HeadersResponse{},
 			}}
+
 		case *extproc.ProcessingRequest_ResponseHeaders:
+			if p.bodyOnly {
+				response = bodyResponseHeaders(item.ResponseHeaders.Headers)
+				break
+			}
 			response = &extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_ResponseHeaders{
 				ResponseHeaders: &extproc.HeadersResponse{Response: &extproc.CommonResponse{
 					HeaderMutation: p.response(item.ResponseHeaders.Headers, https),
 				}},
 			}}
+
+		case *extproc.ProcessingRequest_RequestBody:
+			if !p.bodyOnly || p.maxRequestBytes == 0 {
+				return io.ErrUnexpectedEOF
+			}
+			count := uint64(len(item.RequestBody.Body))
+			if count > p.maxRequestBytes-received {
+				return stream.Send(reject(typepb.StatusCode_PayloadTooLarge, "policy_request_body_limit"))
+			}
+			received += count
+			response = &extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_RequestBody{RequestBody: &extproc.BodyResponse{Response: &extproc.CommonResponse{}}}}
 		case *extproc.ProcessingRequest_RequestTrailers:
 			response = &extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_RequestTrailers{RequestTrailers: &extproc.TrailersResponse{}}}
 		case *extproc.ProcessingRequest_ResponseTrailers:
@@ -140,22 +166,31 @@ func (p *policy) Process(stream extproc.ExternalProcessor_ProcessServer) error {
 }
 
 func main() {
+	bodyAddress := flag.String("body-listen", "127.0.0.1:18085", "optional body-counting listener; loopback only")
+	bodyCheck := flag.Bool("body-check", false, "check the optional body listener as well")
 	address := flag.String("listen", "127.0.0.1:18083", "gRPC listener; loopback by default")
 	configuration := flag.String("config", "/config/headers.json", "public policy values")
 	check := flag.Bool("check", false, "check the loopback gRPC health service and exit")
+	maxBody := flag.Uint64("max-request-bytes", 0, "experimental streaming request body cap; requires requestBodyMode STREAMED; zero disables")
 	limitsEnabled := flag.Bool("request-limits", false, "experimental per-client limits; requires trusted source.address and trailer SEND")
 	flag.Parse()
 	if *check {
-		connection, err := grpc.NewClient(*address, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if err != nil {
-			log.Fatal("health client unavailable")
+		addresses := []string{*address}
+		if *bodyCheck {
+			addresses = append(addresses, *bodyAddress)
 		}
-		defer connection.Close()
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		result, err := healthpb.NewHealthClient(connection).Check(ctx, &healthpb.HealthCheckRequest{})
-		if err != nil || result.Status != healthpb.HealthCheckResponse_SERVING {
-			log.Fatal("policy service unavailable")
+		for _, target := range addresses {
+			connection, e := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if e != nil {
+				log.Fatal("health client unavailable")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			result, e := healthpb.NewHealthClient(connection).Check(ctx, &healthpb.HealthCheckRequest{})
+			cancel()
+			_ = connection.Close()
+			if e != nil || result.Status != healthpb.HealthCheckResponse_SERVING {
+				log.Fatal("policy service unavailable")
+			}
 		}
 		return
 	}
@@ -163,7 +198,10 @@ func main() {
 	if err != nil {
 		log.Fatal("policy configuration unavailable")
 	}
-	p := &policy{}
+	if *maxBody > 1<<30 {
+		log.Fatal("request body cap exceeds qualified input range")
+	}
+	p := &policy{maxRequestBytes: *maxBody}
 	if json.Unmarshal(data, &p.values) != nil {
 		log.Fatal("policy configuration invalid")
 	}
@@ -187,7 +225,14 @@ func main() {
 			log.Fatal("request limit configuration invalid")
 		}
 	}
-	listener, err := net.Listen("tcp", *address)
+	if *maxBody > 0 {
+		go servePolicy(*bodyAddress, &policy{bodyOnly: true, maxRequestBytes: *maxBody})
+	}
+	servePolicy(*address, p)
+}
+
+func servePolicy(address string, p *policy) {
+	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		log.Fatal("policy listener unavailable")
 	}

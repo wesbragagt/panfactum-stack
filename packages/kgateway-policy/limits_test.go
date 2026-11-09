@@ -271,3 +271,29 @@ func TestActualNginxMillisecondRateTraces(t *testing.T) {
 		})
 	}
 }
+
+func TestNginxBackwardClockAccounting(t *testing.T) {
+	now := time.Unix(100, 0)
+	small := limits(t, 60, 1000, 60, 10)
+	for i := 0; i < 180; i++ {
+		if !accepted(small, "a", now) {
+			t.Fatal("initial burst")
+		}
+	}
+	if !accepted(small, "a", now.Add(-time.Millisecond)) {
+		t.Fatal("small rollback admission")
+	}
+	if accepted(small, "a", now.Add(16*time.Millisecond)) {
+		t.Fatal("small rollback moved accounting clock backward")
+	}
+	large := limits(t, 60, 1000, 60, 10)
+	for i := 0; i < 180; i++ {
+		if !accepted(large, "a", now) {
+			t.Fatal("initial burst")
+		}
+	}
+	back := now.Add(-60001 * time.Millisecond)
+	if !accepted(large, "a", back) || !accepted(large, "a", back.Add(16*time.Millisecond)) {
+		t.Fatal("large rollback did not match nginx1ms accounting")
+	}
+}

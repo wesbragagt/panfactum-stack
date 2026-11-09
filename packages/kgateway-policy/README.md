@@ -91,3 +91,33 @@ per-controller scope. Exact overload/expiry behavior is an explicit operational
 difference requiring capacity testing. No production module enables this flag.
 The published header-only image predates this experimental implementation;
 rebuild, scan and qualify both architectures again before distributing a new image.
+
+## Experimental streaming body stage
+
+`--max-request-bytes=N` enables declared Content-Length validation on the header
+server and starts an independent body server at `127.0.0.1:18085`. Zero (the
+default) leaves the second server disabled. `/policy --check --body-check`
+checks both health services. The header stage keeps its existing scheme and
+request-lifetime accounting; the body stage counts bytes without retaining or
+replacing payloads. The qualified test cap is 10485760 bytes.
+
+The body provider requires request headers SKIP, request body STREAMED, response
+headers SEND, and all other modes NONE/SKIP. It permits only the NONE body-mode
+override, returned after upstream status 101 **and** Upgrade websocket. A client
+Upgrade header alone never disables the counter. Put the two providers at
+separate explicit stages and verify both are enabled in effective route/vhost
+xDS; a rendered TrafficPolicy alone is insufficient. kgateway 2.5.1 augmented
+ExtProc policy merging is required by the local fixture.
+
+Keep the 128KiB gRPC receive bound, 32KiB listener buffer, 64KiB HTTP/2 stream
+window, and 1MiB HTTP/2 connection window together. The process retains the
+32Mi request/64Mi limit and GOMEMLIMIT=48MiB, GOMAXPROCS=1. Native ListenerPolicy
+local replies must provide plaintext/security headers when either processor is
+unavailable. Do not increase message or memory limits to hide framing failures.
+
+Local HTTP/1 and HTTP/2 boundary and early-forwarding tests are evidence for the
+ordinary upload path only. Forged upgrade/tunnel framing, production ARM64,
+concurrent memory saturation and complete timeout parity remain gates. Native
+idle/connect policies belong to kgateway, not this binary; a 60s total request
+deadline is not a substitute for a 60s between-packets timeout. This experimental
+mode is not approved for production by the source commit or image build.

@@ -90,6 +90,13 @@ func (l *requestLimits) acquire(key string, now time.Time) (func(), bool) {
 			return nil, false
 		}
 		ms := now.Sub(state.last).Milliseconds()
+		// Match nginx when the wall clock steps backward: a large rollback
+		// advances its cached accounting by1ms; a small one keeps last intact.
+		if ms < -60000 {
+			ms = 1
+		} else if ms < 0 {
+			ms = 0
+		}
 		var proposed [2]int64
 		for i := range proposed {
 			// nginx subtracts decay before adding the next thousandth-unit request.
@@ -103,7 +110,9 @@ func (l *requestLimits) acquire(key string, now time.Time) (func(), bool) {
 			}
 		}
 		state.excess = proposed
-		state.last = now
+		if ms != 0 {
+			state.last = now
+		}
 		l.lru.MoveToFront(item)
 	}
 	state := item.Value.(*clientState)
