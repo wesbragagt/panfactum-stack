@@ -1,2 +1,17 @@
 summary: ""
-changes: []
+changes:
+  - id: 1676f721-a1d6-4837-9dd3-4dae90f50ea4
+    type: fix
+    summary: >-
+      Reduce Pod admission latency when the pull-through image cache is enabled in `kube_policies`.
+    description: >-
+      Skip fully cached container lists and unmatched images. Replace only matching image fields with JSON patches
+      instead of repeatedly performing strategic merges of the whole Pod. Existing image rewrites and opt-outs remain unchanged.
+    references:
+      - type: issue-report
+        summary: Pull-through cache mutations slow Pod creation and cause webhook timeouts
+        link: https://github.com/Panfactum/stack/issues/402
+    impacts:
+      - type: iac-module
+        component: kube_policies
+        summary: Reduce unnecessary mutation work for containers and init containers during Pod creation.

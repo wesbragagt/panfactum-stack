@@ -1,17 +1,13 @@
 locals {
   pull_through_cache_registry = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com"
-  // Match only private registry hostnames, never repository paths or public.ecr.aws.
-  // AWS standard/China and FIPS hostnames: https://aws.amazon.com/compliance/fips/
-  private_ecr_image_pattern = "^[0-9]{12}[.]dkr[.]ecr(-fips)?[.][a-z0-9-]+[.]amazonaws[.]com([.]cn)?/"
   registry_replacements = [
-    { original = "^ghcr\\.io/(.*)$", new = "github/$1" },
-    { original = "^cr\\.l5d\\.io/(.*)$", new = "github/$1" }, // Linkerd uses their own registry, but also hosts the images on GitHub
-    { original = "^docker\\.io/(.*)$", new = "docker-hub/$1" },
-    { original = "^index\\.docker\\.io/(.*)$", new = "docker-hub/$1" },
-    { original = "^quay\\.io/(.*)$", new = "quay/$1" },
-    { original = "^registry\\.k8s\\.io/(.*)$", new = "kubernetes/$1" },
-    { original = "^public\\.ecr\\.aws/(.*)$", new = "ecr-public/$1" },
-    { original = "^([^.]*):(.*)$", new = "docker-hub/$1:$2" } // This is for the default docker registry
+    { host = "ghcr.io", prefix = "github" },
+    { host = "cr.l5d.io", prefix = "github" }, // Linkerd also hosts their images on GitHub
+    { host = "docker.io", prefix = "docker-hub" },
+    { host = "index.docker.io", prefix = "docker-hub" },
+    { host = "quay.io", prefix = "quay" },
+    { host = "registry.k8s.io", prefix = "kubernetes" },
+    { host = "public.ecr.aws", prefix = "ecr-public" }
   ]
   exclude_pull_through_cache = {
     any = [
@@ -28,50 +24,48 @@ locals {
   }
 
   rule_use_pull_through_image_cache = var.pull_through_cache_enabled ? [
-    {
-      name    = "update-containers"
-      match   = local.match_any_pod_create
-      exclude = local.exclude_pull_through_cache
-      mutate = {
-        foreach = [for config in local.registry_replacements : {
-          list = "request.object.spec.containers[?!regex_match('${local.private_ecr_image_pattern}', image)]"
-          patchStrategicMerge = {
-            spec = {
-              containers = [{
-                name  = "{{ element.name }}"
-                image = "{{ regex_replace_all('${config.original}', '{{element.image}}', '${local.pull_through_cache_registry}/${config.new}' )}}"
-              }]
-            }
-          }
-          }
-        ]
-      }
-    },
-    {
-      name    = "update-init-containers"
+    for field in ["containers", "initContainers"] : {
+      name    = field == "containers" ? "update-containers" : "update-init-containers"
       match   = local.match_any_pod_create
       exclude = local.exclude_pull_through_cache
       preconditions = {
         all = [{
-          key      = "{{ request.object.spec.initContainers[] || `[]` | length(@) }}"
-          operator = "GreaterThanOrEquals"
-          value    = 1
+          key      = "{{ request.object.spec.${field}[].image || `[]` }}"
+          operator = "AnyNotIn"
+          value    = ["${local.pull_through_cache_registry}/*"]
         }]
       }
       mutate = {
-        foreach = [for config in local.registry_replacements :
-          {
-            list = "request.object.spec.initContainers[?!regex_match('${local.private_ecr_image_pattern}', image)]"
-            patchStrategicMerge = {
-              spec = {
-                initContainers = [{
-                  name  = "{{ element.name }}"
-                  image = "{{ regex_replace_all('${config.original}', '{{element.image}}', '${local.pull_through_cache_registry}/${config.new}' )}}"
-                }]
-              }
-            }
+        // Keep the list unfiltered so elementIndex matches the original Pod array.
+        foreach = concat([for config in local.registry_replacements : {
+          list = "request.object.spec.${field}"
+          preconditions = {
+            all = [{
+              key      = "{{ element.image }}"
+              operator = "Equals"
+              value    = "${config.host}/*"
+            }]
           }
-        ]
+          patchesJson6902 = yamlencode([{
+            op    = "replace"
+            path  = "/spec/${field}/{{elementIndex}}/image"
+            value = "${local.pull_through_cache_registry}/${config.prefix}/{{ trim_prefix(element.image, '${config.host}/') }}"
+          }])
+          }], [{
+          list = "request.object.spec.${field}"
+          preconditions = {
+            all = [{
+              key      = "{{ contains(element.image, ':') && !contains(split(element.image, ':')[0], '.') }}"
+              operator = "Equals"
+              value    = true
+            }]
+          }
+          patchesJson6902 = yamlencode([{
+            op    = "replace"
+            path  = "/spec/${field}/{{elementIndex}}/image"
+            value = "${local.pull_through_cache_registry}/docker-hub/{{ element.image }}"
+          }])
+        }])
       }
     }
   ] : [null, null]
