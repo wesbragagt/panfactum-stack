@@ -24,6 +24,11 @@ output "control_plane_public_ips" {
   value       = [aws_eip_association.api.public_ip]
 }
 
+output "control_plane_private_ips" {
+  description = "Private IPs of the control plane nodes, in control_plane_subnets order."
+  value       = aws_instance.control_plane[*].private_ip
+}
+
 output "worker_autoscaling_group_name" {
   description = "Auto Scaling group maintaining the desired Spot worker count."
   value       = aws_autoscaling_group.worker.name

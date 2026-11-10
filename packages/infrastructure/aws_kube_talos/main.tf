@@ -19,12 +19,12 @@ terraform {
 
 locals {
   api_host         = var.api_dns == null ? aws_eip.api.public_ip : var.api_dns.name
-  cluster_endpoint = "https://${local.api_host}:6443"
+  cluster_endpoint = var.private_api_dns_name == null ? "https://${local.api_host}:6443" : "https://${var.private_api_dns_name}:6443"
 
   # Keep the Elastic IP valid in the API server cert so clients pinned to it survive a switch to the DNS name
   api_san_patch = yamlencode({
     apiVersion    = "v1alpha1", kind = "KubeAPIServerConfig"
-    certExtraSANs = distinct([local.api_host, aws_eip.api.public_ip])
+    certExtraSANs = compact(distinct([local.api_host, aws_eip.api.public_ip, var.private_api_dns_name]))
   })
 
   cilium_config_patches = var.cilium_enabled ? [
@@ -50,14 +50,13 @@ data "aws_ami" "talos" {
   }
 }
 
-data "aws_subnets" "control_plane" {
-  filter {
-    name   = "vpc-id"
-    values = [var.vpc_id]
-  }
+# One lookup per node so placement follows control_plane_subnets order, not subnet IDs
+data "aws_subnet" "control_plane" {
+  count  = var.control_plane_count
+  vpc_id = var.vpc_id
   filter {
     name   = "tag:Name"
-    values = var.control_plane_subnets
+    values = [var.control_plane_subnets[count.index]]
   }
 }
 
@@ -151,6 +150,27 @@ resource "aws_eip_association" "api" {
   instance_id   = aws_instance.control_plane[0].id
 }
 
+resource "aws_route53_zone" "private_api" {
+  count = var.private_api_dns_name == null ? 0 : 1
+  name  = join(".", slice(split(".", var.private_api_dns_name), 1, length(split(".", var.private_api_dns_name))))
+
+  vpc {
+    vpc_id = var.vpc_id
+  }
+
+  tags = data.pf_aws_tags.tags.tags
+}
+
+# Clients and kubelets try each address; KubePrism load-balances after nodes join
+resource "aws_route53_record" "private_api" {
+  count   = var.private_api_dns_name == null ? 0 : 1
+  zone_id = aws_route53_zone.private_api[0].zone_id
+  name    = var.private_api_dns_name
+  type    = "A"
+  ttl     = 30
+  records = aws_instance.control_plane[*].private_ip
+}
+
 resource "aws_route53_record" "api" {
   count   = var.api_dns == null ? 0 : 1
   zone_id = var.api_dns.zone_id
@@ -180,7 +200,7 @@ data "talos_machine_configuration" "control_plane" {
 
 data "talos_machine_configuration" "worker" {
   cluster_name       = var.cluster_name
-  cluster_endpoint   = "https://${aws_instance.control_plane[0].private_ip}:6443"
+  cluster_endpoint   = var.private_api_dns_name == null ? "https://${aws_instance.control_plane[0].private_ip}:6443" : local.cluster_endpoint
   machine_type       = "worker"
   machine_secrets    = var.machine_secrets
   talos_version      = var.talos_version
@@ -200,11 +220,23 @@ data "talos_machine_configuration" "worker" {
 resource "aws_instance" "control_plane" {
   count                       = var.control_plane_count
   ami                         = data.aws_ami.talos.id
-  instance_type               = var.control_plane_instance_type
-  subnet_id                   = element(sort(data.aws_subnets.control_plane.ids), count.index)
+  instance_type               = length(var.control_plane_instance_types) > 0 ? var.control_plane_instance_types[count.index] : var.control_plane_instance_type
+  subnet_id                   = data.aws_subnet.control_plane[count.index].id
   vpc_security_group_ids      = [aws_security_group.nodes.id]
   associate_public_ip_address = true
   user_data                   = data.talos_machine_configuration.control_plane.machine_configuration
+
+  # A stopped Spot node resumes with the same disk and IP, so it rejoins etcd without replacement
+  dynamic "instance_market_options" {
+    for_each = var.control_plane_spot_enabled ? [1] : []
+    content {
+      market_type = "spot"
+      spot_options {
+        spot_instance_type             = "persistent"
+        instance_interruption_behavior = "stop"
+      }
+    }
+  }
 
   # Hop limit 1 keeps pods (and the machine config in user data) away from IMDS
   metadata_options {
@@ -225,6 +257,16 @@ resource "aws_instance" "control_plane" {
 
   lifecycle {
     ignore_changes = [ami, user_data]
+
+    # OpenTofu 1.8 variable validation cannot reference other variables
+    precondition {
+      condition     = var.control_plane_count <= length(var.control_plane_subnets)
+      error_message = "control_plane_subnets needs one entry per control plane node."
+    }
+    precondition {
+      condition     = var.control_plane_count == 1 || var.private_api_dns_name != null
+      error_message = "control_plane_count = 3 requires private_api_dns_name."
+    }
   }
 }
 
@@ -300,7 +342,7 @@ resource "talos_machine_configuration_apply" "control_plane" {
   node           = aws_instance.control_plane[count.index].private_ip
 
   # Nodes resolve the cluster endpoint during the apply, so the record must exist first
-  depends_on = [aws_route53_record.api]
+  depends_on = [aws_route53_record.api, aws_route53_record.private_api]
 }
 
 

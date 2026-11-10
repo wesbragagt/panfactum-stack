@@ -9,7 +9,7 @@ variable "vpc_id" {
 }
 
 variable "control_plane_subnets" {
-  description = "List of PUBLIC subnet names (Name tag) for the control plane nodes and the API load balancer."
+  description = "PUBLIC subnet names (Name tag), one per control plane node in order. Repeating a subnet places several nodes in one AZ, which an AZ outage takes down together."
   type        = list(string)
   default     = ["PUBLIC_A", "PUBLIC_B", "PUBLIC_C"]
 }
@@ -21,20 +21,40 @@ variable "worker_subnets" {
 }
 
 variable "control_plane_count" {
-  description = "Number of control plane nodes. Only 1 is supported while the API endpoint is a single Elastic IP; HA needs a multi-address endpoint."
+  description = "Number of control plane nodes, placed in control_plane_subnets order. 3 requires private_api_dns_name so nodes do not depend on one controller's address."
   type        = number
   default     = 1
 
+  # etcd quorum: 3 members tolerate one loss; 2 tolerate none.
   validation {
-    condition     = var.control_plane_count == 1
-    error_message = "control_plane_count must be 1 until the API endpoint can span several control planes."
+    condition     = contains([1, 3], var.control_plane_count)
+    error_message = "control_plane_count must be 1 or 3."
   }
+
+}
+
+variable "control_plane_spot_enabled" {
+  description = "Run control planes as persistent Spot instances that stop (keeping their disk, private IP and etcd membership) on interruption and can be stopped to suspend the cluster."
+  type        = bool
+  default     = false
+}
+
+variable "private_api_dns_name" {
+  description = "Optional private DNS name (e.g. api.example.internal) used as the cluster endpoint. Creates a private Route53 zone for the parent domain with an A record to every control plane private IP."
+  type        = string
+  default     = null
 }
 
 variable "control_plane_instance_type" {
   description = "EC2 instance type for control plane nodes. T2 types are not supported by Talos."
   type        = string
   default     = "t4g.medium"
+}
+
+variable "control_plane_instance_types" {
+  description = "Optional per-node instance types in control_plane_subnets order, overriding control_plane_instance_type. Lets each Spot node use a type with capacity in its AZ."
+  type        = list(string)
+  default     = []
 }
 
 variable "control_plane_workloads_enabled" {

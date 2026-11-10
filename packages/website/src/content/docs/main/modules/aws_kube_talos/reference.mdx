@@ -55,7 +55,7 @@ Default: n/a
 
 ### control\_plane\_count
 
-Description: Number of control plane nodes. Only 1 is supported while the API endpoint is a single Elastic IP; HA needs a multi-address endpoint.
+Description: Number of control plane nodes, placed in control\_plane\_subnets order. 3 requires private\_api\_dns\_name so nodes do not depend on one controller's address.
 
 Type: `number`
 
@@ -69,9 +69,25 @@ Type: `string`
 
 Default: `"t4g.medium"`
 
+### control\_plane\_instance\_types
+
+Description: Optional per-node instance types in control\_plane\_subnets order, overriding control\_plane\_instance\_type. Lets each Spot node use a type with capacity in its AZ.
+
+Type: `list(string)`
+
+Default: `[]`
+
+### control\_plane\_spot\_enabled
+
+Description: Run control planes as persistent Spot instances that stop (keeping their disk, private IP and etcd membership) on interruption and can be stopped to suspend the cluster.
+
+Type: `bool`
+
+Default: `false`
+
 ### control\_plane\_subnets
 
-Description: List of PUBLIC subnet names (Name tag) for the control plane nodes and the API load balancer.
+Description: PUBLIC subnet names (Name tag), one per control plane node in order. Repeating a subnet places several nodes in one AZ, which an AZ outage takes down together.
 
 Type: `list(string)`
 
@@ -84,6 +100,14 @@ Default:
   "PUBLIC_C"
 ]
 ```
+
+### control\_plane\_workloads\_enabled
+
+Description: Allow ordinary workloads on control planes for small homelab clusters; they share resources with etcd and the API server.
+
+Type: `bool`
+
+Default: `false`
 
 ### etcd\_backup\_retention\_days
 
@@ -150,6 +174,22 @@ object({
 ```
 
 Default: n/a
+
+### operator\_tunnel\_security\_group\_id
+
+Description: Optional security group of SSM tunnel hosts allowed to reach the private Kubernetes and Talos APIs.
+
+Type: `string`
+
+Default: `null`
+
+### private\_api\_dns\_name
+
+Description: Optional private DNS name (e.g. api.example.internal) used as the cluster endpoint. Creates a private Route53 zone for the parent domain with an A record to every control plane private IP.
+
+Type: `string`
+
+Default: `null`
 
 ### root\_volume\_size\_gb
 
@@ -231,6 +271,10 @@ Description: The name of the Talos cluster.
 
 Description: The URL of the Kubernetes API server (use as kube\_api\_server in region.yaml).
 
+### control\_plane\_private\_ips
+
+Description: Private IPs of the control plane nodes, in control\_plane\_subnets order.
+
 ### control\_plane\_public\_ips
 
 Description: Public IP of the control plane node (Talos and Kubernetes API endpoint).
@@ -255,9 +299,9 @@ Description: Security group shared by all Talos nodes.
 
 Description: talosctl client configuration.
 
-### worker\_public\_ips
+### worker\_autoscaling\_group\_name
 
-Description: Public IPs of the worker nodes.
+Description: Auto Scaling group maintaining the desired Spot worker count.
 
 ## Providers
 

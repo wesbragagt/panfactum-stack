@@ -286,6 +286,10 @@ words:
     "exfill",
     "talosconfig",
     "Floci",
+    "talosctl",
+    "homelab",
+    "siderolabs",
+    "Sidero",
   ]
 languageSettings:
   - languageId:
