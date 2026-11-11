@@ -532,12 +532,18 @@ module "snapshot_gc" {
     image_registry   = "public.ecr.aws"
     image_repository = module.constants.panfactum_image_repository
     image_tag        = module.constants.panfactum_image_tag
+    // The pinned panfactum image ships the bash script, not the `pf kube velero-snapshot-gc` command.
     command = [
-      "pf", "kube", "velero-snapshot-gc"
+      "/bin/pf-velero-snapshot-gc"
     ]
     # Holds the full `kubectl get volumesnapshot -A -o json` output while the backlog is large.
     minimum_memory = 256
   }]
+  // The script's `<<<` here-string spills to a temp file once the snapshot list passes the pipe
+  // buffer, which fails on the read-only root filesystem and stops all GC.
+  tmp_directories = {
+    tmp = { mount_path = "/tmp" }
+  }
   starting_deadline_seconds = 60 * 5
   # Each orphan costs several kubectl calls; 5 minutes cannot clear a backlog of thousands.
   active_deadline_seconds = 60 * 60
