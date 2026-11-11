@@ -129,10 +129,10 @@ variable "talos_architecture" {
 variable "talos_cpu_limit" {
   type        = number
   default     = 4
-  description = "Total worker CPU limit; pair with 2-vCPU instance requirements for at most two workers."
+  description = "Total worker CPU limit; with 2-vCPU instance requirements, each 2 CPU allows one more worker."
   validation {
-    condition     = var.talos_cpu_limit >= 2 && var.talos_cpu_limit <= 4
-    error_message = "Initial Talos worker CPU limit must be between 2 and 4."
+    condition     = var.talos_cpu_limit >= 2 && var.talos_cpu_limit <= 16
+    error_message = "Talos worker CPU limit must be between 2 and 16."
   }
 }
 variable "talos_memory_limit" {
