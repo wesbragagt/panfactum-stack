@@ -1,4 +1,3 @@
-# cspell:ignore cutover unmutated
 variable "region" {
   description = "AWS region injected as AWS_REGION and AWS_DEFAULT_REGION into mutated pods."
   type        = string
@@ -51,7 +50,7 @@ variable "token_expiration_seconds" {
 }
 
 variable "service_account_lookup_grace_period" {
-  description = "Go duration a replica waits for an uncached ServiceAccount (fetched from the API) before admitting the pod unmutated. 0 disables the fallback."
+  description = "Go duration a replica waits for an uncached ServiceAccount (fetched from the API) before admitting the pod without credentials. 0 disables the fallback."
   type        = string
   default     = "2s"
   validation {
@@ -61,7 +60,7 @@ variable "service_account_lookup_grace_period" {
 }
 
 variable "mutating_webhook_enabled" {
-  description = "Create the MutatingWebhookConfiguration. Set false during cutover while another webhook still mutates pods."
+  description = "Create the MutatingWebhookConfiguration. Set false during migration while another webhook still mutates pods."
   type        = bool
   default     = true
 }

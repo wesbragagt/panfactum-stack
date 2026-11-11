@@ -1,0 +1,138 @@
+{/* lint disable no-duplicate-headings */}
+
+{/* eslint-disable import-x/order */}
+
+## Inputs
+
+The following input variables are supported:
+
+### bootstrap\_exempt\_selector\_expressions
+
+Description: objectSelector matchExpressions (ANDed) exempting pods the cluster needs before this webhook can answer. Never exempt a pod whose ServiceAccount uses IRSA.
+
+Type:
+
+```hcl
+list(object({
+    key      = string
+    operator = string
+    values   = optional(list(string), [])
+  }))
+```
+
+Default:
+
+```json
+[
+  {
+    "key": "k8s-app",
+    "operator": "NotIn",
+    "values": [
+      "cilium",
+      "cilium-envoy",
+      "kube-dns"
+    ]
+  },
+  {
+    "key": "io.cilium/app",
+    "operator": "NotIn",
+    "values": [
+      "operator"
+    ]
+  }
+]
+```
+
+### create\_namespace
+
+Description: Create the namespace with kube\_namespace. Leave false for kube-system or another existing namespace.
+
+Type: `bool`
+
+Default: `false`
+
+### image
+
+Description: Webhook image pinned by digest.
+
+Type: `string`
+
+Default: `"public.ecr.aws/eks/amazon-eks-pod-identity-webhook:v0.6.17@sha256:3071570e8e8cba6d5aff01e86d52bc91025a0578782aa9cd2b681480845b0a50"`
+
+### mutating\_webhook\_enabled
+
+Description: Create the MutatingWebhookConfiguration. Set false during migration while another webhook still mutates pods.
+
+Type: `bool`
+
+Default: `true`
+
+### name
+
+Description: Name of the Deployment, Service, PDB, certificates, RBAC and webhook configuration. Must differ from a running Helm release's name.
+
+Type: `string`
+
+Default: `"pod-identity-webhook"`
+
+### namespace
+
+Description: Namespace for the webhook. kube-system exists before any add-on and is excluded from Kyverno mutation.
+
+Type: `string`
+
+Default: `"kube-system"`
+
+### region
+
+Description: AWS region injected as AWS\_REGION and AWS\_DEFAULT\_REGION into mutated pods.
+
+Type: `string`
+
+Default: n/a
+
+### service\_account\_lookup\_grace\_period
+
+Description: Go duration a replica waits for an uncached ServiceAccount (fetched from the API) before admitting the pod without credentials. 0 disables the fallback.
+
+Type: `string`
+
+Default: `"2s"`
+
+### token\_expiration\_seconds
+
+Description: Lifetime of the projected service-account token passed to --token-expiration.
+
+Type: `number`
+
+Default: `86400`
+
+## Outputs
+
+The following outputs are exported:
+
+### annotation\_key
+
+Description: ServiceAccount annotation the webhook reads for the IAM role ARN.
+
+### namespace
+
+Description: n/a
+
+### webhook\_service\_name
+
+Description: n/a
+
+## Providers
+
+The following providers are needed by this module:
+
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
+
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/2.35.0/docs) (2.35.0)
+
+- [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
+
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}
