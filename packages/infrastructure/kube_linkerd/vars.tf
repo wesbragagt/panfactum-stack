@@ -107,3 +107,9 @@ variable "viz_extra_helm_values" {
   type        = any
   default     = {}
 }
+
+variable "cni_remove_taint_image" {
+  description = "Image for the remove-taint sidecar on linkerd-cni pods. Defaults to bitnamilegacy/kubectl at the server's minor version, which no longer publishes tags past 1.33."
+  type        = string
+  default     = null
+}

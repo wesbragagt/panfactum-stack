@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### bootstrap_mode_enabled
+### bootstrap\_mode\_enabled
 
 Description: Whether the cluster is being bootstrapped and does not yet have the autoscaler enabled
 
@@ -14,7 +14,7 @@ Type: `bool`
 
 Default: `false`
 
-### burstable_nodes_enabled
+### burstable\_nodes\_enabled
 
 Description: Whether to allow controller pods to schedule on burstable nodes. Does not affect DaemonSet pods.
 
@@ -22,16 +22,39 @@ Type: `bool`
 
 Default: `true`
 
-### controller_nodes_enabled
+### cni\_extra\_helm\_values
 
-Description: Whether to allow controller pods to schedule on EKS Node Group nodes (controller nodes). Does not affect
-DaemonSet pods.
+Description: Explicit deployment-specific Helm overrides applied after module defaults
+
+Type: `any`
+
+Default: `{}`
+
+### cni\_remove\_taint\_image
+
+Description: Image for the remove-taint sidecar on linkerd-cni pods. Defaults to bitnamilegacy/kubectl at the server's minor version, which no longer publishes tags past 1.33.
+
+Type: `string`
+
+Default: `null`
+
+### controller\_nodes\_enabled
+
+Description: Whether to allow controller pods to schedule on EKS Node Group nodes (controller nodes). Does not affect DaemonSet pods.
 
 Type: `bool`
 
 Default: `true`
 
-### linkerd_helm_version
+### extra\_helm\_values
+
+Description: Explicit deployment-specific Helm overrides applied after module defaults
+
+Type: `any`
+
+Default: `{}`
+
+### linkerd\_helm\_version
 
 Description: The version of the linkerd-crd and linkerd-control-plane helm charts to deploy (edge)
 
@@ -39,7 +62,7 @@ Type: `string`
 
 Default: `"2025.10.7"`
 
-### log_level
+### log\_level
 
 Description: The log level for the Linkerd pods
 
@@ -47,7 +70,7 @@ Type: `string`
 
 Default: `"warn"`
 
-### monitoring_enabled
+### monitoring\_enabled
 
 Description: Whether to add active monitoring to the deployed systems
 
@@ -55,7 +78,15 @@ Type: `bool`
 
 Default: `false`
 
-### panfactum_scheduler_enabled
+### namespace\_labels
+
+Description: Additional namespace labels; defaults preserve existing namespace security policy
+
+Type: `map(string)`
+
+Default: `{}`
+
+### panfactum\_scheduler\_enabled
 
 Description: Whether to use the Panfactum pod scheduler with enhanced bin-packing
 
@@ -63,7 +94,7 @@ Type: `bool`
 
 Default: `false`
 
-### pull_through_cache_enabled
+### pull\_through\_cache\_enabled
 
 Description: Whether to use the ECR pull through cache for the deployed images
 
@@ -71,16 +102,15 @@ Type: `bool`
 
 Default: `true`
 
-### sla_target
+### sla\_target
 
-Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest
-uptime (99.999%), highest Cost
+Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest uptime (99.999%), highest Cost
 
 Type: `number`
 
 Default: `3`
 
-### spot_nodes_enabled
+### spot\_nodes\_enabled
 
 Description: Whether to allow controller pods to schedule on spot nodes. Does not affect DaemonSet pods.
 
@@ -88,7 +118,7 @@ Type: `bool`
 
 Default: `true`
 
-### vault_ca_crt
+### vault\_ca\_crt
 
 Description: The vault certificate authority public certificate.
 
@@ -96,7 +126,15 @@ Type: `string`
 
 Default: n/a
 
-### vpa_enabled
+### viz\_extra\_helm\_values
+
+Description: Explicit deployment-specific Helm overrides applied after module defaults
+
+Type: `any`
+
+Default: `{}`
+
+### vpa\_enabled
 
 Description: Whether the VPA resources should be enabled
 
@@ -106,9 +144,7 @@ Default: `false`
 
 ### wait
 
-Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to
-proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment
-failures.
+Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment failures.
 
 Type: `bool`
 
