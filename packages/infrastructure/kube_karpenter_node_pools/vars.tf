@@ -151,6 +151,16 @@ variable "talos_startup_taints" {
   description = "Only taints with a deployed remover. Linkerd CNI taint is deliberately not a Talos default."
 }
 
+variable "talos_consolidation_policy" {
+  type        = string
+  default     = "WhenEmpty"
+  description = "Karpenter consolidation policy for the Talos NodePool. WhenEmptyOrUnderutilized also repacks pods to remove underused workers."
+  validation {
+    condition     = contains(["WhenEmpty", "WhenEmptyOrUnderutilized"], var.talos_consolidation_policy)
+    error_message = "talos_consolidation_policy must be WhenEmpty or WhenEmptyOrUnderutilized."
+  }
+}
+
 variable "talos_drift_disruption_enabled" {
   type        = bool
   default     = true

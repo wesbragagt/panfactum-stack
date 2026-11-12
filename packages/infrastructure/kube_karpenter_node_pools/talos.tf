@@ -49,7 +49,7 @@ resource "kubectl_manifest" "talos_node_pool" {
     spec = {
       limits = { cpu = tostring(var.talos_cpu_limit), memory = var.talos_memory_limit }
       disruption = {
-        consolidationPolicy = "WhenEmpty"
+        consolidationPolicy = var.talos_consolidation_policy
         consolidateAfter    = "60s"
         budgets = concat(
           [{ nodes = "1" }],

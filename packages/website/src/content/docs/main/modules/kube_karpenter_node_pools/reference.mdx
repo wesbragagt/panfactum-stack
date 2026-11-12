@@ -166,9 +166,17 @@ Type: `string`
 
 Default: `"arm64"`
 
+### talos\_consolidation\_policy
+
+Description: Karpenter consolidation policy for the Talos NodePool. WhenEmptyOrUnderutilized also repacks pods to remove underused workers.
+
+Type: `string`
+
+Default: `"WhenEmpty"`
+
 ### talos\_cpu\_limit
 
-Description: Total worker CPU limit; pair with 2-vCPU instance requirements for at most two workers.
+Description: Total worker CPU limit; with 2-vCPU instance requirements, each 2 CPU allows one more worker.
 
 Type: `number`
 
