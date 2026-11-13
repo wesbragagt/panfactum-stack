@@ -167,6 +167,12 @@ variable "talos_taints_enabled" {
   description = "Apply the spot and arm64 NoSchedule taints to Talos workers. Disable when workers must accept every pod, such as a single-controller cluster."
 }
 
+variable "talos_consolidate_after" {
+  type        = string
+  default     = "60s"
+  description = "How long a Talos worker must stay empty or underutilized before Karpenter consolidates it. Raise it to stop repeated repacking after a mass reschedule."
+}
+
 variable "talos_drift_disruption_enabled" {
   type        = bool
   default     = true

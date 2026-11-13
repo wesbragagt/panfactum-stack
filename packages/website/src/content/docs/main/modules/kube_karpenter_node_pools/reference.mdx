@@ -166,6 +166,14 @@ Type: `string`
 
 Default: `"arm64"`
 
+### talos\_consolidate\_after
+
+Description: How long a Talos worker must stay empty or underutilized before Karpenter consolidates it. Raise it to stop repeated repacking after a mass reschedule.
+
+Type: `string`
+
+Default: `"60s"`
+
 ### talos\_consolidation\_policy
 
 Description: Karpenter consolidation policy for the Talos NodePool. WhenEmptyOrUnderutilized also repacks pods to remove underused workers.
