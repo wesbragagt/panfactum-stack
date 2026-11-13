@@ -91,6 +91,14 @@ Type: `string`
 
 Default: n/a
 
+### replicas
+
+Description: Webhook replicas. Each needs its own controller node; set 1 on a single-controller cluster.
+
+Type: `number`
+
+Default: `2`
+
 ### service\_account\_lookup\_grace\_period
 
 Description: Go duration a replica waits for an uncached ServiceAccount (fetched from the API) before admitting the pod without credentials. 0 disables the fallback.

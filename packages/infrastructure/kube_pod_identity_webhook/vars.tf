@@ -81,3 +81,9 @@ variable "bootstrap_exempt_selector_expressions" {
     error_message = "bootstrap_exempt_selector_expressions operators must be In, NotIn, Exists or DoesNotExist."
   }
 }
+
+variable "replicas" {
+  description = "Webhook replicas. Each needs its own controller node; set 1 on a single-controller cluster."
+  type        = number
+  default     = 2
+}

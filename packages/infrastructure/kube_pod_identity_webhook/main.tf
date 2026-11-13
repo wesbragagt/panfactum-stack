@@ -15,7 +15,7 @@ locals {
     "app.kubernetes.io/name"     = local.app_name
     "app.kubernetes.io/instance" = var.name
   }
-  replicas     = 2
+  replicas     = var.replicas
   webhook_port = 8443
   # The CA outlives every leaf; cainjector publishes the CA, so leaf renewals never change the bundle.
   certificates = {
@@ -48,8 +48,8 @@ locals {
       labels    = module.util.labels
     }
     spec = {
-      # Fixed at 2 for every SLA level: failurePolicy is Fail, and a third replica cannot schedule
-      # under required host anti-affinity whenever one of the three controllers is down.
+      # failurePolicy is Fail, and a third replica cannot schedule under required host
+      # anti-affinity whenever one of the three controllers is down.
       replicas = local.replicas
       # Required host anti-affinity leaves no node for a surge pod.
       strategy = { type = "RollingUpdate", rollingUpdate = { maxSurge = 0, maxUnavailable = 1 } }
