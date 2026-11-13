@@ -161,6 +161,12 @@ variable "talos_consolidation_policy" {
   }
 }
 
+variable "talos_taints_enabled" {
+  type        = bool
+  default     = true
+  description = "Apply the spot and arm64 NoSchedule taints to Talos workers. Disable when workers must accept every pod, such as a single-controller cluster."
+}
+
 variable "talos_drift_disruption_enabled" {
   type        = bool
   default     = true

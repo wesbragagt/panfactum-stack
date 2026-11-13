@@ -243,6 +243,14 @@ Default:
 ]
 ```
 
+### talos\_taints\_enabled
+
+Description: Apply the spot and arm64 NoSchedule taints to Talos workers. Disable when workers must accept every pod, such as a single-controller cluster.
+
+Type: `bool`
+
+Default: `true`
+
 ### talos\_worker\_config
 
 Description: Complete worker-only Talos YAML. Never supply control-plane CA/private keys. Stored in EC2 user data and the NodeClass.

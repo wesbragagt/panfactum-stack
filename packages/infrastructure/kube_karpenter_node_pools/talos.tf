@@ -60,7 +60,7 @@ resource "kubectl_manifest" "talos_node_pool" {
         metadata = { labels = merge(var.node_labels, { "panfactum.com/class" = "spot" }) }
         spec = {
           nodeClassRef  = { group = "karpenter.k8s.aws", kind = "EC2NodeClass", name = var.talos_node_pool_name }
-          taints        = concat(local.spot_taints, var.talos_architecture == "arm64" ? local.arm_taints : [])
+          taints        = var.talos_taints_enabled ? concat(local.spot_taints, var.talos_architecture == "arm64" ? local.arm_taints : []) : []
           startupTaints = var.talos_startup_taints
           requirements = [
             { key = "karpenter.sh/capacity-type", operator = "In", values = ["spot"] },
