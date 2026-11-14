@@ -12,14 +12,15 @@ terraform {
 ***************************************/
 
 resource "vault_jwt_auth_backend" "oidc" {
-  description        = "Authentication using OIDC"
-  path               = "oidc"
-  type               = "oidc"
-  oidc_client_id     = var.client_id
-  oidc_client_secret = var.client_secret
-  oidc_discovery_url = var.oidc_discovery_url
-  bound_issuer       = var.oidc_issuer
-  default_role       = "default"
+  description           = "Authentication using OIDC"
+  path                  = "oidc"
+  type                  = "oidc"
+  oidc_client_id        = var.client_id
+  oidc_client_secret    = var.client_secret
+  oidc_discovery_url    = var.oidc_discovery_url
+  oidc_discovery_ca_pem = var.oidc_discovery_ca_pem
+  bound_issuer          = var.oidc_issuer
+  default_role          = "default"
   tune {
     max_lease_ttl      = "${var.token_lifetime_hours}h"
     default_lease_ttl  = "${var.token_lifetime_hours}h"
@@ -37,7 +38,7 @@ locals {
 resource "vault_jwt_auth_backend_role" "default" {
   backend      = vault_jwt_auth_backend.oidc.path
   role_name    = "default"
-  oidc_scopes  = ["openid", "profile", "email"]
+  oidc_scopes  = var.oidc_scopes
   user_claim   = "sub"
   groups_claim = "groups"
   claim_mappings = {

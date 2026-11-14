@@ -1,3 +1,16 @@
+variable "oidc_discovery_ca_pem" {
+  description = "Optional PEM CA certificate bundle for HTTPS OIDC discovery. Null uses the system trust store."
+  type        = string
+  default     = null
+}
+
+variable "oidc_scopes" {
+  description = "Scopes requested during OIDC login. Include groups when required by the identity provider to return the groups claim."
+  type        = list(string)
+  default     = ["openid", "profile", "email"]
+  nullable    = false
+}
+
 variable "client_id" {
   description = "The client id for the OIDC authentication"
   type        = string

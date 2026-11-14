@@ -261,7 +261,7 @@ resource "helm_release" "vault_secrets_operator" {
               enabled      = true
               transitMount = vault_mount.transit.path
               keyName      = vault_transit_secret_backend_key.secrets_operator.name
-              namespace    = local.namespace
+              namespace    = var.vault_api_namespace
               method       = "kubernetes"
               mount        = vault_auth_backend.kubernetes.path
               kubernetes = {
@@ -278,7 +278,7 @@ resource "helm_release" "vault_secrets_operator" {
 
       defaultAuthMethod = {
         enabled   = true
-        namespace = local.namespace
+        namespace = var.vault_api_namespace
         method    = "kubernetes"
         mount     = vault_auth_backend.kubernetes.path
       }

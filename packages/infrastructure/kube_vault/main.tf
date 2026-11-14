@@ -144,9 +144,9 @@ module "aws_permissions" {
 resource "helm_release" "vault" {
   namespace       = local.namespace
   name            = "vault"
-  repository      = "https://helm.releases.hashicorp.com"
-  chart           = "vault"
-  version         = var.vault_helm_version
+  repository      = var.secrets_engine == "openbao" ? "https://openbao.github.io/openbao-helm" : "https://helm.releases.hashicorp.com"
+  chart           = var.secrets_engine == "openbao" ? "openbao" : "vault"
+  version         = var.secrets_engine == "openbao" ? "0.30.7" : var.vault_helm_version
   recreate_pods   = false
   atomic          = var.wait
   cleanup_on_fail = var.wait
@@ -154,7 +154,7 @@ resource "helm_release" "vault" {
   wait_for_jobs   = true
   max_history     = 5
 
-  values = [
+  values = concat([
     yamlencode({
 
       global = {
@@ -276,7 +276,7 @@ resource "helm_release" "vault" {
           raft = {
             enabled   = true
             setNodeId = true
-            config = templatefile("${path.module}/ha.hcl", {
+            config = templatefile("${path.module}/${var.secrets_engine == "openbao" ? "ha-openbao.hcl" : "ha.hcl"}", {
               vault_replicas = var.vault_replicas
               disable_mlock  = var.disable_mlock
               aws_region     = data.aws_region.region.region
@@ -286,9 +286,70 @@ resource "helm_release" "vault" {
           }
         }
       }
-    }),
+    })
+    ], var.secrets_engine == "openbao" ? [yamlencode({
+      # Preserve the StatefulSet, pods, services and app labels used by existing callers.
+      fullnameOverride = "vault"
+      nameOverride     = "vault"
+      server = {
+        image = {
+          registry   = "ghcr.io"
+          repository = "openbao/openbao"
+          tag        = "2.7.2@sha256:5046911075e137e154ce49ab051502f4ec7cf367d484ae4a4dce665d9b90561f"
+        }
+        extraEnvironmentVars = {
+          PATH = "/compat:/bin:/usr/bin:/usr/local/bin"
+        }
+        volumes = [
+          { name = "openbao-plugins", emptyDir = {} },
+          { name = "vault-cli-compat", emptyDir = {} }
+        ]
+        volumeMounts = [
+          { name = "openbao-plugins", mountPath = "/vault/plugins", readOnly = true },
+          { name = "vault-cli-compat", mountPath = "/compat", readOnly = true }
+        ]
+        extraInitContainers = [{
+          name    = "install-openbao-plugins"
+          image   = "busybox:1.37.0"
+          command = ["/bin/sh", "-ec"]
+          args = [<<-SCRIPT
+            work=$(mktemp -d)
+            trap 'rm -rf "$work"' EXIT
+            install_plugin() {
+              release="$1"; name="$2"; archive_sha="$3"; binary_sha="$4"
+              archive="$name"_linux_arm64_v8.tar.gz
+              member="$name"_linux_arm64_v8
+              wget -T 60 -O "$work/$archive" "https://github.com/openbao/openbao-plugins/releases/download/$release/$archive"
+              echo "$archive_sha  $work/$archive" | sha256sum -c -
+              tar -xzf "$work/$archive" -C "$work" "$member"
+              echo "$binary_sha  $work/$member" | sha256sum -c -
+              cp -f "$work/$member" "/vault/plugins/$name"
+              chmod 0555 "/vault/plugins/$name"
+            }
+            install_plugin kms-aws-v0.1.1 openbao-plugin-kms-aws 8f173d8590d3df52c3501dd3af79b5f90fbc8ae4386b04abb706ca8b82a55b23 986487f17d30123b4730cf412ad2267f7ef4cfe637c75252ed6d13294673bae2
+            install_plugin secrets-aws-v0.3.3 openbao-plugin-secrets-aws 549d72a9570920cb07be425a4487a4e7abc78d311b3e6ca85b3e4ee9bfbf4931 670aa9c3f1cff789826ab8c00845760034d8f82afd2cdd57ecf794863e8c7127
+            ln -sf /bin/bao /compat/vault
+          SCRIPT
+          ]
+          securityContext = {
+            runAsNonRoot             = true
+            runAsUser                = 1000
+            allowPrivilegeEscalation = false
+            capabilities             = { drop = ["ALL"] }
+          }
+          resources = {
+            requests = { cpu = "10m", memory = "32Mi" }
+            limits   = { memory = "128Mi" }
+          }
+          volumeMounts = [
+            { name = "openbao-plugins", mountPath = "/vault/plugins" },
+            { name = "vault-cli-compat", mountPath = "/compat" }
+          ]
+        }]
+      }
+    })] : [], [
     yamlencode(var.extra_helm_values)
-  ]
+  ])
 
   timeout    = 60 * 10
   depends_on = [module.aws_permissions, module.unseal_key]
@@ -366,7 +427,7 @@ resource "kubectl_manifest" "vpa_server" {
     spec = {
       resourcePolicy = {
         containerPolicies = [{
-          containerName = "vault"
+          containerName = var.secrets_engine == "openbao" ? "openbao" : "vault"
           minAllowed = {
             memory = "275Mi"
           }
