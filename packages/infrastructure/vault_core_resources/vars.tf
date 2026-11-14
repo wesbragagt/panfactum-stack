@@ -1,3 +1,10 @@
+variable "vault_api_namespace" {
+  description = "Vault API namespace used by VSO cache encryption and default authentication; independent of the Kubernetes namespace. Set to an empty string for the OpenBao root namespace."
+  type        = string
+  default     = "vault"
+  nullable    = false
+}
+
 variable "vault_secrets_operator_helm_version" {
   description = "The version of the vault-secrets-operator helm chart to deploy"
   type        = string

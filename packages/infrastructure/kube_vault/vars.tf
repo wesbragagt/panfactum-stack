@@ -1,3 +1,13 @@
+variable "secrets_engine" {
+  description = "Secrets server implementation. Vault remains the default; OpenBao preserves the Vault-facing service contract."
+  type        = string
+  default     = "vault"
+  validation {
+    condition     = contains(["vault", "openbao"], var.secrets_engine)
+    error_message = "secrets_engine must be vault or openbao."
+  }
+}
+
 variable "vault_helm_version" {
   description = "The version of the vault helm chart to deploy"
   type        = string
