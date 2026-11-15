@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### aws_iam_ip_allow_list
+### aws\_iam\_ip\_allow\_list
 
 Description: A list of IPs that can use the service account token to authenticate with AWS API
 
@@ -14,7 +14,15 @@ Type: `list(string)`
 
 Default: `[]`
 
-### burstable_nodes_enabled
+### aws\_iam\_ip\_restrictions\_enabled
+
+Description: Enable source-IP restrictions. Disable explicitly for self-managed controllers with changing public egress; OIDC subject and audience remain restricted.
+
+Type: `bool`
+
+Default: `true`
+
+### burstable\_nodes\_enabled
 
 Description: Whether to allow controller pods to schedule on burstable nodes. Does not affect DaemonSet pods.
 
@@ -22,7 +30,7 @@ Type: `bool`
 
 Default: `true`
 
-### cilium_helm_version
+### cilium\_helm\_version
 
 Description: The version of the cilium helm chart to deploy
 
@@ -30,16 +38,61 @@ Type: `string`
 
 Default: `"1.17.14"`
 
-### controller_nodes_enabled
+### cluster\_pool\_ipv4\_cidrs
 
-Description: Whether to allow controller pods to schedule on EKS Node Group nodes (controller nodes). Does not affect
-DaemonSet pods.
+Description: Pod CIDRs used only by cluster-pool IPAM. Must match the installed cluster during adoption.
+
+Type: `list(string)`
+
+Default:
+
+```json
+[
+  "10.244.0.0/16"
+]
+```
+
+### cluster\_type
+
+Description: Cluster platform. EKS preserves the existing ENI/IRSA defaults; Talos uses KubePrism and does not query EKS.
+
+Type: `string`
+
+Default: `"eks"`
+
+### controller\_nodes\_enabled
+
+Description: Whether to allow controller pods to schedule on EKS Node Group nodes (controller nodes). Does not affect DaemonSet pods.
 
 Type: `bool`
 
 Default: `true`
 
-### hubble_enabled
+### eni\_cluster\_tag
+
+Description: Unique cluster ownership tag for Talos ENI allocation and garbage collection. Required for Talos ENI.
+
+Type: `string`
+
+Default: `null`
+
+### eni\_first\_interface\_index
+
+Description: First interface index available for pod IP allocation.
+
+Type: `number`
+
+Default: `null`
+
+### eni\_subnet\_ids\_filter
+
+Description: Restrict newly allocated ENIs to these subnet IDs.
+
+Type: `list(string)`
+
+Default: `[]`
+
+### hubble\_enabled
 
 Description: Whether to enable hubble for network debugging
 
@@ -47,7 +100,39 @@ Type: `bool`
 
 Default: `false`
 
-### log_level
+### ipam\_mode
+
+Description: Optional IPAM override. Defaults to eni on EKS and cluster-pool on Talos. ENI is not supported in Talos mode.
+
+Type: `string`
+
+Default: `null`
+
+### ipv4\_native\_routing\_cidr
+
+Description: CIDR reachable without masquerading or tunnelling. Required by Cilium for native routing outside ENI IPAM.
+
+Type: `string`
+
+Default: `null`
+
+### k8s\_service\_host
+
+Description: Agent API host override, without scheme. Defaults to the EKS endpoint or Talos KubePrism localhost.
+
+Type: `string`
+
+Default: `null`
+
+### k8s\_service\_port
+
+Description: Agent API port override. Defaults to 443 for EKS and 7445 for Talos KubePrism.
+
+Type: `number`
+
+Default: `null`
+
+### log\_level
 
 Description: The log level for the Cilium pods
 
@@ -55,7 +140,7 @@ Type: `string`
 
 Default: `"warn"`
 
-### monitoring_enabled
+### monitoring\_enabled
 
 Description: Whether to add active monitoring to the deployed systems
 
@@ -63,7 +148,47 @@ Type: `bool`
 
 Default: `false`
 
-### pull_through_cache_enabled
+### namespace
+
+Description: Helm release namespace. For adoption, preserve the existing release namespace.
+
+Type: `string`
+
+Default: `"cilium"`
+
+### namespace\_create
+
+Description: Manage the namespace and its Panfactum RBAC. Set false to use an existing namespace such as kube-system.
+
+Type: `bool`
+
+Default: `true`
+
+### oidc\_issuer\_url
+
+Description: HTTPS issuer URL paired with oidc\_provider\_arn. Custom identities require the exact namespace/service-account subject and sts.amazonaws.com audience.
+
+Type: `string`
+
+Default: `null`
+
+### oidc\_provider\_arn
+
+Description: Existing self-managed cluster OIDC provider ARN. Supply with oidc\_issuer\_url; null preserves EKS discovery.
+
+Type: `string`
+
+Default: `null`
+
+### operator\_replicas
+
+Description: Operator replica override. Defaults to two on EKS and one on Talos.
+
+Type: `number`
+
+Default: `null`
+
+### pull\_through\_cache\_enabled
 
 Description: Whether to use the ECR pull through cache for the deployed images
 
@@ -71,16 +196,23 @@ Type: `bool`
 
 Default: `true`
 
-### sla_target
+### routing\_mode
 
-Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest
-uptime (99.999%), highest Cost
+Description: Optional Cilium routing mode override. Defaults to native with ENI IPAM and tunnel otherwise.
+
+Type: `string`
+
+Default: `null`
+
+### sla\_target
+
+Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest uptime (99.999%), highest Cost
 
 Type: `number`
 
 Default: `3`
 
-### spot_nodes_enabled
+### spot\_nodes\_enabled
 
 Description: Whether to allow controller pods to schedule on spot nodes. Does not affect DaemonSet pods.
 
@@ -88,7 +220,15 @@ Type: `bool`
 
 Default: `true`
 
-### vpa_enabled
+### values\_overrides
+
+Description: Additional Helm values documents merged after module defaults. Review their full diff when adopting an existing release.
+
+Type: `list(string)`
+
+Default: `[]`
+
+### vpa\_enabled
 
 Description: Whether the VPA resources should be enabled
 
@@ -98,9 +238,7 @@ Default: `false`
 
 ### wait
 
-Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to
-proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment
-failures.
+Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment failures.
 
 Type: `bool`
 

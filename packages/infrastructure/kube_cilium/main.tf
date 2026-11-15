@@ -96,7 +96,7 @@ module "namespace" {
 data "aws_iam_policy_document" "cilium" {
   statement {
     effect = "Allow"
-    actions = [
+    actions = concat([
       "ec2:DeleteNetworkInterface",
       "ec2:DescribeNetworkInterfaces",
       "ec2:DescribeSubnets",
@@ -111,16 +111,19 @@ data "aws_iam_policy_document" "cilium" {
       "ec2:AssignPrivateIpAddresses",
       "ec2:CreateTags",
       "ec2:DescribeTags"
-    ]
+    ], local.talos_enabled && local.eni_enabled ? ["ec2:DescribeRouteTables"] : [])
     resources = ["*"]
   }
 }
 
 module "aws_permissions" {
-  count  = local.eni_enabled ? 1 : 0
+  count  = local.eni_iam_enabled ? 1 : 0
   source = "../kube_sa_auth_aws"
 
 
+  oidc_provider_arn         = var.oidc_provider_arn
+  oidc_issuer_url           = var.oidc_issuer_url
+  ip_restrictions_enabled   = var.aws_iam_ip_restrictions_enabled
   annotate_service_account  = false // The helm chart creates the service account
   service_account           = "cilium-operator"
   service_account_namespace = local.namespace
@@ -129,7 +132,7 @@ module "aws_permissions" {
 }
 
 resource "kubernetes_annotations" "service_account" {
-  count       = local.eni_enabled ? 1 : 0
+  count       = local.eni_iam_enabled ? 1 : 0
   api_version = "v1"
   kind        = "ServiceAccount"
   metadata {
@@ -137,7 +140,7 @@ resource "kubernetes_annotations" "service_account" {
     namespace = local.namespace
   }
   annotations = {
-    "eks.amazonaws.com/role-arn" = module.aws_permissions[0].role_arn
+    "eks.amazonaws.com/role-arn" = try(module.aws_permissions[0].role_arn, "")
   }
   depends_on = [helm_release.cilium]
 }
@@ -162,15 +165,19 @@ resource "helm_release" "cilium" {
 
   lifecycle {
     precondition {
-      condition     = !local.talos_enabled || local.ipam_mode != "eni"
-      error_message = "Talos mode requires cluster-pool or kubernetes IPAM; ENI/IRSA mode is EKS-only."
+      condition     = local.eni_enabled || local.routing_mode != "native" || var.ipv4_native_routing_cidr != null
+      error_message = "Native routing outside ENI IPAM requires ipv4_native_routing_cidr."
+    }
+    precondition {
+      condition     = !local.talos_enabled || !local.eni_enabled || (var.oidc_provider_arn != null && var.oidc_issuer_url != null && var.eni_cluster_tag != null)
+      error_message = "Talos ENI requires oidc_provider_arn, oidc_issuer_url and a unique eni_cluster_tag."
     }
   }
 
   values = concat([
     yamlencode(merge(local.platform_values, {
       ipam = merge(local.platform_values.ipam, local.eni_enabled ? {
-        iamRole = module.aws_permissions[0].role_arn
+        iamRole = try(module.aws_permissions[0].role_arn, "")
       } : {})
 
       cni = {
@@ -338,7 +345,7 @@ resource "helm_release" "cilium" {
         }
       }
 
-      operator = {
+      operator = merge({
         replicas = var.operator_replicas != null ? var.operator_replicas : (local.talos_enabled ? 1 : 2)
         tolerations = concat([
           // These are needed b/c the cilium agents on each node need the operator
@@ -382,11 +389,12 @@ resource "helm_release" "cilium" {
         extraArgs = [
           "--cluster-name=${local.cluster_name}"
         ]
-        extraEnv = local.eni_enabled ? [
-          { name : "AWS_ROLE_ARN", value = module.aws_permissions[0].role_arn },
+        extraEnv = concat(local.eni_enabled ? [
+          { name : "AWS_ROLE_ARN", value = try(module.aws_permissions[0].role_arn, "") },
           { name : "AWS_REGION", value = data.aws_region.region.region }
-        ] : []
-
+          ] : [], local.talos_enabled && local.eni_enabled ? [
+          { name = "AWS_WEB_IDENTITY_TOKEN_FILE", value = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token" }
+        ] : [])
         prometheus = {
           serviceMonitor = {
             enabled  = var.monitoring_enabled
@@ -395,7 +403,7 @@ resource "helm_release" "cilium" {
             labels   = module.util_controller.labels
           }
         }
-      }
+      }, local.operator_web_identity)
 
       envoy = {
         enabled = local.talos_enabled

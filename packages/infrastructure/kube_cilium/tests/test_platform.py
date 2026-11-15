@@ -39,7 +39,7 @@ class PlatformTests(unittest.TestCase):
         args = [shutil.which("tofu") or "tofu", "-chdir=" + str(self.path), "console", "-no-color"]
         (self.path / "case.tfvars.json").write_text(json.dumps(variables))
         args += ["-var-file=case.tfvars.json"]
-        expression = "jsonencode({values=local.platform_values, eni=local.eni_enabled, eks=local.test_eks_lookups, iam=local.test_iam_modules, annotations=local.test_iam_annotations, namespaces=local.test_managed_namespaces, tolerations=local.platform_tolerations})"
+        expression = "jsonencode({values=local.platform_values, eni=local.eni_enabled, eks=local.test_eks_lookups, iam=local.test_iam_modules, annotations=local.test_iam_annotations, namespaces=local.test_managed_namespaces, tolerations=local.platform_tolerations, identity=local.operator_web_identity})"
         result = subprocess.run(args, input=expression + "\n", text=True, capture_output=True, check=True)
         self.assertTrue(result.stdout.strip(), result.stderr)
         return json.loads(json.loads(result.stdout.strip()))
@@ -69,6 +69,35 @@ class PlatformTests(unittest.TestCase):
         self.assertEqual(value["values"]["ipam"], {"mode": "kubernetes"})
         self.assertFalse(value["eni"])
         self.assertEqual(value["eks"], 0)
+
+    def test_talos_routing_mode_override_sets_native_routing_cidr(self):
+        value = self.evaluate(cluster_type="talos", routing_mode="native", ipv4_native_routing_cidr="10.0.0.0/16")
+        self.assertEqual(value["values"]["routingMode"], "native")
+        self.assertEqual(value["values"]["ipv4NativeRoutingCIDR"], "10.0.0.0/16")
+
+    def test_routing_cidr_is_omitted_when_unset(self):
+        value = self.evaluate(cluster_type="talos")
+        self.assertNotIn("ipv4NativeRoutingCIDR", value["values"])
+
+    def test_talos_eni_uses_private_allocation_and_projected_identity(self):
+        value = self.evaluate(cluster_type="talos", ipam_mode="eni",
+                              eni_cluster_tag="test-cluster", eni_first_interface_index=1,
+                              eni_subnet_ids_filter=["subnet-private"],
+                              oidc_provider_arn="arn:aws:iam::123456789012:oidc-provider/issuer.example",
+                              oidc_issuer_url="https://issuer.example")
+        self.assertEqual([value[k] for k in ("eks", "iam", "annotations")], [0, 1, 1])
+        self.assertEqual(value["values"]["routingMode"], "native")
+        self.assertFalse(value["values"]["enableIPv4Masquerade"])
+        eni = value["values"]["eni"]
+        self.assertEqual(eni["nodeSpec"], {"subnetIDs": ["subnet-private"], "firstInterfaceIndex": 1})
+        self.assertEqual(eni["eniTags"], eni["gcTags"])
+        token = value["identity"]["extraVolumes"][0]["projected"]["sources"][0]["serviceAccountToken"]
+        self.assertEqual(token["audience"], "sts.amazonaws.com")
+        self.assertTrue(value["identity"]["extraVolumeMounts"][0]["readOnly"])
+
+    def test_projected_identity_is_omitted_for_eks_and_talos_overlay(self):
+        self.assertEqual(self.evaluate()["identity"], {})
+        self.assertEqual(self.evaluate(cluster_type="talos")["identity"], {})
 
     def test_invalid_talos_eni_does_not_instantiate_iam_before_precondition(self):
         value = self.evaluate(cluster_type="talos", ipam_mode="eni")

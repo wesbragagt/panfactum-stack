@@ -98,6 +98,22 @@ variable "ipam_mode" {
   }
 }
 
+variable "routing_mode" {
+  description = "Optional Cilium routing mode override. Defaults to native with ENI IPAM and tunnel otherwise."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.routing_mode == null ? true : contains(["tunnel", "native"], var.routing_mode)
+    error_message = "routing_mode must be tunnel, native or null."
+  }
+}
+
+variable "ipv4_native_routing_cidr" {
+  description = "CIDR reachable without masquerading or tunnelling. Required by Cilium for native routing outside ENI IPAM."
+  type        = string
+  default     = null
+}
+
 variable "cluster_pool_ipv4_cidrs" {
   description = "Pod CIDRs used only by cluster-pool IPAM. Must match the installed cluster during adoption."
   type        = list(string)
@@ -142,4 +158,48 @@ variable "values_overrides" {
   description = "Additional Helm values documents merged after module defaults. Review their full diff when adopting an existing release."
   type        = list(string)
   default     = []
+}
+
+variable "oidc_provider_arn" {
+  description = "Existing self-managed cluster OIDC provider ARN. Supply with oidc_issuer_url; null preserves EKS discovery."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.oidc_provider_arn == null ? true : can(regex("^arn:[^:]+:iam::[0-9]{12}:oidc-provider/.+", var.oidc_provider_arn))
+    error_message = "oidc_provider_arn must be an IAM OIDC provider ARN."
+  }
+}
+variable "oidc_issuer_url" {
+  description = "HTTPS issuer URL paired with oidc_provider_arn. Custom identities require the exact namespace/service-account subject and sts.amazonaws.com audience."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.oidc_issuer_url == null ? true : startswith(var.oidc_issuer_url, "https://") && !strcontains(var.oidc_issuer_url, "?")
+    error_message = "oidc_issuer_url must be an HTTPS issuer URL without query parameters."
+  }
+}
+variable "eni_subnet_ids_filter" {
+  description = "Restrict newly allocated ENIs to these subnet IDs."
+  type        = list(string)
+  default     = []
+}
+variable "eni_first_interface_index" {
+  description = "First interface index available for pod IP allocation."
+  type        = number
+  default     = null
+  validation {
+    condition     = var.eni_first_interface_index == null ? true : var.eni_first_interface_index >= 0 && floor(var.eni_first_interface_index) == var.eni_first_interface_index
+    error_message = "eni_first_interface_index must be a nonnegative integer."
+  }
+}
+variable "eni_cluster_tag" {
+  description = "Unique cluster ownership tag for Talos ENI allocation and garbage collection. Required for Talos ENI."
+  type        = string
+  default     = null
+}
+
+variable "aws_iam_ip_restrictions_enabled" {
+  description = "Enable source-IP restrictions. Disable explicitly for self-managed controllers with changing public egress; OIDC subject and audience remain restricted."
+  type        = bool
+  default     = true
 }
