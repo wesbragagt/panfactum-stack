@@ -20,6 +20,9 @@ class PlatformTests(unittest.TestCase):
         platform = (ROOT / "platform.tf").read_text().split("# Keep EKS state addresses", 1)[0]
         source = (ROOT / "main.tf").read_text()
         counts = {}
+        counts["envoy"] = source.split("      envoy = {", 1)[1].split("enabled =", 1)[1].split("\n", 1)[0].strip()
+        counts["l7_proxy"] = source.split("      l7Proxy =", 1)[1].split("\n", 1)[0].strip()
+        counts["namespace_labels"] = source.split('module "namespace" {', 1)[1].split("extra_labels =", 1)[1].split("\n", 1)[0].strip()
         for name, heading in {
             "eks_lookups": 'data "aws_eks_cluster" "cluster"',
             "iam_modules": 'module "aws_permissions"',
@@ -45,10 +48,23 @@ class PlatformTests(unittest.TestCase):
         args = [shutil.which("tofu") or "tofu", "-chdir=" + str(self.path), "console", "-no-color"]
         (self.path / "case.tfvars.json").write_text(json.dumps(variables))
         args += ["-var-file=case.tfvars.json"]
-        expression = "jsonencode({iam_actions=local.test_iam_actions, operator=local.test_operator, values=local.platform_values, eni=local.eni_enabled, eks=local.test_eks_lookups, iam=local.test_iam_modules, annotations=local.test_iam_annotations, namespaces=local.test_managed_namespaces, tolerations=local.platform_tolerations, identity=local.operator_web_identity})"
+        expression = "jsonencode({envoy=local.test_envoy, l7_proxy=local.test_l7_proxy, namespace_labels=local.test_namespace_labels, iam_actions=local.test_iam_actions, operator=local.test_operator, values=local.platform_values, eni=local.eni_enabled, eks=local.test_eks_lookups, iam=local.test_iam_modules, annotations=local.test_iam_annotations, namespaces=local.test_managed_namespaces, tolerations=local.platform_tolerations, identity=local.operator_web_identity})"
         result = subprocess.run(args, input=expression + "\n", text=True, capture_output=True, check=True)
         self.assertTrue(result.stdout.strip(), result.stderr)
         return json.loads(json.loads(result.stdout.strip()))
+
+    def test_optional_proxy_and_namespace_settings(self):
+        eks = self.evaluate()
+        self.assertFalse(eks["envoy"])
+        self.assertTrue(eks["l7_proxy"])
+        self.assertEqual(eks["namespace_labels"], {})
+        self.assertTrue(self.evaluate(cluster_type="talos")["envoy"])
+        value = self.evaluate(cluster_type="talos", envoy_enabled=False,
+                              l7_proxy_enabled=False,
+                              namespace_labels={"pod-security.kubernetes.io/enforce": "privileged"})
+        self.assertFalse(value["envoy"])
+        self.assertFalse(value["l7_proxy"])
+        self.assertEqual(value["namespace_labels"], {"pod-security.kubernetes.io/enforce": "privileged"})
 
     def test_default_eks_network_values_and_resources_are_preserved(self):
         value = self.evaluate()

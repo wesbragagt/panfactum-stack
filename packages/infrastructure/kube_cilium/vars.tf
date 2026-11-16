@@ -1,3 +1,21 @@
+variable "namespace_labels" {
+  description = "Additional labels for the managed namespace, including Pod Security Admission labels."
+  type        = map(string)
+  default     = {}
+}
+
+variable "envoy_enabled" {
+  description = "Enable the standalone Envoy DaemonSet. Null preserves the platform default."
+  type        = bool
+  default     = null
+}
+
+variable "l7_proxy_enabled" {
+  description = "Enable Cilium application-layer policies and visibility. Disable with Envoy when these features are unused."
+  type        = bool
+  default     = true
+}
+
 variable "cilium_helm_version" {
   description = "The version of the cilium helm chart to deploy"
   type        = string

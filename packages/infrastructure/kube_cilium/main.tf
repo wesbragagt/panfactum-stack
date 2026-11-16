@@ -86,7 +86,8 @@ module "namespace" {
   count  = var.namespace_create ? 1 : 0
   source = "../kube_namespace"
 
-  namespace = var.namespace
+  namespace    = var.namespace
+  extra_labels = var.namespace_labels
 }
 
 /***************************************
@@ -412,8 +413,9 @@ resource "helm_release" "cilium" {
       }, local.operator_web_identity)
 
       envoy = {
-        enabled = local.talos_enabled
+        enabled = var.envoy_enabled == null ? local.talos_enabled : var.envoy_enabled
       }
+      l7Proxy = var.l7_proxy_enabled
 
       gatewayAPI = {
         enabled = false

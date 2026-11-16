@@ -92,6 +92,14 @@ Type: `list(string)`
 
 Default: `[]`
 
+### envoy\_enabled
+
+Description: Enable the standalone Envoy DaemonSet. Null preserves the platform default.
+
+Type: `bool`
+
+Default: `null`
+
 ### hubble\_enabled
 
 Description: Whether to enable hubble for network debugging
@@ -132,6 +140,14 @@ Type: `number`
 
 Default: `null`
 
+### l7\_proxy\_enabled
+
+Description: Enable Cilium application-layer policies and visibility. Disable with Envoy when these features are unused.
+
+Type: `bool`
+
+Default: `true`
+
 ### log\_level
 
 Description: The log level for the Cilium pods
@@ -163,6 +179,14 @@ Description: Manage the namespace and its Panfactum RBAC. Set false to use an ex
 Type: `bool`
 
 Default: `true`
+
+### namespace\_labels
+
+Description: Additional labels for the managed namespace, including Pod Security Admission labels.
+
+Type: `map(string)`
+
+Default: `{}`
 
 ### oidc\_issuer\_url
 
