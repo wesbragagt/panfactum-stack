@@ -19,7 +19,10 @@ terraform {
   }
 }
 
-data "aws_caller_identity" "current" {}
+// Only the ECR pull-through registry needs the account ID; skipping the STS call lets clusters without AWS plan.
+data "aws_caller_identity" "current" {
+  count = var.pull_through_cache_enabled ? 1 : 0
+}
 data "aws_region" "current" {}
 
 

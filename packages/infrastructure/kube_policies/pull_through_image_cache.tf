@@ -1,5 +1,5 @@
 locals {
-  pull_through_cache_registry = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com"
+  pull_through_cache_registry = "${try(data.aws_caller_identity.current[0].account_id, "")}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com"
   registry_replacements = [
     { host = "ghcr.io", prefix = "github" },
     { host = "cr.l5d.io", prefix = "github" }, // Linkerd also hosts their images on GitHub
