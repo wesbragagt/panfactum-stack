@@ -2,19 +2,19 @@ terraform {
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "2.35.0"
+      version = "3.5.0"
     }
     aws = {
       source  = "hashicorp/aws"
-      version = "6.40.0"
+      version = "6.73.0"
     }
     vault = {
       source  = "hashicorp/vault"
-      version = "4.8.0"
+      version = "5.13.0"
     }
     kubectl = {
       source  = "alekc/kubectl"
-      version = "2.1.6"
+      version = "3.0.1"
     }
     pf = {
       source  = "panfactum/pf"
@@ -300,7 +300,8 @@ resource "kubernetes_config_map" "ca_bundle" {
 }
 
 module "sync_ca_bundle" {
-  source = "../kube_sync_config_map"
+  kyverno_cel_policies_enabled = var.kyverno_cel_policies_enabled
+  source                       = "../kube_sync_config_map"
 
   config_map_name      = kubernetes_config_map.ca_bundle.metadata[0].name
   config_map_namespace = kubernetes_config_map.ca_bundle.metadata[0].namespace

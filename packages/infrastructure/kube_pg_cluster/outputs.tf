@@ -40,12 +40,12 @@ output "server_certs_secret" {
 }
 
 output "pooler_rw_match_labels" {
-  description = "Label selector that matches all PgBouncer pods that allows read-write access to the PostgreSQL cluster"
+  description = "Label selector that matches all connection pooler pods that allow read-write access to the PostgreSQL cluster"
   value       = module.util_pooler["rw"].match_labels
 }
 
 output "pooler_rw_service_name" {
-  description = "The service name of the PgBouncer connection pooler that allows read-write access"
+  description = "The service name of the connection pooler that allows read-write access"
   value       = "${local.cluster_name}-pooler-rw.${var.pg_cluster_namespace}"
 }
 
@@ -55,12 +55,12 @@ output "pooler_rw_service_port" {
 }
 
 output "pooler_r_match_labels" {
-  description = "Label selector that matches all PgBouncer pods that allows read-only access to the PostgreSQL cluster"
-  value       = module.util_pooler["rw"].match_labels
+  description = "Label selector that matches all connection pooler pods that allow read-only access to the PostgreSQL cluster"
+  value       = module.util_pooler["r"].match_labels
 }
 
 output "pooler_r_service_name" {
-  description = "The service name of the PgBouncer connection pooler that allows read-only access"
+  description = "The service name of the connection pooler that allows read-only access"
   value       = "${local.cluster_name}-pooler-r.${var.pg_cluster_namespace}"
 }
 

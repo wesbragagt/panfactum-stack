@@ -1,8 +1,8 @@
 # cspell:ignore admissionregistration healthz logtostderr reinvocation selfsigned serviceaccount serviceaccounts
 terraform {
   required_providers {
-    kubectl    = { source = "alekc/kubectl", version = "2.1.6" }
-    kubernetes = { source = "hashicorp/kubernetes", version = "2.35.0" }
+    kubectl    = { source = "alekc/kubectl", version = "3.0.1" }
+    kubernetes = { source = "hashicorp/kubernetes", version = "3.5.0" }
     pf         = { source = "panfactum/pf", version = "0.0.7" }
   }
 }

@@ -32,7 +32,7 @@ variable "create_namespace" {
 variable "image" {
   description = "Webhook image pinned by digest."
   type        = string
-  default     = "public.ecr.aws/eks/amazon-eks-pod-identity-webhook:v0.6.17@sha256:3071570e8e8cba6d5aff01e86d52bc91025a0578782aa9cd2b681480845b0a50"
+  default     = "public.ecr.aws/eks/amazon-eks-pod-identity-webhook:v0.6.19@sha256:160ec19c2222016fa28db5e5269b233368ac788ed2d76479a2730cabff3cf693"
   validation {
     condition     = can(regex("@sha256:[0-9a-f]{64}$", var.image))
     error_message = "image must be pinned with an @sha256 digest."

@@ -55,3 +55,8 @@ output "etcd_backup_kms_key_arn" {
   description = "KMS key that encrypts etcd snapshots. Restores need kms:Decrypt on it."
   value       = aws_kms_key.etcd_backup.arn
 }
+
+output "etcd_backup_cronjob_manifest" {
+  description = "CronJob YAML for Kubernetes-stage reconciliation after bootstrap. Contains Secret references, not credential values."
+  value       = yamlencode(one([for manifest in local.backup_manifests : manifest if manifest.kind == "CronJob"]))
+}

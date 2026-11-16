@@ -27,6 +27,18 @@ variable "oidc_discovery_url" {
   type        = string
 }
 
+variable "oidc_discovery_ca_pem" {
+  description = "PEM CA bundle for OIDC discovery when the issuer uses a private CA. Null uses the server trust store."
+  type        = string
+  default     = null
+}
+
+variable "oidc_scopes" {
+  description = "OIDC scopes requested during login. Include groups when required by the identity provider."
+  type        = list(string)
+  default     = ["openid", "profile", "email"]
+}
+
 variable "token_lifetime_hours" {
   description = "Number of hours before generated tokens expire"
   type        = number

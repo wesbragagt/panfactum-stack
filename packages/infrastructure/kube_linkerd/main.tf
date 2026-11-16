@@ -4,19 +4,19 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "6.40.0"
+      version = "6.73.0"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "2.35.0"
+      version = "3.5.0"
     }
     kubectl = {
       source  = "alekc/kubectl"
-      version = "2.1.6"
+      version = "3.0.1"
     }
     helm = {
       source  = "hashicorp/helm"
-      version = "3.1.1"
+      version = "3.3.0"
     }
     pf = {
       source  = "panfactum/pf"
@@ -209,7 +209,8 @@ resource "kubernetes_config_map" "ca_bundle" {
 }
 
 module "sync_ca_bundle" {
-  source = "../kube_sync_config_map"
+  kyverno_cel_policies_enabled = var.kyverno_cel_policies_enabled
+  source                       = "../kube_sync_config_map"
 
   config_map_name      = kubernetes_config_map.ca_bundle.metadata[0].name
   config_map_namespace = kubernetes_config_map.ca_bundle.metadata[0].namespace
@@ -347,7 +348,7 @@ data "kubectl_server_version" "version" {}
 // concurrently with the cilium CNI; the helm chart does not provide a way
 // to expose this
 resource "kubectl_manifest" "linkerd_cni_policy" {
-  yaml_body = yamlencode({
+  yaml_body = var.kyverno_cel_policies_enabled ? yamlencode(local.cel_cni_policy) : yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "Policy"
     metadata = {
@@ -431,7 +432,7 @@ resource "kubectl_manifest" "linkerd_cni_policy" {
 
 
 resource "kubectl_manifest" "linkerd_cni_ds_policy" {
-  yaml_body = yamlencode({
+  yaml_body = var.kyverno_cel_policies_enabled ? yamlencode(local.cel_cni_ds_policy) : yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "Policy"
     metadata = {
@@ -754,7 +755,7 @@ resource "helm_release" "linkerd" {
 ***************************************/
 
 resource "kubectl_manifest" "kyverno_policies" {
-  yaml_body = yamlencode({
+  yaml_body = var.kyverno_cel_policies_enabled ? yamlencode(local.cel_pod_policy) : yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "ClusterPolicy"
     metadata = {

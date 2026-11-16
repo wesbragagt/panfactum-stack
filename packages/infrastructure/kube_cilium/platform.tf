@@ -1,10 +1,12 @@
 locals {
   talos_enabled = var.cluster_type == "talos"
-  ipam_mode     = var.ipam_mode != null ? var.ipam_mode : (local.talos_enabled ? "cluster-pool" : "eni")
+  local_enabled = var.cluster_type == "local"
+  eks_enabled   = var.cluster_type == "eks"
+  ipam_mode     = var.ipam_mode != null ? var.ipam_mode : (local.eks_enabled ? "eni" : "cluster-pool")
   eni_enabled   = local.ipam_mode == "eni"
   routing_mode  = var.routing_mode != null ? var.routing_mode : (local.eni_enabled ? "native" : "tunnel")
 
-  eni_iam_enabled = local.eni_enabled && (!local.talos_enabled || (var.oidc_provider_arn != null && var.oidc_issuer_url != null))
+  eni_iam_enabled = local.eni_enabled && (local.eks_enabled || (local.talos_enabled && var.oidc_provider_arn != null && var.oidc_issuer_url != null))
 
   platform_values = merge({
     eni = merge({
@@ -49,7 +51,7 @@ locals {
     }]
   } : key => value if local.talos_enabled && local.eni_enabled }
 
-  platform_tolerations = local.talos_enabled ? [{
+  platform_tolerations = !local.eks_enabled ? [{
     key = "node-role.kubernetes.io/control-plane", operator = "Exists", effect = "NoSchedule"
   }] : []
 }

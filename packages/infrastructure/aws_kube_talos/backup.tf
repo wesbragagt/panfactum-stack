@@ -152,7 +152,7 @@ resource "aws_iam_access_key" "etcd_backup" {
 locals {
   backup_namespace = "etcd-backup"
   backup_prefix    = "etcd/${var.cluster_name}"
-  backup_image     = "python:3.13.7-slim-bookworm"
+  backup_image     = "python:3.15.0-slim-trixie@sha256:f5b92f2a669a4c347044f29367f31983280b648250ca94dea66f98c53bc87e58"
   backup_init      = <<-PYTHON
     import hashlib, os, pathlib, platform, subprocess, urllib.request
     architecture = {"aarch64": "arm64", "x86_64": "amd64"}[platform.machine()]
@@ -165,7 +165,7 @@ locals {
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(binary)
     path.chmod(0o755)
-    subprocess.run(["python3", "-m", "pip", "install", "--no-cache-dir", "--target", "/runtime/lib", "awscli==1.42.0"], check=True)
+    subprocess.run(["python3", "-m", "pip", "install", "--no-cache-dir", "--target", "/runtime/lib", "awscli==1.46.3"], check=True)
   PYTHON
   backup_manifests = [
     {
@@ -194,7 +194,7 @@ locals {
       apiVersion = "batch/v1", kind = "CronJob"
       metadata   = { name = "etcd-backup", namespace = local.backup_namespace }
       spec = {
-        schedule                = "*/15 * * * *", timeZone = "Etc/UTC", concurrencyPolicy = "Forbid"
+        schedule                = "0 * * * *", timeZone = "Etc/UTC", concurrencyPolicy = "Forbid"
         startingDeadlineSeconds = 600, successfulJobsHistoryLimit = 1, failedJobsHistoryLimit = 3
         jobTemplate = {
           spec = {
