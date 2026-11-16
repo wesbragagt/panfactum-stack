@@ -157,6 +157,12 @@ resource "helm_release" "oauth2_proxy" {
           "--scope", "openid profile",
           "--silence-ping-logging"
         ],
+        # Gateway API mode: oauth2-proxy sits in front of the upstream instead of answering nginx auth subrequests.
+        var.gateway_api == null ? [] : [
+          "--upstream", var.gateway_api.upstream_url,
+          "--reverse-proxy", "true",
+          "--skip-provider-button", "true"
+        ],
         [for domain in var.allowed_email_domains : ["--email-domain", domain]]
       ))
 
@@ -251,6 +257,7 @@ resource "kubectl_manifest" "vpa" {
 ***************************************/
 
 module "ingress" {
+  count  = var.gateway_api == null ? 1 : 0
   source = "../kube_ingress"
 
   namespace = var.namespace
@@ -271,4 +278,33 @@ module "ingress" {
   depends_on = [
     helm_release.oauth2_proxy
   ]
+}
+
+moved {
+  from = module.ingress
+  to   = module.ingress[0]
+}
+
+resource "kubectl_manifest" "http_route" {
+  count = var.gateway_api == null ? 0 : 1
+  yaml_body = yamlencode({
+    apiVersion = "gateway.networking.k8s.io/v1"
+    kind       = "HTTPRoute"
+    metadata = {
+      name      = local.service_name
+      namespace = var.namespace
+      labels    = module.util.labels
+    }
+    spec = {
+      parentRefs = [{ name = var.gateway_api.parent_name, namespace = var.gateway_api.parent_namespace }]
+      hostnames  = [var.domain]
+      rules = [{
+        matches     = [{ path = { type = "PathPrefix", value = local.path_prefix } }]
+        backendRefs = [{ name = local.service_name, port = 80 }]
+      }]
+    }
+  })
+  server_side_apply = true
+  force_conflicts   = true
+  depends_on        = [helm_release.oauth2_proxy]
 }
