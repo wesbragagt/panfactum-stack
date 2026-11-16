@@ -75,6 +75,18 @@ variable "worker_instance_type" {
   default     = "t4g.medium"
 }
 
+variable "worker_instance_types" {
+  description = "Optional Spot instance types for workers, tried by price and capacity. Overrides worker_instance_type when set."
+  type        = list(string)
+  default     = []
+}
+
+variable "on_demand_worker_subnets" {
+  description = "Optional subnet names (Name tag) that each get one on-demand worker, in a separate ASG from the Spot workers. Remove these subnets from worker_subnets to keep Spot out of those zones."
+  type        = list(string)
+  default     = []
+}
+
 variable "root_volume_size_gb" {
   description = "Size of each node's root EBS volume in GB."
   type        = number
