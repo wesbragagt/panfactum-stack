@@ -100,3 +100,12 @@ variable "controller_nodes_enabled" {
   type        = bool
   default     = true
 }
+variable "gateway_api" {
+  description = "If set, serve the proxy through a Gateway API HTTPRoute instead of ingress-nginx. oauth2-proxy then reverse-proxies authenticated requests on domain/path_prefix to upstream_url."
+  type = object({
+    parent_name      = string # Gateway name
+    parent_namespace = string # Gateway namespace
+    upstream_url     = string # e.g. http://my-svc.my-ns.svc.cluster.local
+  })
+  default = null
+}

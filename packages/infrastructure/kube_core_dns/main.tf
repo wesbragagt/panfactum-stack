@@ -108,7 +108,7 @@ module "core_dns" {
     "linkerd.io/inject" = "disabled"
   }
 
-  replicas                             = 2
+  replicas                             = var.replicas
   burstable_nodes_enabled              = var.burstable_nodes_enabled
   controller_nodes_enabled             = var.controller_nodes_enabled
   spot_nodes_enabled                   = var.spot_nodes_enabled

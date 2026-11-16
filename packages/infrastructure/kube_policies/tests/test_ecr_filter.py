@@ -26,7 +26,7 @@ def main():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         source = (MODULE / "pull_through_image_cache.tf").read_text()
-        source = source.replace("${data.aws_caller_identity.current.account_id}", "111122223333").replace("${data.aws_region.current.region}", "us-east-2").replace("var.pull_through_cache_enabled", "true")
+        source = source.replace("${try(data.aws_caller_identity.current[0].account_id, \"\")}", "111122223333").replace("${data.aws_region.current.region}", "us-east-2").replace("var.pull_through_cache_enabled", "true")
         source += '''\nlocals { match_any_pod_create = { any = [{ resources = { kinds = ["Pod"] } }] } }
 output "policy" { value = { apiVersion = "kyverno.io/v1", kind = "ClusterPolicy", metadata = { name = "ecr-filter-test", annotations = { "pod-policies.kyverno.io/autogen-controllers" = "none" } }, spec = { background = false, rules = local.rule_use_pull_through_image_cache } } }
 '''

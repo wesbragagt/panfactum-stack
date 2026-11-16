@@ -281,8 +281,12 @@ resource "aws_launch_template" "worker" {
     security_groups             = [aws_security_group.nodes.id]
   }
 
-  instance_market_options {
-    market_type = "spot"
+  # A mixed instances policy owns the Spot request when fallback types are set.
+  dynamic "instance_market_options" {
+    for_each = length(var.worker_instance_types) > 0 ? [] : [1]
+    content {
+      market_type = "spot"
+    }
   }
 
   metadata_options {
@@ -319,12 +323,81 @@ resource "aws_autoscaling_group" "worker" {
   vpc_zone_identifier = data.aws_subnets.worker.ids
   health_check_type   = "EC2"
 
-  launch_template {
-    id      = aws_launch_template.worker.id
-    version = aws_launch_template.worker.latest_version
+  dynamic "launch_template" {
+    for_each = length(var.worker_instance_types) > 0 ? [] : [1]
+    content {
+      id      = aws_launch_template.worker.id
+      version = aws_launch_template.worker.latest_version
+    }
+  }
+
+  # Spot capacity for one type can run out in a zone whose EBS volumes pin stateful pods.
+  dynamic "mixed_instances_policy" {
+    for_each = length(var.worker_instance_types) > 0 ? [1] : []
+    content {
+      instances_distribution {
+        on_demand_base_capacity                  = 0
+        on_demand_percentage_above_base_capacity = 0
+        spot_allocation_strategy                 = "price-capacity-optimized"
+      }
+      launch_template {
+        launch_template_specification {
+          launch_template_id = aws_launch_template.worker.id
+          version            = aws_launch_template.worker.latest_version
+        }
+        dynamic "override" {
+          for_each = var.worker_instance_types
+          content {
+            instance_type = override.value
+          }
+        }
+      }
+    }
   }
 
   # Workers join over the private API address, not their changing public IPs.
+  depends_on = [talos_machine_bootstrap.this]
+}
+
+data "aws_subnets" "worker_on_demand" {
+  count = length(var.on_demand_worker_subnets) > 0 ? 1 : 0
+  filter {
+    name   = "vpc-id"
+    values = [var.vpc_id]
+  }
+  filter {
+    name   = "tag:Name"
+    values = var.on_demand_worker_subnets
+  }
+}
+
+# One on-demand worker per listed subnet, so zones holding EBS-backed stateful pods keep a node through Spot reclaims.
+resource "aws_autoscaling_group" "worker_on_demand" {
+  count               = length(var.on_demand_worker_subnets) > 0 ? 1 : 0
+  name_prefix         = "${var.cluster_name}-worker-od-"
+  min_size            = length(var.on_demand_worker_subnets)
+  max_size            = length(var.on_demand_worker_subnets)
+  desired_capacity    = length(var.on_demand_worker_subnets)
+  vpc_zone_identifier = data.aws_subnets.worker_on_demand[0].ids
+  health_check_type   = "EC2"
+
+  # Without fallback types the launch template requests Spot; override to on-demand here.
+  mixed_instances_policy {
+    instances_distribution {
+      on_demand_base_capacity                  = length(var.on_demand_worker_subnets)
+      on_demand_percentage_above_base_capacity = 100
+    }
+    launch_template {
+      launch_template_specification {
+        launch_template_id = aws_launch_template.worker.id
+        version            = aws_launch_template.worker.latest_version
+      }
+      override {
+        instance_type = var.worker_instance_type
+      }
+    }
+  }
+
   depends_on = [talos_machine_bootstrap.this]
 }
 
