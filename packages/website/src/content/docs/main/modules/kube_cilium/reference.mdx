@@ -36,7 +36,15 @@ Description: The version of the cilium helm chart to deploy
 
 Type: `string`
 
-Default: `"1.17.14"`
+Default: `"1.20.4"`
+
+### cluster\_name
+
+Description: Operator cluster name override. Null uses the Panfactum metadata cluster name; local clusters have none, so they set it.
+
+Type: `string`
+
+Default: `null`
 
 ### cluster\_pool\_ipv4\_cidrs
 
@@ -54,7 +62,7 @@ Default:
 
 ### cluster\_type
 
-Description: Cluster platform. EKS preserves the existing ENI/IRSA defaults; Talos uses KubePrism and does not query EKS.
+Description: Cluster platform. EKS preserves the existing ENI/IRSA defaults; Talos uses KubePrism and does not query EKS. Local (kind) queries neither and needs an explicit API host and port.
 
 Type: `string`
 
@@ -110,7 +118,7 @@ Default: `false`
 
 ### ipam\_mode
 
-Description: Optional IPAM override. Defaults to eni on EKS and cluster-pool on Talos. ENI is not supported in Talos mode.
+Description: Optional IPAM override. Defaults to eni on EKS and cluster-pool on Talos and local. ENI is not supported in local mode.
 
 Type: `string`
 
@@ -206,7 +214,7 @@ Default: `null`
 
 ### operator\_replicas
 
-Description: Operator replica override. Defaults to two on EKS and one on Talos.
+Description: Operator replica override. Defaults to two on EKS and one on Talos and local.
 
 Type: `number`
 
@@ -276,13 +284,13 @@ No outputs.
 
 The following providers are needed by this module:
 
-- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.40.0/docs) (6.40.0)
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
 
-- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.1.1/docs) (3.1.1)
+- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.3.0/docs) (3.3.0)
 
-- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
 
-- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/2.35.0/docs) (2.35.0)
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 
