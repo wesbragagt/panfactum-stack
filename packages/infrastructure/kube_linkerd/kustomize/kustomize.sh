@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 
-set -eo pipefail
+set -euo pipefail
 
 SCRIPT=$(realpath "$0")
 SCRIPTPATH=$(dirname "$SCRIPT")
+WORKDIR=$(mktemp -d)
+trap 'rm -rf -- "$WORKDIR"' EXIT
+
+# Helm may run this concurrently. Keep generated patches outside the source
+# directory, whose files are hashed into the workload customization label.
+cp -a "$SCRIPTPATH/." "$WORKDIR/"
 
 # save manifests to files
-echo "$1" >"$SCRIPTPATH/destination.yaml"
-echo "$2" >"$SCRIPTPATH/identity.yaml"
-echo "$3" >"$SCRIPTPATH/proxy-injector.yaml"
+printf '%s\n' "$1" >"$WORKDIR/destination.yaml"
+printf '%s\n' "$2" >"$WORKDIR/identity.yaml"
+printf '%s\n' "$3" >"$WORKDIR/proxy-injector.yaml"
 
 # save incoming YAML to file
-cat <&0 >"$SCRIPTPATH/all.yaml"
+cat <&0 >"$WORKDIR/all.yaml"
 
 # run kustomize
-kustomize build "$SCRIPTPATH"
-
-# rm all.yaml to prevent future hashes from breaking
-rm -f "$SCRIPTPATH/all.yaml"
+kustomize build "$WORKDIR"

@@ -2,15 +2,15 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "6.40.0"
+      version = "6.73.0"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "2.35.0"
+      version = "3.5.0"
     }
     kubectl = {
       source  = "alekc/kubectl"
-      version = "2.1.6"
+      version = "3.0.1"
     }
     pf = {
       source  = "panfactum/pf"

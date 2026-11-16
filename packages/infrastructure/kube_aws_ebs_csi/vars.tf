@@ -2,7 +2,7 @@
 variable "aws_ebs_csi_driver_helm_version" {
   description = "The version of the aws-ebs-csi-driver helm chart to deploy"
   type        = string
-  default     = "2.45.1"
+  default     = "2.68.0"
 }
 
 variable "aws_iam_ip_allow_list" {

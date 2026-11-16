@@ -2,23 +2,23 @@ terraform {
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "2.35.0"
+      version = "3.5.0"
     }
     helm = {
       source  = "hashicorp/helm"
-      version = "3.1.1"
+      version = "3.3.0"
     }
     aws = {
       source  = "hashicorp/aws"
-      version = "6.40.0"
+      version = "6.73.0"
     }
     random = {
       source  = "hashicorp/random"
-      version = "3.8.1"
+      version = "3.9.1"
     }
     kubectl = {
       source  = "alekc/kubectl"
-      version = "2.1.6"
+      version = "3.0.1"
     }
     pf = {
       source  = "panfactum/pf"
@@ -74,7 +74,8 @@ locals {
       [
         "--aws-assume-role=${role}"
       ],
-      [for zone_id in [for domain, config in var.route53_zones : config.zone_id if config.record_manager_role_arn == role] : "--zone-id-filter=${zone_id}"]
+      [for zone_id in [for domain, config in var.route53_zones : config.zone_id if config.record_manager_role_arn == role] : "--zone-id-filter=${zone_id}"],
+      var.aws_zone_match_parent ? ["--aws-zone-match-parent"] : []
     )
   } }
 

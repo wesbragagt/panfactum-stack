@@ -2,24 +2,24 @@ terraform {
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "2.35.0"
+      version = "3.5.0"
     }
     kubectl = {
       source  = "alekc/kubectl"
-      version = "2.1.6"
+      version = "3.0.1"
     }
     helm = {
       source  = "hashicorp/helm"
-      version = "3.1.1"
+      version = "3.3.0"
     }
     aws = {
       source                = "hashicorp/aws"
-      version               = "6.40.0"
+      version               = "6.73.0"
       configuration_aliases = [aws.secondary, aws.global]
     }
     random = {
       source  = "hashicorp/random"
-      version = "3.8.1"
+      version = "3.9.1"
     }
     pf = {
       source  = "panfactum/pf"
@@ -371,7 +371,8 @@ resource "kubernetes_config_map" "dashboard" {
 ***************************************/
 
 module "pvc_annotator" {
-  source = "../kube_pvc_annotator"
+  kyverno_cel_policies_enabled = var.kyverno_cel_policies_enabled
+  source                       = "../kube_pvc_annotator"
 
   namespace = local.namespace
   config = {

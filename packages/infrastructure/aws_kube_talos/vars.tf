@@ -96,7 +96,7 @@ variable "root_volume_size_gb" {
 variable "talos_version" {
   description = "Talos version. Selects the official Sidero Labs AMI and the machine config contract."
   type        = string
-  default     = "v1.14.5"
+  default     = "v1.14.6"
 }
 
 variable "kube_version" {
@@ -140,8 +140,8 @@ variable "etcd_backup_talosctl_sha256" {
   description = "SHA256 of the talosctl release binary for talos_version, keyed by arm64/amd64. Update together with talos_version."
   type        = map(string)
   default = {
-    arm64 = "dfd3aa33c3159810e216fc39afb685d4d120c8f2728e017d8c7f7635d3139382"
-    amd64 = "ff432b68986709e6b69c563a08a2ced4232d5196b0dccd6d2e783e9d714d7d7d"
+    arm64 = "fd22e0678d783105646d824c23ee45cf7a57f737edae274ca41376d03a4def65"
+    amd64 = "11acde7f7578ffe9cbe6fb8349b34595065f597de0842615982e350b365de987"
   }
 }
 

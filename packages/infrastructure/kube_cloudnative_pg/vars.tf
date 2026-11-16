@@ -1,7 +1,7 @@
 variable "cloudnative_pg_helm_version" {
   description = "The version of the cloudnative-pg helm chart to deploy"
   type        = string
-  default     = "0.23.2"
+  default     = "0.29.1"
 }
 
 variable "vpa_enabled" {

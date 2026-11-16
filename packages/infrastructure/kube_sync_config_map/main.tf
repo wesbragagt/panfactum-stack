@@ -2,11 +2,11 @@ terraform {
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "2.35.0"
+      version = "3.5.0"
     }
     kubectl = {
       source  = "alekc/kubectl"
-      version = "2.1.6"
+      version = "3.0.1"
     }
     pf = {
       source  = "panfactum/pf"
@@ -20,7 +20,7 @@ data "pf_kube_labels" "labels" {
 }
 
 resource "kubectl_manifest" "sync_config_map" {
-  yaml_body = yamlencode({
+  yaml_body = var.kyverno_cel_policies_enabled ? yamlencode(local.cel_policy) : yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "ClusterPolicy"
     metadata = {
@@ -65,4 +65,32 @@ resource "kubectl_manifest" "sync_config_map" {
 
   force_conflicts   = true
   server_side_apply = true
+}
+
+locals {
+  cel_policy = {
+    apiVersion = "policies.kyverno.io/v1"
+    kind       = "GeneratingPolicy"
+    metadata = {
+      name   = "sync-config-map-${substr(sha1("${join(",", var.destination_namespaces)}${join(",", var.excluded_namespaces)}${var.config_map_name}${var.config_map_namespace}"), 0, 6)}"
+      labels = data.pf_kube_labels.labels.labels
+    }
+    spec = {
+      evaluation = {
+        admission                      = { enabled = true }
+        generateExisting               = { enabled = true }
+        synchronize                    = { enabled = true }
+        orphanDownstreamOnPolicyDelete = { enabled = true }
+      }
+      matchConstraints = {
+        resourceRules = [{ apiGroups = [""], apiVersions = ["v1"], operations = ["CREATE", "UPDATE"], resources = ["namespaces"] }]
+      }
+      matchConditions = [
+        { name = "destinations", expression = length(var.destination_namespaces) > 0 ? "object.metadata.name in ${jsonencode(var.destination_namespaces)}" : "true" },
+        { name = "exclusions", expression = "!(object.metadata.name in ${jsonencode(var.excluded_namespaces)}) && object.metadata.name != ${jsonencode(var.config_map_namespace)}" },
+      ]
+      variables = [{ name = "source", expression = "resource.Get('v1', 'configmaps', ${jsonencode(var.config_map_namespace)}, ${jsonencode(var.config_map_name)})" }]
+      generate  = [{ expression = "generator.Apply(object.metadata.name, [variables.source])" }]
+    }
+  }
 }

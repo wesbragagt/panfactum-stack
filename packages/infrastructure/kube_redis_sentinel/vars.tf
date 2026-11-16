@@ -201,3 +201,9 @@ variable "controller_nodes_required" {
   type        = bool
   default     = false
 }
+
+variable "kyverno_cel_policies_enabled" {
+  description = "Use policies.kyverno.io/v1 CEL policies, required by Kyverno 1.20+. Existing legacy policies must be migrated with a reviewed replacement plan."
+  type        = bool
+  default     = false
+}

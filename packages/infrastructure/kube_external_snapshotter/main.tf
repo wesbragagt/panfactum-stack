@@ -2,19 +2,19 @@ terraform {
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "2.35.0"
+      version = "3.5.0"
     }
     helm = {
       source  = "hashicorp/helm"
-      version = "3.1.1"
+      version = "3.3.0"
     }
     random = {
       source  = "hashicorp/random"
-      version = "3.8.1"
+      version = "3.9.1"
     }
     kubectl = {
       source  = "alekc/kubectl"
-      version = "2.1.6"
+      version = "3.0.1"
     }
     pf = {
       source  = "panfactum/pf"
@@ -25,6 +25,16 @@ terraform {
 
 locals {
   namespace = module.namespace.namespace
+  # Chart v5 moved CRDs from Helm's install-only crds directory into templates.
+  # Adopt existing v4 CRDs before Helm upgrades; never replace stored snapshots.
+  managed_crds = tonumber(split(".", var.external_snapshotter_helm_version)[0]) >= 5 ? toset([
+    "volumesnapshotclasses.snapshot.storage.k8s.io",
+    "volumesnapshotcontents.snapshot.storage.k8s.io",
+    "volumesnapshots.snapshot.storage.k8s.io",
+    "volumegroupsnapshotclasses.groupsnapshot.storage.k8s.io",
+    "volumegroupsnapshotcontents.groupsnapshot.storage.k8s.io",
+    "volumegroupsnapshots.groupsnapshot.storage.k8s.io",
+  ]) : toset([])
 }
 
 data "pf_kube_labels" "labels" {
@@ -60,7 +70,34 @@ module "namespace" {
 * External Snapshotter
 ***************************************/
 
+resource "kubernetes_labels" "crd_ownership" {
+  # Distinct SSA managers prevent one metadata resource from pruning the fields
+  # owned by the other when both update the same CRD.
+  depends_on    = [kubernetes_annotations.crd_ownership]
+  field_manager = "snapshot-crd-labels"
+  force         = true
+  for_each      = local.managed_crds
+  api_version   = "apiextensions.k8s.io/v1"
+  kind          = "CustomResourceDefinition"
+  metadata { name = each.value }
+  labels = { "app.kubernetes.io/managed-by" = "Helm" }
+}
+
+resource "kubernetes_annotations" "crd_ownership" {
+  field_manager = "snapshot-crd-annotations"
+  force         = true
+  for_each      = local.managed_crds
+  api_version   = "apiextensions.k8s.io/v1"
+  kind          = "CustomResourceDefinition"
+  metadata { name = each.value }
+  annotations = {
+    "meta.helm.sh/release-name"      = "external-snapshotter"
+    "meta.helm.sh/release-namespace" = local.namespace
+  }
+}
+
 resource "helm_release" "external_snapshotter" {
+  depends_on      = [kubernetes_labels.crd_ownership, kubernetes_annotations.crd_ownership]
   namespace       = local.namespace
   name            = "external-snapshotter"
   repository      = "https://piraeus.io/helm-charts"
@@ -76,6 +113,8 @@ resource "helm_release" "external_snapshotter" {
 
   values = [
     yamlencode({
+      # Removing a Helm release must not remove snapshot data or its schemas.
+      keepCRDs = true
       controller = {
         enabled          = true
         fullnameOverride = "external-snapshotter"

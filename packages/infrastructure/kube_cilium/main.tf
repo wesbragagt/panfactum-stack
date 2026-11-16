@@ -2,19 +2,19 @@ terraform {
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "2.35.0"
+      version = "3.5.0"
     }
     helm = {
       source  = "hashicorp/helm"
-      version = "3.1.1"
+      version = "3.3.0"
     }
     aws = {
       source  = "hashicorp/aws"
-      version = "6.40.0"
+      version = "6.73.0"
     }
     kubectl = {
       source  = "alekc/kubectl"
-      version = "2.1.6"
+      version = "3.0.1"
     }
     pf = {
       source  = "panfactum/pf"
@@ -26,7 +26,7 @@ terraform {
 locals {
   name         = "cilium"
   namespace    = var.namespace_create ? module.namespace[0].namespace : var.namespace
-  cluster_name = data.pf_metadata.metadata.kube_cluster_name
+  cluster_name = var.cluster_name != null ? var.cluster_name : data.pf_metadata.metadata.kube_cluster_name
   cluster_url  = data.pf_metadata.metadata.kube_api_server
 }
 
@@ -38,7 +38,7 @@ data "pf_kube_labels" "labels" {
 data "pf_metadata" "metadata" {}
 
 data "aws_eks_cluster" "cluster" {
-  count = local.talos_enabled ? 0 : 1
+  count = local.eks_enabled ? 1 : 0
   name  = data.pf_metadata.metadata.kube_cluster_name // We must do this lookup since we set `data.pf_metadata.kube_api_server` is set to a VIP in the CI / CD pipeline (which doesn't work with the Cilium install)
 }
 
@@ -107,6 +107,8 @@ data "aws_iam_policy_document" "cilium" {
       "ec2:UnassignPrivateIpAddresses",
       "ec2:CreateNetworkInterface",
       "ec2:AttachNetworkInterface",
+      "ec2:DetachNetworkInterface",
+      "ec2:DescribeAvailabilityZones",
       "ec2:ModifyNetworkInterfaceAttribute",
       "ec2:AssignPrivateIpAddresses",
       "ec2:CreateTags",
@@ -172,6 +174,10 @@ resource "helm_release" "cilium" {
       condition     = !local.talos_enabled || !local.eni_enabled || (var.oidc_provider_arn != null && var.oidc_issuer_url != null && var.eni_cluster_tag != null)
       error_message = "Talos ENI requires oidc_provider_arn, oidc_issuer_url and a unique eni_cluster_tag."
     }
+    precondition {
+      condition     = !local.local_enabled || (!local.eni_enabled && var.k8s_service_host != null && var.k8s_service_port != null)
+      error_message = "Local clusters require a non-ENI ipam_mode and explicit k8s_service_host and k8s_service_port."
+    }
   }
 
   values = concat([
@@ -199,8 +205,8 @@ resource "helm_release" "cilium" {
       // shifts so you MUST use the internal EKS API DNS name
       // in order for this to continue to work
       kubeProxyReplacement = true
-      k8sServiceHost       = var.k8s_service_host != null ? var.k8s_service_host : (local.talos_enabled ? "localhost" : trimprefix(data.aws_eks_cluster.cluster[0].endpoint, "https://"))
-      k8sServicePort       = var.k8s_service_port != null ? var.k8s_service_port : (local.talos_enabled ? 7445 : 443)
+      k8sServiceHost       = var.k8s_service_host != null ? var.k8s_service_host : (local.talos_enabled ? "localhost" : try(trimprefix(data.aws_eks_cluster.cluster[0].endpoint, "https://"), null))
+      k8sServicePort       = var.k8s_service_port != null ? var.k8s_service_port : (local.talos_enabled ? 7445 : (local.eks_enabled ? 443 : null))
 
       // Enhanced load balancing capabilities
       loadBalancer = {
@@ -346,7 +352,7 @@ resource "helm_release" "cilium" {
       }
 
       operator = merge({
-        replicas = var.operator_replicas != null ? var.operator_replicas : (local.talos_enabled ? 1 : 2)
+        replicas = var.operator_replicas != null ? var.operator_replicas : (local.eks_enabled ? 2 : 1)
         tolerations = concat([
           // These are needed b/c the cilium agents on each node need the operator
           // to be running in order for them to remove this taint

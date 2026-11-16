@@ -2,15 +2,15 @@ terraform {
   required_providers {
     random = {
       source  = "hashicorp/random"
-      version = "3.8.1"
+      version = "3.9.1"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "2.35.0"
+      version = "3.5.0"
     }
     kubectl = {
       source  = "alekc/kubectl"
-      version = "2.1.6"
+      version = "3.0.1"
     }
     pf = {
       source  = "panfactum/pf"
@@ -299,7 +299,9 @@ locals {
       ///////////////////////////
       // Scheduling
       ///////////////////////////
-      schedulerName                 = var.panfactum_scheduler_enabled ? "panfactum" : null
+      // Match the API default explicitly; kubectl provider v3 detects a
+      // perpetual difference between a declared null and default-scheduler.
+      schedulerName                 = var.panfactum_scheduler_enabled ? "panfactum" : "default-scheduler"
       tolerations                   = module.util.tolerations
       affinity                      = module.util.affinity
       topologySpreadConstraints     = module.util.topology_spread_constraints

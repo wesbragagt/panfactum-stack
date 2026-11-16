@@ -7,7 +7,7 @@ variable "namespace_labels" {
 variable "linkerd_helm_version" {
   description = "The version of the linkerd-crd and linkerd-control-plane helm charts to deploy (edge)"
   type        = string
-  default     = "2025.10.7"
+  default     = "2026.11.2"
 }
 
 variable "vault_ca_crt" {
@@ -112,4 +112,10 @@ variable "cni_remove_taint_image" {
   description = "Image for the remove-taint sidecar on linkerd-cni pods. Defaults to bitnamilegacy/kubectl at the server's minor version, which no longer publishes tags past 1.33."
   type        = string
   default     = null
+}
+
+variable "kyverno_cel_policies_enabled" {
+  description = "Use policies.kyverno.io/v1 CEL policies, required by Kyverno 1.20+. Existing legacy policies must be migrated with a reviewed replacement plan."
+  type        = bool
+  default     = false
 }

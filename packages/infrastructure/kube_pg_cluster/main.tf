@@ -2,27 +2,27 @@ terraform {
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "2.35.0"
+      version = "3.5.0"
     }
     kubectl = {
       source  = "alekc/kubectl"
-      version = "2.1.6"
+      version = "3.0.1"
     }
     aws = {
       source  = "hashicorp/aws"
-      version = "6.40.0"
+      version = "6.73.0"
     }
     random = {
       source  = "hashicorp/random"
-      version = "3.8.1"
+      version = "3.9.1"
     }
     time = {
       source  = "hashicorp/time"
-      version = "0.13.1"
+      version = "0.14.2"
     }
     vault = {
       source  = "hashicorp/vault"
-      version = "4.8.0"
+      version = "5.13.0"
     }
     pf = {
       source  = "panfactum/pf"
@@ -55,6 +55,18 @@ locals {
   }
 
   schema_init_sql = join("\n", flatten([
+    // Owned independently of CNPG Pooler reconciliation, including fresh installs
+    // and recovery clusters. Never expose verifiers to application/probe roles.
+    var.pooler_implementation == "rustybouncer" ? [
+      "DO $rustybouncer$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rustybouncer_auth') THEN CREATE ROLE rustybouncer_auth LOGIN; END IF; END $rustybouncer$;",
+      "GRANT CONNECT ON DATABASE app TO rustybouncer_auth;",
+      "GRANT USAGE ON SCHEMA public TO rustybouncer_auth;",
+      "CREATE OR REPLACE FUNCTION public.rustybouncer_user_search(uname TEXT) RETURNS TABLE (usename text, passwd text) LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog AS 'SELECT rolname::text, rolpassword FROM pg_catalog.pg_authid WHERE rolname=$1 AND rolcanlogin AND (rolvaliduntil IS NULL OR rolvaliduntil > CURRENT_TIMESTAMP);';",
+      "ALTER FUNCTION public.rustybouncer_user_search(text) OWNER TO postgres;",
+      "REVOKE ALL ON FUNCTION public.rustybouncer_user_search(text) FROM PUBLIC;",
+      "GRANT EXECUTE ON FUNCTION public.rustybouncer_user_search(text) TO rustybouncer_auth;"
+    ] : [],
+
     // Create schemas
     [for schema in var.extra_schemas : "CREATE SCHEMA IF NOT EXISTS ${schema};"],
 
@@ -93,7 +105,28 @@ locals {
     ]],
   ]))
 
-  schema_init_sql_command = "psql -v ON_ERROR_STOP=1 -e <<'EOSQL'\n${local.schema_init_sql}\nEOSQL"
+  rustybouncer_verifier_denied_roles = join(", ", concat(
+    ["PUBLIC", "reader", "writer"],
+    flatten([for schema in var.extra_schemas : ["reader_${schema}", "writer_${schema}"]])
+  ))
+  rustybouncer_auth_sql_restrictions = var.pooler_implementation == "rustybouncer" ? join("\n", [
+    "REVOKE ALL ON FUNCTION public.rustybouncer_user_search(text) FROM ${local.rustybouncer_verifier_denied_roles};",
+    // Schema-wide EXECUTE grants must not reopen the legacy verifier function.
+    // Recovery sources may not have it, so guard its presence.
+    "DO $restrict$ BEGIN IF to_regprocedure('public.user_search(text)') IS NOT NULL THEN REVOKE ALL ON FUNCTION public.user_search(text) FROM ${local.rustybouncer_verifier_denied_roles}; END IF; END $restrict$;"
+  ]) : ""
+
+  // Dynamic credential issuance refreshes broad schema function grants. Revoke
+  // verifier access in the same Vault transaction after those grants, including
+  // the legacy lookup path. Fresh clusters may issue credentials before init.
+  rustybouncer_lease_sql_restrictions = "DO $credentials$ BEGIN IF pg_catalog.to_regprocedure('public.rustybouncer_user_search(text)') IS NOT NULL THEN REVOKE ALL ON FUNCTION public.rustybouncer_user_search(text) FROM ${local.rustybouncer_verifier_denied_roles}; END IF; IF pg_catalog.to_regprocedure('public.user_search(text)') IS NOT NULL THEN REVOKE ALL ON FUNCTION public.user_search(text) FROM ${local.rustybouncer_verifier_denied_roles}; END IF; END $credentials$;"
+
+  // The quoted heredoc sends dollars literally. Use a PostgreSQL dollar tag
+  // for RustyBouncer's repeated schema initialization, retaining legacy bytes
+  // for existing PgBouncer Jobs.
+  schema_init_sql_rendered = var.pooler_implementation == "rustybouncer" ? replace(local.schema_init_sql, "$$$$", "$schema$") : local.schema_init_sql
+
+  schema_init_sql_command = "psql -v ON_ERROR_STOP=1 -e <<'EOSQL'\n${local.schema_init_sql_rendered}${var.pooler_implementation == "rustybouncer" ? "\n${local.rustybouncer_auth_sql_restrictions}" : ""}\nEOSQL"
 }
 
 data "pf_kube_labels" "labels" {
@@ -393,7 +426,14 @@ resource "kubernetes_manifest" "postgres_cluster" {
         enablePodMonitor = var.monitoring_enabled
       }
 
-      postgresql = {
+      postgresql = merge(var.pooler_implementation == "rustybouncer" ? {
+        // Independent of CNPG Pooler ownership: RustyBouncer uses its own
+        // certificate-only lookup/probe identity, provisioned by schema_init_job.
+        // Do not add trust rules or change application SCRAM authentication.
+        pg_hba = [
+          "hostssl all rustybouncer_auth all cert"
+        ]
+        } : {}, {
         parameters = merge(
           { for k, v in {
             # Defaults - Need to be provided to avoid reconciliation error
@@ -433,7 +473,7 @@ resource "kubernetes_manifest" "postgres_cluster" {
           } : k => v if v != null },
           var.pg_parameters
         )
-      }
+      })
 
       bootstrap = { for k, v in {
         recovery = var.pg_recovery_mode_enabled ? { for k, v in {
@@ -678,7 +718,7 @@ resource "kubectl_manifest" "scheduled_backup" {
 
 resource "kubectl_manifest" "failed_backup_gc" {
   count = var.gc_failed_backups ? 1 : 0
-  yaml_body = yamlencode({
+  yaml_body = var.kyverno_cel_policies_enabled ? yamlencode(local.cel_backup_gc) : yamlencode({
     apiVersion = "kyverno.io/v2"
     kind       = "CleanupPolicy"
     metadata = {
@@ -914,7 +954,7 @@ resource "kubectl_manifest" "vpa_adjustments" {
 // in order to accommodate the case where the VPA IS enabled.
 resource "kubectl_manifest" "non_vpa_resource_adjustments" {
   count = var.vpa_enabled ? 0 : 1
-  yaml_body = yamlencode({
+  yaml_body = var.kyverno_cel_policies_enabled ? yamlencode(local.cel_resource_policy) : yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "Policy"
     metadata = {
@@ -996,7 +1036,8 @@ resource "vault_database_secret_backend_role" "reader" {
 
     // Create the temporary role and assign them to the reader group
     "CREATE ROLE \"{{name}}\" LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';",
-    "GRANT reader TO \"{{name}}\";"
+    "GRANT reader TO \"{{name}}\";",
+    var.pooler_implementation == "rustybouncer" ? [local.rustybouncer_lease_sql_restrictions] : []
   ])
   renew_statements = [
     "ALTER ROLE \"{{name}}\" VALID UNTIL '{{expiration}}'"
@@ -1045,6 +1086,7 @@ resource "vault_database_secret_backend_role" "admin" {
       "ALTER DEFAULT PRIVILEGES FOR ROLE \"{{name}}\" IN SCHEMA ${schema} GRANT SELECT ON SEQUENCES TO reader;",
       "ALTER DEFAULT PRIVILEGES FOR ROLE \"{{name}}\" IN SCHEMA ${schema} GRANT EXECUTE ON FUNCTIONS TO reader;"
     ]],
+    var.pooler_implementation == "rustybouncer" ? [local.rustybouncer_lease_sql_restrictions] : []
   ])
   renew_statements = [
     "ALTER ROLE \"{{name}}\" VALID UNTIL '{{expiration}}'"
@@ -1123,7 +1165,8 @@ resource "vault_database_secret_backend_role" "schema_reader" {
     // Create dynamic role
     "CREATE ROLE \"{{name}}\" LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';",
     "GRANT reader_${each.key} TO \"{{name}}\";",
-    "ALTER ROLE \"{{name}}\" SET search_path = ${each.key}, public;"
+    "ALTER ROLE \"{{name}}\" SET search_path = ${each.key}, public;",
+    var.pooler_implementation == "rustybouncer" ? [local.rustybouncer_lease_sql_restrictions] : []
   ])
   renew_statements = [
     "ALTER ROLE \"{{name}}\" VALID UNTIL '{{expiration}}'"
@@ -1171,6 +1214,7 @@ resource "vault_database_secret_backend_role" "schema_admin" {
       "ALTER DEFAULT PRIVILEGES FOR ROLE \"{{name}}\" IN SCHEMA ${schema} GRANT SELECT ON SEQUENCES TO reader_${each.key};",
       "ALTER DEFAULT PRIVILEGES FOR ROLE \"{{name}}\" IN SCHEMA ${schema} GRANT EXECUTE ON FUNCTIONS TO reader_${each.key};",
     ]],
+    var.pooler_implementation == "rustybouncer" ? [local.rustybouncer_lease_sql_restrictions] : []
   ])
   renew_statements = [
     "ALTER ROLE \"{{name}}\" VALID UNTIL '{{expiration}}'"
@@ -1435,7 +1479,7 @@ module "pooler_certs" {
 
 
 resource "kubectl_manifest" "connection_pooler" {
-  for_each = local.poolers_to_enable
+  for_each = var.pooler_implementation == "pgbouncer" ? local.poolers_to_enable : toset([])
   yaml_body = yamlencode({
     apiVersion = "postgresql.cnpg.io/v1"
     kind       = "Pooler"
@@ -1555,13 +1599,13 @@ resource "kubectl_manifest" "vpa_pooler" {
     }
     spec = {
       targetRef = {
-        apiVersion = "postgresql.cnpg.io/v1"
-        kind       = "Pooler"
+        apiVersion = var.pooler_implementation == "pgbouncer" ? "postgresql.cnpg.io/v1" : "apps/v1"
+        kind       = var.pooler_implementation == "pgbouncer" ? "Pooler" : "Deployment"
         name       = "${local.cluster_name}-pooler-${each.key}"
       }
       resourcePolicy = {
         containerPolicies = [{
-          containerName = "pgbouncer"
+          containerName = var.pooler_implementation
           minAllowed = {
             cpu    = "${var.pgbouncer_minimum_cpu_millicores}m"
             memory = "${var.pgbouncer_minimum_memory_mb}Mi"
@@ -1576,7 +1620,7 @@ resource "kubectl_manifest" "vpa_pooler" {
   })
   force_conflicts   = true
   server_side_apply = true
-  depends_on        = [kubectl_manifest.connection_pooler]
+  depends_on        = [kubectl_manifest.connection_pooler, kubectl_manifest.rustybouncer]
 }
 
 resource "kubectl_manifest" "pdb_pooler" {
@@ -1602,7 +1646,7 @@ resource "kubectl_manifest" "pdb_pooler" {
   })
   force_conflicts   = true
   server_side_apply = true
-  depends_on        = [kubectl_manifest.connection_pooler]
+  depends_on        = [kubectl_manifest.connection_pooler, kubectl_manifest.rustybouncer]
   ignore_fields = concat(
     [
       "metadata.annotations.panfactum.com/voluntary-disruption-window-start"
@@ -1632,7 +1676,7 @@ module "disruption_window_controller" {
 // This policy updates the PDB to prevent cluster disruptions when a backup is running
 resource "kubectl_manifest" "backup_pdb" {
   count = var.voluntary_disruptions_enabled ? 1 : 0
-  yaml_body = yamlencode({
+  yaml_body = var.kyverno_cel_policies_enabled ? yamlencode(local.cel_backup_pdb) : yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "Policy"
     metadata = {
@@ -1783,12 +1827,13 @@ resource "kubectl_manifest" "pdb" {
 ***************************************/
 
 module "schema_init_job" {
-  linkerd_enabled = var.linkerd_enabled
-  count           = length(var.extra_schemas) > 0 ? 1 : 0
-  source          = "../kube_job"
+  linkerd_enabled             = var.linkerd_enabled
+  panfactum_scheduler_enabled = var.panfactum_scheduler_enabled
+  count                       = length(var.extra_schemas) > 0 || var.pooler_implementation == "rustybouncer" ? 1 : 0
+  source                      = "../kube_job"
 
   namespace = var.pg_cluster_namespace
-  name      = "pg-schema-init-${local.cluster_name}-${substr(sha256(join(",", var.extra_schemas)), 0, 8)}"
+  name      = "pg-schema-init-${local.cluster_name}-${substr(sha256(var.pooler_implementation == "rustybouncer" ? local.schema_init_sql_command : join(",", var.extra_schemas)), 0, 8)}"
 
   common_env = {
     PGHOST     = "${local.cluster_name}-rw.${var.pg_cluster_namespace}"

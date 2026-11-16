@@ -1,7 +1,7 @@
 variable "cilium_helm_version" {
   description = "The version of the cilium helm chart to deploy"
   type        = string
-  default     = "1.17.14"
+  default     = "1.20.4"
 }
 
 variable "log_level" {
@@ -79,17 +79,17 @@ variable "controller_nodes_enabled" {
   default     = true
 }
 variable "cluster_type" {
-  description = "Cluster platform. EKS preserves the existing ENI/IRSA defaults; Talos uses KubePrism and does not query EKS."
+  description = "Cluster platform. EKS preserves the existing ENI/IRSA defaults; Talos uses KubePrism and does not query EKS. Local (kind) queries neither and needs an explicit API host and port."
   type        = string
   default     = "eks"
   validation {
-    condition     = contains(["eks", "talos"], var.cluster_type)
-    error_message = "cluster_type must be eks or talos."
+    condition     = contains(["eks", "talos", "local"], var.cluster_type)
+    error_message = "cluster_type must be eks, talos or local."
   }
 }
 
 variable "ipam_mode" {
-  description = "Optional IPAM override. Defaults to eni on EKS and cluster-pool on Talos. ENI is not supported in Talos mode."
+  description = "Optional IPAM override. Defaults to eni on EKS and cluster-pool on Talos and local. ENI is not supported in local mode."
   type        = string
   default     = null
   validation {
@@ -145,7 +145,7 @@ variable "namespace_create" {
 }
 
 variable "operator_replicas" {
-  description = "Operator replica override. Defaults to two on EKS and one on Talos."
+  description = "Operator replica override. Defaults to two on EKS and one on Talos and local."
   type        = number
   default     = null
   validation {
@@ -202,4 +202,10 @@ variable "aws_iam_ip_restrictions_enabled" {
   description = "Enable source-IP restrictions. Disable explicitly for self-managed controllers with changing public egress; OIDC subject and audience remain restricted."
   type        = bool
   default     = true
+}
+
+variable "cluster_name" {
+  description = "Operator cluster name override. Null uses the Panfactum metadata cluster name; local clusters have none, so they set it."
+  type        = string
+  default     = null
 }

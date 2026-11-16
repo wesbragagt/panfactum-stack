@@ -127,3 +127,9 @@ variable "cluster_subnet_ids" {
   type        = set(string)
   default     = null
 }
+
+variable "aws_zone_match_parent" {
+  description = "Allow a route53_zones key that is a subdomain of its hosted zone (e.g. sub.example.com in the example.com zone). Without it external-dns finds no zone."
+  type        = bool
+  default     = false
+}

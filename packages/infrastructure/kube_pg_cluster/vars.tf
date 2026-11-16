@@ -690,3 +690,9 @@ variable "pg_non_vpa_memory_limit_mb" {
     error_message = "The explicit memory limit must be positive."
   }
 }
+
+variable "kyverno_cel_policies_enabled" {
+  description = "Use policies.kyverno.io/v1 CEL policies, required by Kyverno 1.20+. Existing legacy policies must be migrated with a reviewed replacement plan."
+  type        = bool
+  default     = false
+}
