@@ -51,3 +51,12 @@ variable "controller_nodes_enabled" {
   type        = bool
   default     = true
 }
+variable "replicas" {
+  description = "CoreDNS replica count. Keep the default of 2 on multi-node clusters; single-node local clusters use 1 because instance-type anti-affinity leaves a second replica unschedulable."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.replicas >= 1
+    error_message = "replicas must be at least one."
+  }
+}
