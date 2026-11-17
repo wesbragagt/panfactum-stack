@@ -23,5 +23,7 @@ The module creates `<cluster_name>-oidc-<aws_account_id>`, publishes discovery a
 
 The Talos API and Kubernetes API certificates include the SAN `127.0.0.1`, so clients can verify TLS through an SSM port forward. `operator_tunnel_security_group_id` opens 6443 and 50000 to the tunnel hosts. Set `talos_api_endpoint = "127.0.0.1"` to run Talos provider operations through a tunnel forwarding 127.0.0.1:50000 to the controller; plans and applies then fail unless the tunnel is up. `talos_api_allowed_cidrs` and `kube_api_allowed_cidrs` default to `[]`; set them only for direct access from fixed IPs. A new cluster must be created with the Elastic IP endpoint (default) or an allowed CIDR, because the tunnel needs the controller to exist.
 
+To bootstrap a new cluster with both CIDR lists empty, give the controllers fixed addresses with `control_plane_private_ips` and set `operator_tunnel_security_group_id` to an SSM-registered host in the VPC. Start port forwards through that host to `<ip>:50000` and `<ip>:6443` before `terragrunt apply`, and set `talos_api_endpoint = "127.0.0.1"`. The control plane user data carries the `127.0.0.1` SANs, so the first Talos call validates without `--insecure`.
+
 Existing callers can continue supplying provider-shaped `machine_secrets` and `client_configuration`. New callers should pass `secrets_bundle`. Keep the bundle outside the cluster for recovery. Sensitive credentials still enter Terraform state and EC2 user data.
 

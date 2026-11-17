@@ -87,3 +87,22 @@ run "reject_x86_fallback" {
   }
   expect_failures = [data.aws_ec2_instance_type.node]
 }
+
+run "fixed_controller_ip_and_user_data_sans" {
+  command = plan
+  variables { control_plane_private_ips = ["10.0.1.10"] }
+  assert {
+    condition     = aws_instance.control_plane[0].private_ip == "10.0.1.10"
+    error_message = "control_plane_private_ips must set the controller's private IP."
+  }
+  assert {
+    condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "127.0.0.1")
+    error_message = "Control plane user data must carry the 127.0.0.1 SANs for tunnel bootstrap."
+  }
+}
+
+run "reject_private_ip_count_mismatch" {
+  command = plan
+  variables { control_plane_private_ips = ["10.0.1.10", "10.0.1.11"] }
+  expect_failures = [aws_instance.control_plane]
+}

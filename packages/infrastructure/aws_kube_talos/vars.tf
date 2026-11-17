@@ -8,6 +8,12 @@ variable "vpc_id" {
   type        = string
 }
 
+variable "control_plane_private_ips" {
+  description = "Optional fixed private IPs for control plane nodes, one per node in control_plane_subnets order. A fixed address lets an SSM tunnel target the controller before it exists, so the first bootstrap needs no public ingress. Changing it replaces the nodes."
+  type        = list(string)
+  default     = []
+}
+
 variable "control_plane_subnets" {
   description = "PUBLIC subnet names (Name tag), one per control plane node in order. Repeating a subnet places several nodes in one AZ, which an AZ outage takes down together."
   type        = list(string)
@@ -147,7 +153,7 @@ variable "cilium_enabled" {
 variable "etcd_backup_retention_days" {
   description = "Days to keep etcd snapshots in S3."
   type        = number
-  default     = 30
+  default     = 7
 }
 
 variable "etcd_backup_schedule" {

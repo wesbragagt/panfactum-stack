@@ -208,9 +208,10 @@ data "talos_machine_configuration" "control_plane" {
   kubernetes_version = var.kube_version
   docs               = false # With docs/examples the config exceeds the 16 KB EC2 user data limit
   examples           = false
-  config_patches = var.aws_node_config_enabled ? concat(local.cilium_config_patches, local.core_dns_config_patches, local.aws_control_plane_patches, var.control_plane_config_patches, var.control_plane_workloads_enabled ? [yamlencode({ apiVersion = "v1alpha1", kind = "KubeNodeConfig", labels = { "panfactum.com/class" = "controller" }, taints = { "node-role.kubernetes.io/control-plane" = { "$patch" = "delete" } } })] : []) : concat(local.cilium_config_patches, local.core_dns_config_patches, var.control_plane_config_patches, var.control_plane_workloads_enabled ? [
+  # SANs live in user data so the first boot's certs already validate through an SSM tunnel at 127.0.0.1
+  config_patches = concat([local.api_san_patch, local.talos_api_san_patch], var.aws_node_config_enabled ? concat(local.cilium_config_patches, local.core_dns_config_patches, local.aws_control_plane_patches, var.control_plane_config_patches, var.control_plane_workloads_enabled ? [yamlencode({ apiVersion = "v1alpha1", kind = "KubeNodeConfig", labels = { "panfactum.com/class" = "controller" }, taints = { "node-role.kubernetes.io/control-plane" = { "$patch" = "delete" } } })] : []) : concat(local.cilium_config_patches, local.core_dns_config_patches, var.control_plane_config_patches, var.control_plane_workloads_enabled ? [
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeNodeConfig", taints = { "node-role.kubernetes.io/control-plane" = null } })
-  ] : [])
+  ] : []))
 }
 
 data "talos_machine_configuration" "worker" {
@@ -238,6 +239,7 @@ resource "aws_instance" "control_plane" {
   ami                         = data.aws_ami.talos.id
   instance_type               = length(var.control_plane_instance_types) > 0 ? var.control_plane_instance_types[count.index] : var.control_plane_instance_type
   subnet_id                   = data.aws_subnet.control_plane[count.index].id
+  private_ip                  = length(var.control_plane_private_ips) > 0 ? var.control_plane_private_ips[count.index] : null
   vpc_security_group_ids      = [aws_security_group.nodes.id]
   associate_public_ip_address = true
   user_data                   = data.talos_machine_configuration.control_plane.machine_configuration
@@ -282,6 +284,10 @@ resource "aws_instance" "control_plane" {
     precondition {
       condition     = var.control_plane_count == 1 || var.private_api_dns_name != null
       error_message = "control_plane_count = 3 requires private_api_dns_name."
+    }
+    precondition {
+      condition     = length(var.control_plane_private_ips) == 0 || length(var.control_plane_private_ips) == var.control_plane_count
+      error_message = "control_plane_private_ips needs one address per control plane node, or none."
     }
   }
 }
@@ -441,7 +447,7 @@ resource "talos_machine_configuration_apply" "control_plane" {
   client_configuration        = sensitive(local.client_configuration)
   machine_configuration_input = data.talos_machine_configuration.control_plane.machine_configuration
   # Applied over the Talos API rather than user data, which is capped at 16 KB
-  config_patches = concat(local.backup_config_patches, [local.api_san_patch, local.talos_api_san_patch], [
+  config_patches = concat(local.backup_config_patches, [
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeServiceAccountConfig", issuer = { issuerURL = local.canary_oidc_issuer_url } }),
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeAPIServerConfig", extraArgs = { "service-account-jwks-uri" = "${local.canary_oidc_issuer_url}/keys.json" } })
   ])
@@ -449,7 +455,8 @@ resource "talos_machine_configuration_apply" "control_plane" {
   node     = aws_instance.control_plane[count.index].private_ip
 
   # Nodes resolve the cluster endpoint during the apply, so the record must exist first
-  depends_on = [aws_route53_record.api, aws_route53_record.private_api]
+  # On first bootstrap through a tunnel, the tunnel hosts need ingress before the first call
+  depends_on = [aws_route53_record.api, aws_route53_record.private_api, aws_vpc_security_group_ingress_rule.operator_tunnel]
 }
 
 
