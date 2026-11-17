@@ -207,7 +207,8 @@ data "talos_machine_configuration" "worker" {
   kubernetes_version = var.kube_version
   docs               = false
   examples           = false
-  config_patches     = var.worker_config_patches
+  # KubeProxyConfig is control-plane-only in Talos 1.14.
+  config_patches = var.worker_config_patches
 }
 
 ###########################################################################

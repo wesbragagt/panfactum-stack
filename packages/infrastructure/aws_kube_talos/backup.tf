@@ -104,14 +104,29 @@ resource "aws_s3_bucket_policy" "etcd_backup" {
         Condition = { Bool = { "aws:SecureTransport" = "false" } }
       },
       {
-        Sid       = "RequireKMS", Effect = "Deny", Principal = "*", Action = "s3:PutObject"
-        Resource  = "${aws_s3_bucket.etcd_backup.arn}/*"
-        Condition = { StringNotEquals = { "s3:x-amz-server-side-encryption" = "aws:kms" } }
+        Sid      = "RejectNonKMS", Effect = "Deny", Principal = "*", Action = "s3:PutObject"
+        Resource = "${aws_s3_bucket.etcd_backup.arn}/*"
+        Condition = {
+          Null            = { "s3:x-amz-server-side-encryption" = "false" }
+          StringNotEquals = { "s3:x-amz-server-side-encryption" = "aws:kms" }
+        }
       },
       {
-        Sid       = "RequireBackupKey", Effect = "Deny", Principal = "*", Action = "s3:PutObject"
-        Resource  = "${aws_s3_bucket.etcd_backup.arn}/*"
-        Condition = { StringNotEquals = { "s3:x-amz-server-side-encryption-aws-kms-key-id" = aws_kms_key.etcd_backup.arn } }
+        Sid      = "RejectOtherKeys", Effect = "Deny", Principal = "*", Action = "s3:PutObject"
+        Resource = "${aws_s3_bucket.etcd_backup.arn}/*"
+        Condition = {
+          Null            = { "s3:x-amz-server-side-encryption-aws-kms-key-id" = "false" }
+          StringNotEquals = { "s3:x-amz-server-side-encryption-aws-kms-key-id" = aws_kms_key.etcd_backup.arn }
+        }
+      },
+      {
+        # Explicit SSE-KMS without a key selects the AWS-managed key instead.
+        Sid      = "RejectUnspecifiedKMSKey", Effect = "Deny", Principal = "*", Action = "s3:PutObject"
+        Resource = "${aws_s3_bucket.etcd_backup.arn}/*"
+        Condition = {
+          StringEquals = { "s3:x-amz-server-side-encryption" = "aws:kms" }
+          Null         = { "s3:x-amz-server-side-encryption-aws-kms-key-id" = "true" }
+        }
       }
     ]
   })
@@ -152,30 +167,11 @@ resource "aws_iam_access_key" "etcd_backup" {
 locals {
   backup_namespace = "etcd-backup"
   backup_prefix    = "etcd/${var.cluster_name}"
-  backup_image     = "python:3.15.0-slim-trixie@sha256:f5b92f2a669a4c347044f29367f31983280b648250ca94dea66f98c53bc87e58"
-  backup_init      = <<-PYTHON
-    import hashlib, os, pathlib, platform, subprocess, urllib.request
-    architecture = {"aarch64": "arm64", "x86_64": "amd64"}[platform.machine()]
-    checksums = ${jsonencode(var.etcd_backup_talosctl_sha256)}
-    url = "https://github.com/siderolabs/talos/releases/download/${var.talos_version}/talosctl-linux-" + architecture
-    binary = urllib.request.urlopen(url, timeout=120).read()
-    if hashlib.sha256(binary).hexdigest() != checksums[architecture]:
-        raise RuntimeError("talosctl SHA256 mismatch")
-    path = pathlib.Path("/runtime/bin/talosctl")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(binary)
-    path.chmod(0o755)
-    subprocess.run(["python3", "-m", "pip", "install", "--no-cache-dir", "--target", "/runtime/lib", "awscli==1.46.3"], check=True)
-  PYTHON
+  backup_image     = "ghcr.io/siderolabs/talos-backup:v0.1.0@sha256:3635df0be0862d71bba7a34dca3e7f7c790887f5c5d0129002191c4c2d92dd15"
   backup_manifests = [
     {
       apiVersion = "v1", kind = "Namespace"
       metadata   = { name = local.backup_namespace, labels = { "pod-security.kubernetes.io/enforce" = "restricted" } }
-    },
-    {
-      apiVersion = "v1", kind = "ConfigMap"
-      metadata   = { name = "etcd-backup", namespace = local.backup_namespace }
-      data       = { "etcd-backup.py" = file("${path.module}/etcd-backup.py") }
     },
     {
       apiVersion = "v1", kind = "Secret", type = "Opaque"
@@ -194,7 +190,7 @@ locals {
       apiVersion = "batch/v1", kind = "CronJob"
       metadata   = { name = "etcd-backup", namespace = local.backup_namespace }
       spec = {
-        schedule                = "0 * * * *", timeZone = "Etc/UTC", concurrencyPolicy = "Forbid"
+        schedule                = var.etcd_backup_schedule, timeZone = "Etc/UTC", concurrencyPolicy = "Forbid"
         startingDeadlineSeconds = 600, successfulJobsHistoryLimit = 1, failedJobsHistoryLimit = 3
         jobTemplate = {
           spec = {
@@ -206,34 +202,23 @@ locals {
                 nodeSelector    = { "node-role.kubernetes.io/control-plane" = "" }
                 tolerations     = [{ key = "node-role.kubernetes.io/control-plane", operator = "Exists", effect = "NoSchedule" }]
                 securityContext = { runAsNonRoot = true, runAsUser = 1000, runAsGroup = 1000, fsGroup = 1000, seccompProfile = { type = "RuntimeDefault" } }
-                initContainers = [{
-                  name            = "install-tools", image = local.backup_image
-                  command         = ["python3", "-c", local.backup_init]
-                  env             = [{ name = "HOME", value = "/tmp" }]
-                  volumeMounts    = [{ name = "runtime", mountPath = "/runtime" }, { name = "tmp", mountPath = "/tmp" }]
-                  securityContext = { allowPrivilegeEscalation = false, readOnlyRootFilesystem = true, capabilities = { drop = ["ALL"] } }
-                  resources       = { requests = { cpu = "100m", memory = "256Mi" }, limits = { memory = "512Mi" } }
-                }]
                 containers = [{
-                  name    = "backup", image = local.backup_image
-                  command = ["python3", "/scripts/etcd-backup.py"]
-                  envFrom = [{ secretRef = { name = "etcd-backup-aws" } }]
+                  name       = "backup", image = local.backup_image
+                  command    = ["/talos-backup"]
+                  workingDir = "/tmp"
+                  envFrom    = [{ secretRef = { name = "etcd-backup-aws" } }]
                   env = [
                     { name = "TALOSCONFIG", value = "/var/run/secrets/talos.dev/config" },
-                    { name = "TALOS_ENDPOINT", valueFrom = { fieldRef = { fieldPath = "status.hostIP" } } },
-                    { name = "TALOS_NODE", valueFrom = { fieldRef = { fieldPath = "status.hostIP" } } },
-                    { name = "BACKUP_BUCKET", value = aws_s3_bucket.etcd_backup.id },
-                    { name = "BACKUP_PREFIX", value = local.backup_prefix },
-                    { name = "BACKUP_KMS_KEY_ID", value = aws_kms_key.etcd_backup.arn },
+                    { name = "BUCKET", value = aws_s3_bucket.etcd_backup.id },
+                    { name = "CLUSTER_NAME", value = var.cluster_name },
+                    { name = "S3_PREFIX", value = local.backup_prefix },
+                    # S3 provides SSE-KMS; keep snapshots directly recoverable by Talos.
+                    { name = "DISABLE_ENCRYPTION", value = "true" },
+                    { name = "ENABLE_COMPRESSION", value = "false" },
                     { name = "AWS_REGION", value = data.aws_region.current.region },
-                    { name = "AWS_EC2_METADATA_DISABLED", value = "true" },
-                    { name = "PYTHONPATH", value = "/runtime/lib" },
-                    { name = "PATH", value = "/runtime/bin:/runtime/lib/bin:/usr/local/bin:/usr/bin:/bin" },
-                    { name = "HOME", value = "/tmp" }
+                    { name = "AWS_EC2_METADATA_DISABLED", value = "true" }
                   ]
                   volumeMounts = [
-                    { name = "runtime", mountPath = "/runtime", readOnly = true },
-                    { name = "script", mountPath = "/scripts", readOnly = true },
                     { name = "talos", mountPath = "/var/run/secrets/talos.dev", readOnly = true },
                     { name = "tmp", mountPath = "/tmp" }
                   ]
@@ -241,9 +226,7 @@ locals {
                   resources       = { requests = { cpu = "100m", memory = "128Mi", "ephemeral-storage" = "1Gi" }, limits = { memory = "512Mi", "ephemeral-storage" = "4Gi" } }
                 }]
                 volumes = [
-                  { name = "runtime", emptyDir = {} },
                   { name = "tmp", emptyDir = { sizeLimit = "3Gi" } },
-                  { name = "script", configMap = { name = "etcd-backup" } },
                   { name = "talos", secret = { secretName = "etcd-backup-talos" } }
                 ]
               }

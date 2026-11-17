@@ -19,7 +19,7 @@ order; completing a source change does not complete its runtime acceptance gate.
   existence, or another caller's success.
 - Module evidence: [main.tf](main.tf), [vars.tf](vars.tf),
   [outputs.tf](outputs.tf), [ssm.tf](ssm.tf), [backup.tf](backup.tf),
-  [backup script](etcd-backup.py), [test scope](tests/README.md) and
+  [test scope](tests/README.md) and
   [restore test](tests/test.py).
 - Cross-repository evidence is historical, not a dependency or live health claim:
   homelab repository `docs/talos-prototype.md` (Terraform proof cluster and
@@ -65,13 +65,14 @@ order; completing a source change does not complete its runtime acceptance gate.
 - [x] **Cilium preparation and small-cluster scheduling inputs implemented.**
   `cilium_enabled` removes Flannel/kube-proxy in control-plane config;
   `control_plane_workloads_enabled` changes control-plane taints. Worker config
-  currently omits `local.cilium_config_patches`; parity and rendered typed-taint
-  behavior need checking (the historical caller carries a taint override).
+  omits controller-only CNI/proxy documents. Talos 1.14 worker
+  validation rejects KubeProxyConfig; tests/contracts.py checks valid worker
+  configuration instead of requiring patch parity.
 - [x] **Private operator ingress implemented.** `ssm.tf` accepts an existing
   tunnel-host SG for ports 6443/50000. Nodes, EIP, optional public DNS and default
   Talos client endpoints remain public; this is not a private-only architecture.
 - [x] **Backup/restore test code exists.** Docker/Floci test covers marker-based
-  single-controller recovery using the production backup script. Its README
+  single-controller recovery using the digest-pinned backup container. Its README
   excludes real AWS policy enforcement and the CronJob wrapper. Historical AWS
   single-controller recovery is documented in homelab; no HA claim follows.
 
@@ -206,7 +207,7 @@ order; completing a source change does not complete its runtime acceptance gate.
 Backups recover lost state; they do not maintain quorum or prevent API downtime.
 
 - [ ] **Qualify real multipart uploads under this bucket policy.** `backup.tf`
-  still has `RequireKMS`/`RequireBackupKey` denies and prefix-scoped KMS context.
+  uses bucket-default KMS encryption, explicit-override denies and prefix-scoped KMS context.
   Test the exact policy/uploader combination, including wrong-key denial and a
   snapshot larger than 8 MiB; revise only after verifying header/policy semantics.
   Prototype multipart success used a different backup configuration.
@@ -215,12 +216,9 @@ Backups recover lost state; they do not maintain quorum or prevent API downtime.
   Define latest/retained-version protection, monitored freshness and restore
   verification. Acceptance: a simulated long backup outage leaves a usable
   snapshot and generates an alert.
-- [ ] **Make backup execution reproducible and updates deliverable.** CronJob
-  downloads talosctl and installs awscli at runtime; checksums are not tied by
-  validation to `talos_version`. Pin a self-contained image/digest and matching
-  tools. Prove execution without GitHub/PyPI. Establish how inline-manifest,
-  script and credential changes reach an existing cluster; do not assume a
-  machine-config apply or Kubernetes upgrade reconciles every manifest.
+- [ ] **Verify backup updates reach existing nodes.** The runtime now uses a
+  digest-pinned Sidero container without installation steps. Fresh bootstrap and
+  update reconciliation of all inline manifests still need qualification.
 - [ ] **Replace static backup keys with scoped workload identity.** Preserve
   least-privilege backup role and namespace restrictions, verify secret rotation,
   SSE-KMS uploads and restore decrypt access. Existing prototype IRSA results

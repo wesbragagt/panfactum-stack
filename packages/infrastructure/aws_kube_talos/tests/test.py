@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Back up etcd with the production script, lose the control plane, restore from S3."""
+"""Back up etcd with the production container, lose the control plane, restore from S3."""
 import argparse
 import base64
+import re
 from pathlib import Path
 import subprocess
 import time
@@ -9,7 +10,7 @@ import uuid
 
 from harness import MODULE_DIR, load, run, talos, wait_for
 
-BACKUP_SCRIPT = MODULE_DIR / "etcd-backup.py"
+BACKUP_IMAGE = re.search(r'backup_image\s*=\s*"([^"]+)"', (MODULE_DIR / "backup.tf").read_text()).group(1)
 
 
 def kubectl(env, kubeconfig, *args, capture=False):
@@ -25,26 +26,37 @@ def main():
     marker = "before-" + uuid.uuid4().hex[:8]
 
     # The CronJob runs with a Talos service account limited to os:etcd:backup.
-    backup_config = directory / "backup-talosconfig"
+    backup_config = directory / ("backup-talosconfig-" + uuid.uuid4().hex[:8])
     run(*talos(directory, "config", "new", backup_config, "--roles", "os:etcd:backup"), env=env)
     denied = subprocess.run([directory / "talosctl", "--talosconfig", backup_config, "-e", node, "-n", node,
                              "get", "machineconfig"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if denied.returncode == 0:
         raise AssertionError("os:etcd:backup credentials can read the machine config")
 
+    kubectl(env, kubeconfig, "delete", "configmap", "dr-marker", "dr-after-backup", "--ignore-not-found")
     kubectl(env, kubeconfig, "create", "configmap", "dr-marker", "--from-literal=value=" + marker)
     prefix = f"etcd/{name}"
-    run("python3", BACKUP_SCRIPT, env=dict(
-        env, TALOSCONFIG=str(backup_config), TALOS_ENDPOINT=node, TALOS_NODE=node,
-        BACKUP_BUCKET=name, BACKUP_PREFIX=prefix, BACKUP_KMS_KEY_ID=state["kms_key"]))
+    run(directory / "talosctl", "--talosconfig", backup_config, "config", "endpoint", node, env=env)
+    run(directory / "talosctl", "--talosconfig", backup_config, "config", "node", node, env=env)
+    run("docker", "run", "--rm", "--network", "host", "--read-only", "--user", "1000:1000",
+        "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+        "--tmpfs", "/tmp:rw,uid=1000,gid=1000,size=3g", "--workdir", "/tmp",
+        "--mount", f"type=bind,src={backup_config},dst=/var/run/secrets/talos.dev/config,readonly",
+        "-e", "TALOSCONFIG=/var/run/secrets/talos.dev/config",
+        "-e", "AWS_ACCESS_KEY_ID=test", "-e", "AWS_SECRET_ACCESS_KEY=test", "-e", "AWS_REGION=us-east-1",
+        "-e", "CUSTOM_S3_ENDPOINT=" + state["endpoint"], "-e", "BUCKET=" + name,
+        "-e", "S3_PREFIX=" + prefix, "-e", "CLUSTER_NAME=" + name,
+        "-e", "DISABLE_ENCRYPTION=true", "-e", "ENABLE_COMPRESSION=false", BACKUP_IMAGE, env=env)
     kubectl(env, kubeconfig, "create", "configmap", "dr-after-backup", "--from-literal=value=lost")
 
     key = run("aws", "s3api", "list-objects-v2", "--bucket", name, "--prefix", prefix + "/",
               "--query", "sort_by(Contents,&LastModified)[-1].Key", "--output", "text", env=env, capture=True)
-    encryption = run("aws", "s3api", "head-object", "--bucket", name, "--key", key, "--query",
-                     "[ServerSideEncryption,SSEKMSKeyId]", "--output", "text", env=env, capture=True).split()
+    # Floci does not reflect bucket-default encryption in object metadata.
+    encryption = run("aws", "s3api", "get-bucket-encryption", "--bucket", name, "--query",
+                     "ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.[SSEAlgorithm,KMSMasterKeyID]",
+                     "--output", "text", env=env, capture=True).split()
     if encryption != ["aws:kms", state["kms_key"]]:
-        raise AssertionError(f"Snapshot not SSE-KMS with the backup key: {encryption}")
+        raise AssertionError(f"Bucket not configured for the backup KMS key: {encryption}")
     snapshot = directory / "restored.snapshot"
     run("aws", "s3", "cp", f"s3://{name}/{key}", snapshot, "--only-show-errors", env=env)
 

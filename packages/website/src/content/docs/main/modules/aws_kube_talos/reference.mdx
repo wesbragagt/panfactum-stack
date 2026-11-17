@@ -123,22 +123,15 @@ Description: Days to keep etcd snapshots in S3.
 
 Type: `number`
 
-Default: `30`
+Default: `7`
 
-### etcd\_backup\_talosctl\_sha256
+### etcd\_backup\_schedule
 
-Description: SHA256 of the talosctl release binary for talos\_version, keyed by arm64/amd64. Update together with talos\_version.
+Description: Cron schedule for etcd backups in UTC.
 
-Type: `map(string)`
+Type: `string`
 
-Default:
-
-```json
-{
-  "amd64": "11acde7f7578ffe9cbe6fb8349b34595065f597de0842615982e350b365de987",
-  "arm64": "fd22e0678d783105646d824c23ee45cf7a57f737edae274ca41376d03a4def65"
-}
-```
+Default: `"0 * * * *"`
 
 ### kube\_api\_allowed\_cidrs
 

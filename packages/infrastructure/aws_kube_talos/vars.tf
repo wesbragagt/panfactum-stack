@@ -133,16 +133,13 @@ variable "cilium_enabled" {
 variable "etcd_backup_retention_days" {
   description = "Days to keep etcd snapshots in S3."
   type        = number
-  default     = 30
+  default     = 7
 }
 
-variable "etcd_backup_talosctl_sha256" {
-  description = "SHA256 of the talosctl release binary for talos_version, keyed by arm64/amd64. Update together with talos_version."
-  type        = map(string)
-  default = {
-    arm64 = "fd22e0678d783105646d824c23ee45cf7a57f737edae274ca41376d03a4def65"
-    amd64 = "11acde7f7578ffe9cbe6fb8349b34595065f597de0842615982e350b365de987"
-  }
+variable "etcd_backup_schedule" {
+  description = "Cron schedule for etcd backups in UTC."
+  type        = string
+  default     = "0 * * * *"
 }
 
 variable "machine_secrets" {

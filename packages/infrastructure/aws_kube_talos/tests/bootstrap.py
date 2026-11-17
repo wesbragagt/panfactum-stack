@@ -61,6 +61,10 @@ def main():
         state["kms_key"] = run("aws", "kms", "create-key", "--description", name,
                                "--query", "KeyMetadata.Arn", "--output", "text", env=env, capture=True)
         (directory / "harness.json").write_text(json.dumps(state, indent=2) + "\n")
+        run("aws", "s3api", "put-bucket-encryption", "--bucket", name,
+            "--server-side-encryption-configuration", json.dumps({"Rules": [{
+                "ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "aws:kms", "KMSMasterKeyID": state["kms_key"]},
+                "BucketKeyEnabled": False}]}), env=env)
         patch = directory / "api-access.yaml"
         patch.write_text("apiVersion: v1alpha1\nkind: KubeTalosAPIAccessConfig\n"
                          "allowedRoles:\n  - os:etcd:backup\n"
