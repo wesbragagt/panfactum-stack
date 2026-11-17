@@ -9,6 +9,10 @@ locals {
     { host = "registry.k8s.io", prefix = "kubernetes" },
     { host = "public.ecr.aws", prefix = "ecr-public" }
   ]
+  // ECR serves Docker Hub official images only under library/, e.g. docker-hub/library/busybox.
+  docker_hub_path = { for expr in ["element.image", "trim_prefix(element.image, 'docker.io/')", "trim_prefix(element.image, 'index.docker.io/')"] :
+    expr => "contains(${expr}, '/') && ${expr} || join('', ['library/', ${expr}])"
+  }
   exclude_pull_through_cache = {
     any = [
       {
@@ -49,7 +53,7 @@ locals {
           patchesJson6902 = yamlencode([{
             op    = "replace"
             path  = "/spec/${field}/{{elementIndex}}/image"
-            value = "${local.pull_through_cache_registry}/${config.prefix}/{{ trim_prefix(element.image, '${config.host}/') }}"
+            value = "${local.pull_through_cache_registry}/${config.prefix}/{{ ${config.prefix == "docker-hub" ? local.docker_hub_path["trim_prefix(element.image, '${config.host}/')"] : "trim_prefix(element.image, '${config.host}/')"} }}"
           }])
           }], [{
           list = "request.object.spec.${field}"
@@ -63,7 +67,7 @@ locals {
           patchesJson6902 = yamlencode([{
             op    = "replace"
             path  = "/spec/${field}/{{elementIndex}}/image"
-            value = "${local.pull_through_cache_registry}/docker-hub/{{ element.image }}"
+            value = "${local.pull_through_cache_registry}/docker-hub/{{ ${local.docker_hub_path["element.image"]} }}"
           }])
         }])
       }

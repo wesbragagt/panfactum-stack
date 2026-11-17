@@ -39,11 +39,13 @@ output "policy" { value = { apiVersion = "kyverno.io/v1", kind = "ClusterPolicy"
         cases = [(CACHE + "github/app:v1", CACHE + "github/app:v1")]
         for host, prefix in [("ghcr.io", "github"), ("cr.l5d.io", "github"), ("docker.io", "docker-hub"), ("index.docker.io", "docker-hub"), ("quay.io", "quay"), ("registry.k8s.io", "kubernetes"), ("public.ecr.aws", "ecr-public")]:
             for suffix in ["app:v1", "app@sha256:" + "a" * 64]:
-                cases.append((host + "/" + suffix, CACHE + prefix + "/" + suffix))
+                cases.append((host + "/" + suffix, CACHE + prefix + "/" + ("library/" if prefix == "docker-hub" else "") + suffix))
+            if prefix == "docker-hub":
+                cases.append((host + "/org/app:v1", CACHE + "docker-hub/org/app:v1"))
         for image in [CACHE + "github/app:v1", "999988887777.dkr.ecr.eu-west-1.amazonaws.com/app:v1", "999988887777.dkr.ecr.cn-north-1.amazonaws.com.cn/app:v1", "999988887777.dkr.ecr-fips.us-gov-west-1.amazonaws.com/app:v1", "example.com/path.dkr.ecr./app:v1", "999988887777.dkr.ecr.us-east-2.amazonaws.com.evil/app:v1"]:
             cases.append((image, image))
         cases += [("ghcr.io/path.dkr.ecr./app:v1", CACHE + "github/path.dkr.ecr./app:v1"),
-                  ("nginx:latest", CACHE + "docker-hub/nginx:latest"),
+                  ("nginx:latest", CACHE + "docker-hub/library/nginx:latest"),
                   ("org/app@sha256:" + "b" * 64, CACHE + "docker-hub/org/app@sha256:" + "b" * 64),
                   ("localhost:5000/app:v1", CACHE + "docker-hub/localhost:5000/app:v1"),
                   ("example.com:5000/app:v1", "example.com:5000/app:v1"),
