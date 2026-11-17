@@ -10,6 +10,10 @@ terraform {
       source  = "siderolabs/talos"
       version = "0.12.0"
     }
+    external = {
+      source  = "hashicorp/external"
+      version = "2.3.5"
+    }
     pf = {
       source  = "panfactum/pf"
       version = "0.0.7"
@@ -24,13 +28,24 @@ locals {
   # Keep the Elastic IP valid in the API server cert so clients pinned to it survive a switch to the DNS name
   api_san_patch = yamlencode({
     apiVersion    = "v1alpha1", kind = "KubeAPIServerConfig"
-    certExtraSANs = compact(distinct([local.api_host, aws_eip.api.public_ip, var.private_api_dns_name]))
+    certExtraSANs = compact(distinct([local.api_host, aws_eip.api.public_ip, var.private_api_dns_name, "127.0.0.1"]))
   })
+
+  # Callers behind the SSM tunnel reach the Talos API on 127.0.0.1; others keep the Elastic IP
+  talos_api_endpoint = coalesce(var.talos_api_endpoint, aws_eip_association.api.public_ip)
+
+  # The SSM tunnel connects on 127.0.0.1, so the Talos API cert must be valid there (Talos 1.14 has no typed doc for this)
+  talos_api_san_patch = yamlencode({ machine = { certSANs = ["127.0.0.1"] } })
 
   cilium_config_patches = var.cilium_enabled ? [
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeFlannelCNIConfig", "$patch" = "delete" }),
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeProxyConfig", enabled = false })
   ] : []
+
+  # Talos 1.14 rejects the legacy .cluster.coreDNS patch; KubeCoreDNSConfig is the supported switch.
+  core_dns_config_patches = var.core_dns_enabled ? [] : [
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeCoreDNSConfig", enabled = false })
+  ]
 }
 
 data "pf_aws_tags" "tags" {
@@ -41,12 +56,12 @@ data "aws_region" "current" {}
 
 # Official Sidero Labs AMIs; same lookup as siderolabs/contrib examples/terraform/aws
 data "aws_ami" "talos" {
-  owners      = ["540036508848"]
-  most_recent = true
+  owners      = var.ami_id == null ? ["540036508848"] : null
+  most_recent = var.ami_id == null
 
   filter {
-    name   = "name"
-    values = ["talos-${var.talos_version}-${data.aws_region.current.region}-arm64"]
+    name   = var.ami_id == null ? "name" : "image-id"
+    values = var.ami_id == null ? ["talos-${var.talos_version}-${data.aws_region.current.region}-arm64"] : [var.ami_id]
   }
 }
 
@@ -188,12 +203,12 @@ data "talos_machine_configuration" "control_plane" {
   cluster_name       = var.cluster_name
   cluster_endpoint   = local.cluster_endpoint
   machine_type       = "controlplane"
-  machine_secrets    = var.machine_secrets
+  machine_secrets    = local.machine_secrets
   talos_version      = var.talos_version
   kubernetes_version = var.kube_version
   docs               = false # With docs/examples the config exceeds the 16 KB EC2 user data limit
   examples           = false
-  config_patches = concat(local.cilium_config_patches, var.control_plane_config_patches, var.control_plane_workloads_enabled ? [
+  config_patches = var.aws_node_config_enabled ? concat(local.cilium_config_patches, local.core_dns_config_patches, local.aws_control_plane_patches, var.control_plane_config_patches, var.control_plane_workloads_enabled ? [yamlencode({ apiVersion = "v1alpha1", kind = "KubeNodeConfig", labels = { "panfactum.com/class" = "controller" }, taints = { "node-role.kubernetes.io/control-plane" = { "$patch" = "delete" } } })] : []) : concat(local.cilium_config_patches, local.core_dns_config_patches, var.control_plane_config_patches, var.control_plane_workloads_enabled ? [
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeNodeConfig", taints = { "node-role.kubernetes.io/control-plane" = null } })
   ] : [])
 }
@@ -202,13 +217,12 @@ data "talos_machine_configuration" "worker" {
   cluster_name       = var.cluster_name
   cluster_endpoint   = var.private_api_dns_name == null ? "https://${aws_instance.control_plane[0].private_ip}:6443" : local.cluster_endpoint
   machine_type       = "worker"
-  machine_secrets    = var.machine_secrets
+  machine_secrets    = local.machine_secrets
   talos_version      = var.talos_version
   kubernetes_version = var.kube_version
   docs               = false
   examples           = false
-  # KubeProxyConfig is control-plane-only in Talos 1.14.
-  config_patches = var.worker_config_patches
+  config_patches     = var.aws_node_config_enabled ? concat(local.aws_worker_patches, [yamlencode({ apiVersion = "v1alpha1", kind = "KubeNodeConfig", registerWithFQDN = true, labels = { "panfactum.com/class" = "worker", "node.kubernetes.io/lifecycle" = "spot" }, taints = { "spot" = "true:NoSchedule" } })], var.worker_config_patches) : var.worker_config_patches
 }
 
 ###########################################################################
@@ -278,8 +292,13 @@ resource "aws_launch_template" "worker" {
   instance_type = var.worker_instance_type
   user_data     = base64encode(data.talos_machine_configuration.worker.machine_configuration)
 
+  dynamic "iam_instance_profile" {
+    for_each = var.worker_instance_profile_arn == null ? [] : [var.worker_instance_profile_arn]
+    content { arn = iam_instance_profile.value }
+  }
+
   network_interfaces {
-    associate_public_ip_address = true
+    associate_public_ip_address = var.worker_public_ip_enabled
     security_groups             = [aws_security_group.nodes.id]
   }
 
@@ -318,6 +337,16 @@ resource "aws_launch_template" "worker" {
 }
 
 resource "aws_autoscaling_group" "worker" {
+  suspended_processes = var.worker_suspended_processes
+  capacity_rebalance  = var.worker_capacity_rebalance
+  dynamic "tag" {
+    for_each = var.aws_node_config_enabled ? [var.cluster_name] : []
+    content {
+      key                 = "kubernetes.io/cluster/${tag.value}"
+      value               = "owned"
+      propagate_at_launch = true
+    }
+  }
   name_prefix         = "${var.cluster_name}-worker-"
   min_size            = var.worker_count
   max_size            = var.worker_count
@@ -391,8 +420,8 @@ resource "aws_autoscaling_group" "worker_on_demand" {
     }
     launch_template {
       launch_template_specification {
-        launch_template_id = aws_launch_template.worker.id
-        version            = aws_launch_template.worker.latest_version
+        launch_template_id = var.aws_node_config_enabled ? aws_launch_template.worker_on_demand[0].id : aws_launch_template.worker.id
+        version            = var.aws_node_config_enabled ? aws_launch_template.worker_on_demand[0].latest_version : aws_launch_template.worker.latest_version
       }
       override {
         instance_type = var.worker_instance_type
@@ -409,12 +438,15 @@ resource "aws_autoscaling_group" "worker_on_demand" {
 
 resource "talos_machine_configuration_apply" "control_plane" {
   count                       = var.control_plane_count
-  client_configuration        = var.client_configuration
+  client_configuration        = sensitive(local.client_configuration)
   machine_configuration_input = data.talos_machine_configuration.control_plane.machine_configuration
   # Applied over the Talos API rather than user data, which is capped at 16 KB
-  config_patches = concat(local.backup_config_patches, [local.api_san_patch])
-  endpoint       = aws_eip_association.api.public_ip
-  node           = aws_instance.control_plane[count.index].private_ip
+  config_patches = concat(local.backup_config_patches, [local.api_san_patch, local.talos_api_san_patch], [
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeServiceAccountConfig", issuer = { issuerURL = local.canary_oidc_issuer_url } }),
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeAPIServerConfig", extraArgs = { "service-account-jwks-uri" = "${local.canary_oidc_issuer_url}/keys.json" } })
+  ])
+  endpoint = local.talos_api_endpoint
+  node     = aws_instance.control_plane[count.index].private_ip
 
   # Nodes resolve the cluster endpoint during the apply, so the record must exist first
   depends_on = [aws_route53_record.api, aws_route53_record.private_api]
@@ -423,21 +455,21 @@ resource "talos_machine_configuration_apply" "control_plane" {
 
 resource "talos_machine_bootstrap" "this" {
   depends_on           = [talos_machine_configuration_apply.control_plane]
-  client_configuration = var.client_configuration
-  endpoint             = aws_eip_association.api.public_ip
+  client_configuration = sensitive(local.client_configuration)
+  endpoint             = local.talos_api_endpoint
   node                 = aws_instance.control_plane[0].private_ip
 }
 
 resource "talos_cluster_kubeconfig" "this" {
   depends_on           = [talos_machine_bootstrap.this]
-  client_configuration = var.client_configuration
-  endpoint             = aws_eip_association.api.public_ip
+  client_configuration = sensitive(local.client_configuration)
+  endpoint             = local.talos_api_endpoint
   node                 = aws_instance.control_plane[0].private_ip
 }
 
 data "talos_client_configuration" "this" {
   cluster_name         = var.cluster_name
-  client_configuration = var.client_configuration
-  endpoints            = [aws_eip_association.api.public_ip]
-  nodes                = [aws_eip_association.api.public_ip]
+  client_configuration = sensitive(local.client_configuration)
+  endpoints            = [local.talos_api_endpoint]
+  nodes                = [var.talos_api_endpoint == null ? aws_eip_association.api.public_ip : aws_instance.control_plane[0].private_ip]
 }

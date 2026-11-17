@@ -1,7 +1,6 @@
 # aws_kube_talos HA cost estimate
 
-Estimate for the proposed HA topology, not a deployed or accepted one (see
-[CHECKLIST.md](CHECKLIST.md)). Prices are us-east-2 list prices from the AWS
+Estimate for the proposed HA topology, not a deployed or accepted one. Prices are us-east-2 list prices from the AWS
 Pricing API and Spot price history on 2026-11-10, at 730 hours per month.
 
 ## Topology
@@ -35,7 +34,7 @@ On-demand controllers instead of Spot add $51.10 (`t4g.medium` at $0.0336/h).
 
 A Spot interruption gives a 2-minute notice. Three members tolerate one member
 loss; two interruptions before the first replacement rejoins etcd lose quorum
-and need a restore from backup. Quorum-safe replacement (CHECKLIST.md section 4)
+and need a restore from backup. Quorum-safe replacement
 is a prerequisite, not optional, for Spot controllers.
 
 ## Limits of this estimate

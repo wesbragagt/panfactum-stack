@@ -3,6 +3,48 @@ mock_provider "aws" {
     defaults = { supported_architectures = ["arm64"] }
   }
 }
+mock_provider "talos" {}
+mock_provider "external" {
+  mock_data "external" {
+    defaults = { result = { jwks_json = "{}" } }
+  }
+}
+mock_provider "pf" {}
+
+override_resource {
+  target = aws_launch_template.worker
+  values = { id = "lt-0000000000000000a" }
+}
+
+override_resource {
+  target = aws_launch_template.worker_on_demand
+  values = { id = "lt-0000000000000000b" }
+}
+
+override_resource {
+  target = aws_eip.api
+  values = { public_ip = "192.0.2.10" }
+}
+
+variables {
+  cluster_name = "test"
+  vpc_id       = "vpc-00000000"
+  # Placeholder PKI; the provider is mocked, so no value is parsed.
+  machine_secrets = {
+    certs = {
+      etcd               = { cert = "x", key = "x" }
+      k8s                = { cert = "x", key = "x" }
+      k8s_aggregator     = { cert = "x", key = "x" }
+      k8s_serviceaccount = { key = "x" }
+      os                 = { cert = "x", key = "x" }
+    }
+    cluster    = { id = "x", secret = "x" }
+    secrets    = { bootstrap_token = "x", secretbox_encryption_secret = "x" }
+    trustdinfo = { token = "x" }
+  }
+  client_configuration = { ca_certificate = "x", client_certificate = "x", client_key = "x" }
+}
+
 run "arm64_defaults" {
   command = plan
 }

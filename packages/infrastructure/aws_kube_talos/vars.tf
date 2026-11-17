@@ -106,13 +106,21 @@ variable "kube_version" {
 }
 
 variable "talos_api_allowed_cidrs" {
-  description = "CIDRs allowed to reach the Talos API (TCP 50000). Must include the machine running tofu."
+  description = "CIDRs allowed to reach the Talos API (TCP 50000). Empty by default; operators reach the API through the SSM tunnel instead."
   type        = list(string)
+  default     = []
 }
 
 variable "kube_api_allowed_cidrs" {
   description = "CIDRs allowed to reach the Kubernetes API (TCP 6443) on the control plane's Elastic IP."
   type        = list(string)
+  default     = []
+}
+
+variable "talos_api_endpoint" {
+  description = "Optional Talos API endpoint for the provider and talosconfig, such as 127.0.0.1 behind an SSM tunnel. Defaults to the control plane's Elastic IP."
+  type        = string
+  default     = null
 }
 
 variable "api_dns" {
@@ -124,22 +132,31 @@ variable "api_dns" {
   default = null
 }
 
+variable "core_dns_enabled" {
+  description = "Whether Talos deploys its own CoreDNS. Disabled by default for Panfactum kube_core_dns."
+  type        = bool
+  default     = false
+}
+
 variable "cilium_enabled" {
   description = "Disable Talos-managed Flannel and kube-proxy on every node before installing Cilium with kube-proxy replacement."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "etcd_backup_retention_days" {
   description = "Days to keep etcd snapshots in S3."
   type        = number
-  default     = 7
+  default     = 30
 }
 
-variable "etcd_backup_schedule" {
-  description = "Cron schedule for etcd backups in UTC."
-  type        = string
-  default     = "0 * * * *"
+variable "etcd_backup_talosctl_sha256" {
+  description = "SHA256 of the talosctl release binary for talos_version, keyed by arm64/amd64. Update together with talos_version."
+  type        = map(string)
+  default = {
+    arm64 = "fd22e0678d783105646d824c23ee45cf7a57f737edae274ca41376d03a4def65"
+    amd64 = "11acde7f7578ffe9cbe6fb8349b34595065f597de0842615982e350b365de987"
+  }
 }
 
 variable "machine_secrets" {
@@ -161,6 +178,7 @@ variable "machine_secrets" {
     trustdinfo = object({ token = string })
   })
   sensitive = true
+  default   = null
 }
 
 variable "client_configuration" {
@@ -171,6 +189,7 @@ variable "client_configuration" {
     client_key         = string
   })
   sensitive = true
+  default   = null
 }
 
 variable "control_plane_config_patches" {
@@ -181,6 +200,67 @@ variable "control_plane_config_patches" {
 
 variable "worker_config_patches" {
   description = "Additional Talos configuration patches for workers."
+  type        = list(string)
+  default     = []
+}
+
+variable "secrets_bundle" {
+  description = "Decrypted talosctl secrets bundle, including clientconfig. Keep the source SOPS-encrypted."
+  type        = any
+  default     = null
+  sensitive   = true
+}
+
+variable "ami_id" {
+  description = "Optional custom Talos AMI ID."
+  type        = string
+  default     = null
+}
+
+variable "installer_image" {
+  description = "Optional Talos factory installer image matching the AMI."
+  type        = string
+  default     = null
+}
+
+variable "pod_subnets" {
+  description = "Kubernetes pod network ranges."
+  type        = list(string)
+  default     = ["10.244.0.0/16"]
+}
+
+variable "service_subnets" {
+  description = "Kubernetes service network ranges."
+  type        = list(string)
+  default     = ["10.96.0.0/12"]
+}
+
+variable "aws_node_config_enabled" {
+  description = "Configure primary-interface DHCP, ECR credentials, external CCM and worker lifecycle labels for AWS."
+  type        = bool
+  default     = false
+}
+
+variable "worker_instance_profile_arn" {
+  description = "Worker IAM instance profile ARN."
+  type        = string
+  default     = null
+}
+
+variable "worker_public_ip_enabled" {
+  description = "Assign public IPv4 addresses to workers."
+  type        = bool
+  default     = true
+}
+
+variable "worker_capacity_rebalance" {
+  description = "Replace Spot workers on EC2 rebalance notices."
+  type        = bool
+  default     = false
+}
+
+variable "worker_suspended_processes" {
+  description = "ASG processes to suspend for Spot workers."
   type        = list(string)
   default     = []
 }

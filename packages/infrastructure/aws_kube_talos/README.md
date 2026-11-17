@@ -1,0 +1,27 @@
+# Talos on AWS
+
+Terragrunt consumers supply cluster choices and decrypt their SOPS bundle. The module owns Talos configuration documents, EC2 launch templates, Spot and on-demand worker configuration, and OIDC discovery.
+
+```hcl
+terraform {
+  source = "${get_repo_root()}/forks/panfactum/packages/infrastructure//aws_kube_talos"
+}
+
+inputs = {
+  cluster_name = "my-cluster"
+  vpc_id       = dependency.vpc.outputs.vpc_id
+  secrets_bundle = yamldecode(sops_decrypt_file("${get_terragrunt_dir()}/talos-secrets.yaml"))
+  operator_tunnel_security_group_id = "sg-0123456789abcdef0" # fck-nat SSM tunnel hosts
+}
+```
+
+Talos-managed Flannel, kube-proxy and CoreDNS are disabled by default so Panfactum modules can manage networking and DNS. `cilium_enabled = true` disables Flannel and kube-proxy; it does not install Cilium. Set `cilium_enabled = false` and `core_dns_enabled = true` only when using Talos-managed networking and DNS.
+
+For custom factory images, pass `ami_id` and the matching `installer_image`. Enable `aws_node_config_enabled` for primary-interface DHCP, ECR credential-provider configuration, external CCM settings and worker lifecycle labels. Supply `pod_subnets` and `service_subnets` when the defaults overlap another cluster. `worker_instance_profile_arn` grants workers their AWS identity.
+
+The module creates `<cluster_name>-oidc-<aws_account_id>`, publishes discovery and public JWKS derived from the existing service-account signing key, and configures the API server issuer and JWKS URL. Consumers supply no OIDC inputs. Planning requires Python 3 and OpenSSL. Signing-key rotation requires a separate overlap procedure retaining old verification keys until their tokens expire.
+
+The Talos API and Kubernetes API certificates include the SAN `127.0.0.1`, so clients can verify TLS through an SSM port forward. `operator_tunnel_security_group_id` opens 6443 and 50000 to the tunnel hosts. Set `talos_api_endpoint = "127.0.0.1"` to run Talos provider operations through a tunnel forwarding 127.0.0.1:50000 to the controller; plans and applies then fail unless the tunnel is up. `talos_api_allowed_cidrs` and `kube_api_allowed_cidrs` default to `[]`; set them only for direct access from fixed IPs. A new cluster must be created with the Elastic IP endpoint (default) or an allowed CIDR, because the tunnel needs the controller to exist.
+
+Existing callers can continue supplying provider-shaped `machine_secrets` and `client_configuration`. New callers should pass `secrets_bundle`. Keep the bundle outside the cluster for recovery. Sensitive credentials still enter Terraform state and EC2 user data.
+

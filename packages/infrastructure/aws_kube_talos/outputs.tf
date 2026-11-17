@@ -11,7 +11,7 @@ output "cluster_url" {
 output "cluster_ca_data" {
   description = "Base64-encoded Kubernetes cluster CA certificate."
   # The CA certificate is public; only machine_secrets as a whole is sensitive
-  value = nonsensitive(var.machine_secrets.certs.k8s.cert)
+  value = nonsensitive(local.machine_secrets.certs.k8s.cert)
 }
 
 output "node_security_group_id" {
@@ -59,4 +59,15 @@ output "etcd_backup_kms_key_arn" {
 output "etcd_backup_cronjob_manifest" {
   description = "CronJob YAML for Kubernetes-stage reconciliation after bootstrap. Contains Secret references, not credential values."
   value       = yamlencode(one([for manifest in local.backup_manifests : manifest if manifest.kind == "CronJob"]))
+}
+
+output "worker_machine_configuration" {
+  description = "Worker Talos machine config (with caller patches) for Karpenter EC2NodeClass userData. Contains join credentials."
+  value       = data.talos_machine_configuration.worker.machine_configuration
+  sensitive   = true
+}
+
+output "talos_ami_id" {
+  description = "Talos AMI used by workers."
+  value       = data.aws_ami.talos.id
 }
