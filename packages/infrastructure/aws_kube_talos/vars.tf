@@ -175,3 +175,15 @@ variable "client_configuration" {
   })
   sensitive = true
 }
+
+variable "control_plane_config_patches" {
+  description = "Additional Talos configuration patches for control plane nodes."
+  type        = list(string)
+  default     = []
+}
+
+variable "worker_config_patches" {
+  description = "Additional Talos configuration patches for workers."
+  type        = list(string)
+  default     = []
+}

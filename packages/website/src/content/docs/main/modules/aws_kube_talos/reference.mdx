@@ -53,6 +53,14 @@ Type: `string`
 
 Default: n/a
 
+### control\_plane\_config\_patches
+
+Description: Additional Talos configuration patches for control plane nodes.
+
+Type: `list(string)`
+
+Default: `[]`
+
 ### control\_plane\_count
 
 Description: Number of control plane nodes, placed in control\_plane\_subnets order. 3 requires private\_api\_dns\_name so nodes do not depend on one controller's address.
@@ -127,8 +135,8 @@ Default:
 
 ```json
 {
-  "amd64": "ff432b68986709e6b69c563a08a2ced4232d5196b0dccd6d2e783e9d714d7d7d",
-  "arm64": "dfd3aa33c3159810e216fc39afb685d4d120c8f2728e017d8c7f7635d3139382"
+  "amd64": "11acde7f7578ffe9cbe6fb8349b34595065f597de0842615982e350b365de987",
+  "arm64": "fd22e0678d783105646d824c23ee45cf7a57f737edae274ca41376d03a4def65"
 }
 ```
 
@@ -175,6 +183,14 @@ object({
 
 Default: n/a
 
+### on\_demand\_worker\_subnets
+
+Description: Optional subnet names (Name tag) that each get one on-demand worker, in a separate ASG from the Spot workers. Remove these subnets from worker\_subnets to keep Spot out of those zones.
+
+Type: `list(string)`
+
+Default: `[]`
+
 ### operator\_tunnel\_security\_group\_id
 
 Description: Optional security group of SSM tunnel hosts allowed to reach the private Kubernetes and Talos APIs.
@@ -213,7 +229,7 @@ Description: Talos version. Selects the official Sidero Labs AMI and the machine
 
 Type: `string`
 
-Default: `"v1.14.5"`
+Default: `"v1.14.6"`
 
 ### vpc\_id
 
@@ -222,6 +238,14 @@ Description: The id for the VPC that the cluster should be deployed into
 Type: `string`
 
 Default: n/a
+
+### worker\_config\_patches
+
+Description: Additional Talos configuration patches for workers.
+
+Type: `list(string)`
+
+Default: `[]`
 
 ### worker\_count
 
@@ -238,6 +262,14 @@ Description: EC2 instance type for worker nodes. T2 types are not supported by T
 Type: `string`
 
 Default: `"t4g.medium"`
+
+### worker\_instance\_types
+
+Description: Optional Spot instance types for workers, tried by price and capacity. Overrides worker\_instance\_type when set.
+
+Type: `list(string)`
+
+Default: `[]`
 
 ### worker\_subnets
 
@@ -283,6 +315,10 @@ Description: Public IP of the control plane node (Talos and Kubernetes API endpo
 
 Description: S3 bucket holding SSE-KMS encrypted etcd snapshots.
 
+### etcd\_backup\_cronjob\_manifest
+
+Description: CronJob YAML for Kubernetes-stage reconciliation after bootstrap. Contains Secret references, not credential values.
+
 ### etcd\_backup\_kms\_key\_arn
 
 Description: KMS key that encrypts etcd snapshots. Restores need kms:Decrypt on it.
@@ -307,7 +343,7 @@ Description: Auto Scaling group maintaining the desired Spot worker count.
 
 The following providers are needed by this module:
 
-- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.40.0/docs) (6.40.0)
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 

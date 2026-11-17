@@ -193,7 +193,7 @@ data "talos_machine_configuration" "control_plane" {
   kubernetes_version = var.kube_version
   docs               = false # With docs/examples the config exceeds the 16 KB EC2 user data limit
   examples           = false
-  config_patches = concat(local.cilium_config_patches, var.control_plane_workloads_enabled ? [
+  config_patches = concat(local.cilium_config_patches, var.control_plane_config_patches, var.control_plane_workloads_enabled ? [
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeNodeConfig", taints = { "node-role.kubernetes.io/control-plane" = null } })
   ] : [])
 }
@@ -207,6 +207,7 @@ data "talos_machine_configuration" "worker" {
   kubernetes_version = var.kube_version
   docs               = false
   examples           = false
+  config_patches     = var.worker_config_patches
 }
 
 ###########################################################################
