@@ -194,7 +194,7 @@ locals {
       apiVersion = "batch/v1", kind = "CronJob"
       metadata   = { name = "etcd-backup", namespace = local.backup_namespace }
       spec = {
-        schedule                = "0 * * * *", timeZone = "Etc/UTC", concurrencyPolicy = "Forbid"
+        schedule                = var.etcd_backup_schedule, timeZone = "Etc/UTC", concurrencyPolicy = "Forbid"
         startingDeadlineSeconds = 600, successfulJobsHistoryLimit = 1, failedJobsHistoryLimit = 3
         jobTemplate = {
           spec = {

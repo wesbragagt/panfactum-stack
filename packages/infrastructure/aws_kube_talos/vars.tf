@@ -150,6 +150,12 @@ variable "etcd_backup_retention_days" {
   default     = 30
 }
 
+variable "etcd_backup_schedule" {
+  description = "Cron schedule for etcd backups in UTC."
+  type        = string
+  default     = "0 * * * *"
+}
+
 variable "etcd_backup_talosctl_sha256" {
   description = "SHA256 of the talosctl release binary for talos_version, keyed by arm64/amd64. Update together with talos_version."
   type        = map(string)
