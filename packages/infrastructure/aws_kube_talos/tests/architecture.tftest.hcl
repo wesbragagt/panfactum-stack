@@ -27,8 +27,9 @@ override_resource {
 }
 
 variables {
-  cluster_name = "test"
-  vpc_id       = "vpc-00000000"
+  cluster_name              = "test"
+  vpc_id                    = "vpc-00000000"
+  control_plane_private_ips = ["10.0.1.10"]
   # Placeholder PKI; the provider is mocked, so no value is parsed.
   machine_secrets = {
     certs = {
@@ -105,4 +106,23 @@ run "reject_private_ip_count_mismatch" {
   command = plan
   variables { control_plane_private_ips = ["10.0.1.10", "10.0.1.11"] }
   expect_failures = [aws_instance.control_plane]
+}
+
+run "reject_private_without_address" {
+  command = plan
+  variables { control_plane_private_ips = [] }
+  expect_failures = [aws_instance.control_plane]
+}
+
+run "public_opt_in_keeps_elastic_ip" {
+  command = plan
+  variables {
+    control_plane_public_ip_enabled = true
+    control_plane_subnets           = ["PUBLIC_A", "PUBLIC_B", "PUBLIC_C"]
+    talos_api_endpoint              = null
+  }
+  assert {
+    condition     = length(aws_eip.api) == 1 && aws_instance.control_plane[0].associate_public_ip_address
+    error_message = "Opting in must keep the Elastic IP and public address."
+  }
 }

@@ -21,7 +21,7 @@ output "node_security_group_id" {
 
 output "control_plane_public_ips" {
   description = "Public IP of the control plane node (Talos and Kubernetes API endpoint)."
-  value       = [aws_eip_association.api.public_ip]
+  value       = aws_eip_association.api[*].public_ip
 }
 
 output "control_plane_private_ips" {

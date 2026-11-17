@@ -22,17 +22,18 @@ terraform {
 }
 
 locals {
-  api_host         = var.api_dns == null ? aws_eip.api.public_ip : var.api_dns.name
+  public_ip        = var.control_plane_public_ip_enabled ? aws_eip.api[0].public_ip : null
+  api_host         = var.api_dns != null ? var.api_dns.name : coalesce(local.public_ip, try(var.control_plane_private_ips[0], null), "unset")
   cluster_endpoint = var.private_api_dns_name == null ? "https://${local.api_host}:6443" : "https://${var.private_api_dns_name}:6443"
 
   # Keep the Elastic IP valid in the API server cert so clients pinned to it survive a switch to the DNS name
   api_san_patch = yamlencode({
     apiVersion    = "v1alpha1", kind = "KubeAPIServerConfig"
-    certExtraSANs = compact(distinct([local.api_host, aws_eip.api.public_ip, var.private_api_dns_name, "127.0.0.1"]))
+    certExtraSANs = compact(distinct([local.api_host, local.public_ip, var.private_api_dns_name, "127.0.0.1"]))
   })
 
   # Callers behind the SSM tunnel reach the Talos API on 127.0.0.1; others keep the Elastic IP
-  talos_api_endpoint = coalesce(var.talos_api_endpoint, aws_eip_association.api.public_ip)
+  talos_api_endpoint = var.talos_api_endpoint != null ? var.talos_api_endpoint : aws_eip_association.api[0].public_ip
 
   # The SSM tunnel connects on 127.0.0.1, so the Talos API cert must be valid there (Talos 1.14 has no typed doc for this)
   talos_api_san_patch = yamlencode({ machine = { certSANs = ["127.0.0.1"] } })
@@ -130,7 +131,7 @@ resource "aws_vpc_security_group_ingress_rule" "kube_api" {
 
 # Nodes reach the endpoint through the Elastic IP, so traffic arrives from public addresses
 resource "aws_vpc_security_group_ingress_rule" "kube_api_nodes" {
-  for_each          = { "0" = aws_eip.api.public_ip }
+  for_each          = var.control_plane_public_ip_enabled ? { "0" = aws_eip.api[0].public_ip } : {}
   security_group_id = aws_security_group.nodes.id
   cidr_ipv4         = "${each.value}/32"
   ip_protocol       = "tcp"
@@ -153,6 +154,7 @@ resource "aws_vpc_security_group_egress_rule" "nodes_all" {
 # Allocated before the instance so the address can go into the machine config
 # (and the API server cert SANs); associated after the instance exists.
 resource "aws_eip" "api" {
+  count  = var.control_plane_public_ip_enabled ? 1 : 0
   domain = "vpc"
 
   tags = merge(data.pf_aws_tags.tags.tags, {
@@ -161,7 +163,8 @@ resource "aws_eip" "api" {
 }
 
 resource "aws_eip_association" "api" {
-  allocation_id = aws_eip.api.id
+  count         = var.control_plane_public_ip_enabled ? 1 : 0
+  allocation_id = aws_eip.api[0].id
   instance_id   = aws_instance.control_plane[0].id
 }
 
@@ -192,7 +195,7 @@ resource "aws_route53_record" "api" {
   name    = var.api_dns.name
   type    = "A"
   ttl     = 300
-  records = [aws_eip.api.public_ip]
+  records = [aws_eip.api[0].public_ip]
 }
 
 ###########################################################################
@@ -241,7 +244,7 @@ resource "aws_instance" "control_plane" {
   subnet_id                   = data.aws_subnet.control_plane[count.index].id
   private_ip                  = length(var.control_plane_private_ips) > 0 ? var.control_plane_private_ips[count.index] : null
   vpc_security_group_ids      = [aws_security_group.nodes.id]
-  associate_public_ip_address = true
+  associate_public_ip_address = var.control_plane_public_ip_enabled
   user_data                   = data.talos_machine_configuration.control_plane.machine_configuration
 
   # A stopped Spot node resumes with the same disk and IP, so it rejoins etcd without replacement
@@ -288,6 +291,10 @@ resource "aws_instance" "control_plane" {
     precondition {
       condition     = length(var.control_plane_private_ips) == 0 || length(var.control_plane_private_ips) == var.control_plane_count
       error_message = "control_plane_private_ips needs one address per control plane node, or none."
+    }
+    precondition {
+      condition     = var.control_plane_public_ip_enabled || (var.talos_api_endpoint != null && var.api_dns == null && (var.private_api_dns_name != null || length(var.control_plane_private_ips) > 0))
+      error_message = "control_plane_public_ip_enabled = false requires talos_api_endpoint, private_api_dns_name or control_plane_private_ips, and no api_dns."
     }
   }
 }
@@ -478,5 +485,14 @@ data "talos_client_configuration" "this" {
   cluster_name         = var.cluster_name
   client_configuration = sensitive(local.client_configuration)
   endpoints            = [local.talos_api_endpoint]
-  nodes                = [var.talos_api_endpoint == null ? aws_eip_association.api.public_ip : aws_instance.control_plane[0].private_ip]
+  nodes                = [var.talos_api_endpoint == null ? local.talos_api_endpoint : aws_instance.control_plane[0].private_ip]
+}
+
+moved {
+  from = aws_eip.api
+  to   = aws_eip.api[0]
+}
+moved {
+  from = aws_eip_association.api
+  to   = aws_eip_association.api[0]
 }

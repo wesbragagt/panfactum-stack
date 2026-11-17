@@ -15,9 +15,9 @@ variable "control_plane_private_ips" {
 }
 
 variable "control_plane_subnets" {
-  description = "PUBLIC subnet names (Name tag), one per control plane node in order. Repeating a subnet places several nodes in one AZ, which an AZ outage takes down together."
+  description = "Subnet names (Name tag), one per control plane node in order. Use PUBLIC subnets only with control_plane_public_ip_enabled. Repeating a subnet places several nodes in one AZ, which an AZ outage takes down together."
   type        = list(string)
-  default     = ["PUBLIC_A", "PUBLIC_B", "PUBLIC_C"]
+  default     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
 }
 
 variable "worker_subnets" {
@@ -41,6 +41,12 @@ variable "control_plane_count" {
 
 variable "control_plane_spot_enabled" {
   description = "Run control planes as persistent Spot instances that stop (keeping their disk, private IP and etcd membership) on interruption and can be stopped to suspend the cluster."
+  type        = bool
+  default     = false
+}
+
+variable "control_plane_public_ip_enabled" {
+  description = "Give controllers a public IP and an Elastic IP API endpoint. Off by default: controllers sit in private subnets and operators reach them through an SSM tunnel, which needs private_api_dns_name or control_plane_private_ips."
   type        = bool
   default     = false
 }
@@ -124,9 +130,9 @@ variable "kube_api_allowed_cidrs" {
 }
 
 variable "talos_api_endpoint" {
-  description = "Optional Talos API endpoint for the provider and talosconfig, such as 127.0.0.1 behind an SSM tunnel. Defaults to the control plane's Elastic IP."
+  description = "Talos API endpoint for the provider and talosconfig. The default reaches the controller through an SSM tunnel forwarding 127.0.0.1:50000. Null uses the Elastic IP (requires control_plane_public_ip_enabled)."
   type        = string
-  default     = null
+  default     = "127.0.0.1"
 }
 
 variable "api_dns" {
