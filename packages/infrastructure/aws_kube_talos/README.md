@@ -12,6 +12,7 @@ inputs = {
   vpc_id       = dependency.vpc.outputs.vpc_id
   secrets_bundle = yamldecode(sops_decrypt_file("${get_terragrunt_dir()}/talos-secrets.yaml"))
   control_plane_private_ips = ["10.0.64.20"]
+  private_api_dns_name = "api.my-cluster.internal"
   operator_tunnel_security_group_id = "sg-0123456789abcdef0" # fck-nat SSM tunnel hosts
 }
 ```
