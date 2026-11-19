@@ -23,12 +23,12 @@ def main():
     parser.add_argument("--port", type=int, default=14566)
     parser.add_argument("--subnet", default="10.87.241.0/24")
     args = parser.parse_args()
-    directory = (args.directory or Path(tempfile.mkdtemp(prefix="homelab-etcd-smoke-"))).resolve()
+    directory = (args.directory or Path(tempfile.mkdtemp(prefix="talos-etcd-smoke-"))).resolve()
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     if (directory / "harness.json").exists():
         parser.error("Directory already owns an environment; clean it up first")
     os.chmod(directory, 0o700)
-    name = "homelab-etcd-smoke-" + uuid.uuid4().hex[:8]
+    name = "talos-etcd-smoke-" + uuid.uuid4().hex[:8]
     import ipaddress
     node = str(ipaddress.ip_network(args.subnet)[2])
     state = dict(name=name, endpoint=f"http://127.0.0.1:{args.port}",

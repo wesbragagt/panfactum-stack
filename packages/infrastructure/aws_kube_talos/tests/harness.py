@@ -20,7 +20,7 @@ def run(*args, env=None, capture=False):
 def load(directory):
     directory = Path(directory).resolve()
     state = json.loads((directory / "harness.json").read_text())
-    if not state["name"].startswith("homelab-etcd-smoke-"):
+    if not state["name"].startswith("talos-etcd-smoke-"):
         raise ValueError("Refusing resources outside the harness naming convention")
     env = os.environ.copy()
     # Never inherit real AWS credentials, profiles, or user cluster selection.

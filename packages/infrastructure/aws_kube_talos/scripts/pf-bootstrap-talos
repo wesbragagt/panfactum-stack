@@ -1,0 +1,285 @@
+#!/usr/bin/env python3
+"""Set up kubectl access to Talos clusters through the SSM tunnel.
+
+Subcommands: preflight (check tools, AWS identity and a tunnel host), forward
+(tunnel the Talos port before the first apply), register (record a cluster after
+its first apply) and merge (write the registered clusters into $KUBE_DIR/config).
+
+$KUBE_DIR (default: .kube at the git repository root) holds two files. config.talos.yaml is committed and has
+no secrets: region, ports, module path and CA per cluster. config.talos.user.yaml is
+per operator and gitignored: the AWS profile per cluster. Both are read as JSON or,
+for the user file, as a block list:
+
+  - name: my-cluster
+    aws_profile: my-profile
+
+The kubeconfig user runs python3 on cluster_access.py (next to this script) with
+--exec-credential to fetch the credential on demand, so config holds no keys.
+"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+from types import SimpleNamespace
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import cluster_access  # noqa: E402
+
+COMMITTED = "config.talos.yaml"
+USER = "config.talos.user.yaml"
+TOOLS = ("aws", "session-manager-plugin", "kubectl", "talosctl", "terragrunt")
+
+
+class SetupError(Exception):
+    pass
+
+
+def kube_dir():
+    if os.environ.get("KUBE_DIR"):
+        return Path(os.environ["KUBE_DIR"]).resolve()
+    # Terragrunt hooks run from a cache directory, so a relative .kube would land there.
+    return repo_root(Path.cwd()) / ".kube"
+
+
+def repo_root(directory):
+    directory.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(["git", "-C", str(directory), "rev-parse", "--show-toplevel"],
+                            capture_output=True, text=True)
+    if result.returncode:
+        raise SetupError(f"{directory} is not inside a git repository; "
+                         "run from the repository or set KUBE_DIR to its .kube directory")
+    return Path(result.stdout.strip()).resolve()
+
+
+def atomic_write(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # mkstemp creates the file with mode 0600 in the target directory.
+    descriptor, temp = tempfile.mkstemp(dir=path.parent, prefix=".talos-")
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+        os.replace(temp, path)
+    except BaseException:
+        if os.path.exists(temp):
+            os.unlink(temp)
+        raise
+
+
+def dump(data):
+    return (json.dumps(data, indent=2, sort_keys=True) + "\n").encode()
+
+
+def read_committed(path):
+    if not path.exists() or not path.read_text().strip():
+        return {}
+    try:
+        return json.loads(path.read_text())["clusters"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise SetupError(f"{path} must be JSON with a top-level \"clusters\" object") from exc
+
+
+def parse_user(text, path):
+    """Return {name: aws_profile}. Accepts JSON or a block list of name/aws_profile items."""
+    try:
+        data = json.loads(text) if text.strip() else []
+    except ValueError:
+        data = None
+    if data is None:
+        data, item = [], None
+        for number, raw in enumerate(text.splitlines(), 1):
+            line = raw.split(" #")[0].strip()
+            if not line or line.startswith("#") or line in ("---", "clusters:"):
+                continue
+            if line.startswith("- "):
+                item = {}
+                data.append(item)
+                line = line[2:].strip()
+            key, sep, value = line.partition(":")
+            if item is None or not sep or key.strip() not in ("name", "aws_profile"):
+                raise SetupError(f"{path}:{number}: expected '- name: X' then 'aws_profile: Y'")
+            item[key.strip()] = value.strip().strip("\"'")
+    if isinstance(data, dict):
+        data = data.get("clusters", [])
+    try:
+        return {entry["name"]: entry.get("aws_profile") for entry in data}
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise SetupError(f"{path}: every entry needs a name") from exc
+
+
+def read_user(path):
+    return parse_user(path.read_text(), path) if path.exists() else {}
+
+
+def kubectl_config(path):
+    if not path.exists():
+        return {"apiVersion": "v1", "kind": "Config", "clusters": [], "contexts": [],
+                "users": [], "current-context": "", "preferences": {}}
+    config = json.loads(cluster_access.command(
+        ["kubectl", "--kubeconfig", str(path), "config", "view", "--raw", "-o", "json"]))
+    for key in ("clusters", "contexts", "users"):
+        config[key] = config.get(key) or []
+    return config
+
+
+def upsert(items, entry):
+    return [item for item in items if item.get("name") != entry["name"]] + [entry]
+
+
+def cmd_merge(_args):
+    directory = kube_dir()
+    clusters = read_committed(directory / COMMITTED)
+    profiles = read_user(directory / USER)
+    if not clusters:
+        return 0
+    root = repo_root(directory)
+    path = directory / "config"
+    current = kubectl_config(path)
+    config = json.loads(json.dumps(current))
+    for name, entry in sorted(clusters.items()):
+        if name not in profiles:
+            print(f"pf-bootstrap-talos: {name} is not in {directory / USER}; "
+                  f"add '- name: {name}' and 'aws_profile: <profile>' to use it", file=sys.stderr)
+            continue
+        exec_args = [str(HERE / "cluster_access.py"), "--exec-credential", "--cluster", name]
+        if profiles[name]:
+            exec_args += ["--profile", profiles[name]]
+        exec_args += ["--region", entry["region"], "--kube-port", str(entry["kube_port"]),
+                      "--talos-port", str(entry["talos_port"]),
+                      "--module", str((root / entry["module"]).resolve())]
+        config["clusters"] = upsert(config["clusters"], {"name": name, "cluster": {
+            "server": f"https://127.0.0.1:{entry['kube_port']}",
+            "certificate-authority-data": entry["ca_data"]}})
+        config["users"] = upsert(config["users"], {"name": name, "user": {"exec": {
+            "apiVersion": "client.authentication.k8s.io/v1", "command": "python3",
+            "args": exec_args, "interactiveMode": "Never"}}})
+        config["contexts"] = upsert(config["contexts"], {"name": name,
+                                                         "context": {"cluster": name, "user": name}})
+    # Rewriting an unchanged file would retrigger direnv's watch_file.
+    if config != current or not path.exists():
+        atomic_write(path, dump(config))
+    return 0
+
+
+def cmd_register(args):
+    directory = kube_dir()
+    root = repo_root(directory)
+    module = args.module.resolve()
+    try:
+        relative = module.relative_to(root)
+    except ValueError as exc:
+        raise SetupError(f"--module {module} is outside the repository {root}") from exc
+    if args.kube_port == args.talos_port:
+        raise SetupError("--kube-port and --talos-port must differ")
+    clusters = read_committed(directory / COMMITTED)
+    for name, other in clusters.items():
+        taken = {other["kube_port"], other["talos_port"]}
+        if name != args.cluster and taken & {args.kube_port, args.talos_port}:
+            raise SetupError(f"ports {sorted(taken & {args.kube_port, args.talos_port})} "
+                             f"are already used by cluster {name} in {directory / COMMITTED}")
+    with tempfile.TemporaryDirectory(prefix="pf-bootstrap-talos-") as scratch:
+        source = SimpleNamespace(module=module, source_kubeconfig=None, kube_port=args.kube_port)
+        config_path, _tls = cluster_access.kubeconfig(source, Path(scratch))
+        config = json.loads(config_path.read_text())
+    context = next(item["context"] for item in config["contexts"]
+                   if item["name"] == config["current-context"])
+    cluster = next(item["cluster"] for item in config["clusters"] if item["name"] == context["cluster"])
+    clusters[args.cluster] = {"region": args.region, "kube_port": args.kube_port,
+                              "talos_port": args.talos_port, "module": str(relative),
+                              "ca_data": cluster["certificate-authority-data"]}
+    atomic_write(directory / COMMITTED, dump({"clusters": clusters}))
+    user_path = directory / USER
+    profile = args.profile or os.environ.get("AWS_PROFILE")
+    if args.cluster not in read_user(user_path):
+        text = user_path.read_text() if user_path.exists() else ""
+        if text.lstrip().startswith(("{", "[")):
+            data = json.loads(text)
+            entries = data if isinstance(data, list) else data.setdefault("clusters", [])
+            entries.append({"name": args.cluster, **({"aws_profile": profile} if profile else {})})
+            text = dump(data).decode()
+        else:
+            text += ("\n" if text and not text.endswith("\n") else "") + f"- name: {args.cluster}\n"
+            text += f"  aws_profile: {profile}\n" if profile else ""
+        atomic_write(user_path, text.encode())
+    return cmd_merge(args)
+
+
+def cmd_forward(args):
+    os.execv(sys.executable, [sys.executable, str(HERE / "cluster_access.py"), "--bootstrap", *args.rest])
+
+
+def cmd_preflight(args):
+    failures = []
+
+    def fail(cause, fix):
+        failures.append(cause)
+        print(f"FAIL {cause}. Fix: {fix}")
+
+    for tool in TOOLS:
+        if shutil.which(tool):
+            print(f"ok   {tool}")
+        else:
+            fail(f"{tool} is not on PATH", "enter the devshell (direnv allow) or install it")
+    if shutil.which("aws"):
+        options = [item for flag, value in (("--profile", args.profile), ("--region", args.region))
+                   if value for item in (flag, value)]
+        try:
+            cluster_access.command(["aws", *options, "sts", "get-caller-identity"], timeout=30)
+            print("ok   aws sts get-caller-identity")
+        except (cluster_access.AccessError, subprocess.TimeoutExpired, OSError):
+            fail("aws sts get-caller-identity failed", "run 'aws sso login' for the profile, "
+                 "or pass --profile and --region")
+        else:
+            ns = SimpleNamespace(profile=args.profile, region=args.region, cluster=args.cluster,
+                                 control_plane_name=None, target=None, tunnel_name_pattern=args.tunnel_name_pattern)
+            try:
+                hosts = cluster_access.Access(ns).discover(("pending", "running"))[1]
+                print(f"ok   SSM Online tunnel host {hosts[0]}")
+            except cluster_access.ControllerNotFound:
+                # Before the first apply there is no controller whose VPC could be searched.
+                print("skip tunnel host check: the controller is not launched yet")
+            except (cluster_access.AccessError, subprocess.TimeoutExpired, OSError, ValueError) as exc:
+                fail(f"no usable tunnel host ({exc})", "start the controller and the NAT, check its "
+                     "SSM registration, or pass --tunnel-name-pattern")
+    return 1 if failures else 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="command", required=True)
+    pre = sub.add_parser("preflight", help="check tools, AWS identity and a tunnel host")
+    pre.add_argument("--cluster", required=True)
+    pre.add_argument("--profile")
+    pre.add_argument("--region")
+    pre.add_argument("--tunnel-name-pattern", default="nat-*")
+    pre.set_defaults(run=cmd_preflight)
+    fwd = sub.add_parser("forward", help="cluster_access.py --bootstrap with the remaining flags")
+    fwd.add_argument("rest", nargs=argparse.REMAINDER)
+    fwd.set_defaults(run=cmd_forward)
+    reg = sub.add_parser("register", help="record a cluster after its first apply, then merge")
+    reg.add_argument("--cluster", required=True)
+    reg.add_argument("--module", type=Path, required=True)
+    reg.add_argument("--region", required=True)
+    reg.add_argument("--kube-port", type=int, default=16443)
+    reg.add_argument("--talos-port", type=int, default=50000)
+    reg.add_argument("--profile")
+    reg.set_defaults(run=cmd_register)
+    mrg = sub.add_parser("merge", help="write registered clusters into $KUBE_DIR/config")
+    mrg.set_defaults(run=cmd_merge)
+    args = parser.parse_args()
+    try:
+        return args.run(args)
+    except (SetupError, cluster_access.AccessError, OSError, ValueError, KeyError, StopIteration,
+            subprocess.SubprocessError) as exc:
+        message = exc if isinstance(exc, (SetupError, cluster_access.AccessError)) else f"{type(exc).__name__}: {exc}"
+        print(f"pf-bootstrap-talos: {message}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
