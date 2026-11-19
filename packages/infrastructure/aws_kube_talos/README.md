@@ -59,6 +59,18 @@ In the commands below, `<module>` is the path to this module folder in your repo
 
    It waits up to 15 minutes for `my-cluster-control-plane-0` to launch, then forwards `127.0.0.1:50000` to it.
 
+   To skip the second terminal, open the forward from a `before_hook` instead. `--background` returns within a few seconds, leaves a helper that holds the forward, and closes it when Terragrunt exits. It reuses a live `--ensure` tunnel on the same port. Its log is `bootstrap.log` in the tunnel state directory.
+
+   ```hcl
+   terraform {
+     before_hook "talos_tunnel" {
+       commands = ["plan", "apply", "destroy"]
+       execute  = ["python3", "scripts/cluster_access.py", "--bootstrap", "--background", "--cluster", "my-cluster",
+                   "--profile", "<aws-profile>", "--region", "<region>"]
+     }
+   }
+   ```
+
 5. In the first terminal, run `terragrunt apply` in `<caller>`. The module launches the controllers, bootstraps etcd and starts the workers. The Talos provider keeps retrying until the forward connects. Stop the forward with Ctrl-C once the apply finishes.
 
 6. Register kubectl access:
