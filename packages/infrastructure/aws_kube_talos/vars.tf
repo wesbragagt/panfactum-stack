@@ -21,9 +21,9 @@ variable "control_plane_subnets" {
 }
 
 variable "worker_subnets" {
-  description = "List of PUBLIC subnet names (Name tag) for the worker nodes."
+  description = "Subnet names (Name tag) for the worker nodes. PRIVATE subnets need a NAT route for outbound access; PUBLIC subnets also need worker_public_ip_enabled."
   type        = list(string)
-  default     = ["PUBLIC_A", "PUBLIC_B", "PUBLIC_C"]
+  default     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
 }
 
 variable "control_plane_count" {
@@ -168,15 +168,6 @@ variable "etcd_backup_schedule" {
   default     = "0 * * * *"
 }
 
-variable "etcd_backup_talosctl_sha256" {
-  description = "SHA256 of the talosctl release binary for talos_version, keyed by arm64/amd64. Update together with talos_version."
-  type        = map(string)
-  default = {
-    arm64 = "fd22e0678d783105646d824c23ee45cf7a57f737edae274ca41376d03a4def65"
-    amd64 = "11acde7f7578ffe9cbe6fb8349b34595065f597de0842615982e350b365de987"
-  }
-}
-
 variable "machine_secrets" {
   description = "Talos secrets bundle in the siderolabs/talos provider machine_secrets shape. Generate it once with scripts/gen_talos_secrets.py and keep it SOPS-encrypted; it is the only source of the cluster PKI."
   type = object({
@@ -266,9 +257,9 @@ variable "worker_instance_profile_arn" {
 }
 
 variable "worker_public_ip_enabled" {
-  description = "Assign public IPv4 addresses to workers."
+  description = "Assign public IPv4 addresses to workers. Only useful in PUBLIC subnets; PRIVATE subnets route outbound through NAT."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "worker_capacity_rebalance" {

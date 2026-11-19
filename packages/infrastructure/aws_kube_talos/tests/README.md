@@ -1,6 +1,6 @@
 # Talos etcd backup test
 
-Proves that `packages/infrastructure/aws_kube_talos/etcd-backup.py` produces a snapshot that can rebuild a lost control plane. Everything runs locally: a Talos cluster in Docker and [Floci](https://github.com/floci-io/floci) as the AWS S3 and KMS emulator. No real AWS account is touched.
+Proves that the pinned [talos-backup](https://github.com/siderolabs/talos-backup) image in `backup.tf` produces a snapshot that can rebuild a lost control plane. Everything runs locally: a Talos cluster in Docker and [Floci](https://github.com/floci-io/floci) as the AWS S3 and KMS emulator. No real AWS account is touched.
 
 ## Requirements
 
@@ -23,16 +23,16 @@ All credentials, kubeconfig, and talosconfig live in the `--directory`, which is
 ## What `test.py` checks
 
 1. Creates a talosconfig limited to the `os:etcd:backup` role, the same role the in-cluster CronJob gets, and confirms it cannot read the machine config.
-2. Writes ConfigMap `dr-marker`, runs the production backup script, then writes ConfigMap `dr-after-backup`.
-3. Confirms the uploaded object reports SSE-KMS with the backup key, then downloads it.
+2. Writes ConfigMap `dr-marker`, runs the talos-backup image with no SSE headers, then writes ConfigMap `dr-after-backup`.
+3. Downloads the newest snapshot object.
 4. Saves the node's machine config, destroys the cluster, and starts a replacement node with the same config.
 5. Runs `talosctl bootstrap --recover-from` with the downloaded snapshot.
 6. Passes only if `dr-marker` is restored with its value and `dr-after-backup` is absent.
 
 ## Limits
 
-- Floci records SSE-KMS headers but does not encrypt at rest or enforce IAM and KMS policies. The bucket policy and IAM permissions in `backup.tf` are only validated by a real AWS apply.
-- The script runs on the host. The CronJob wrapper in `backup.tf` (Python image, `talosctl` download, `awscli` install, Talos service account mount) is not exercised here.
+- Floci stores bucket-default encryption but does not apply it to uploads, so SSE-KMS is checked only on real AWS. Floci does not enforce IAM and KMS policies either. The bucket policy and IAM permissions in `backup.tf` are only validated by a real AWS apply.
+- The script runs on the host. The CronJob in `backup.tf` and its Talos service account mount are not exercised here; the test uses a talosconfig with the same `os:etcd:backup` role.
 - Docker Talos has no `reset` or `upgrade`, so the drill replaces the node instead of wiping it.
 
 If a run fails, resources are left for inspection. `cleanup.py` removes only containers and the network named after that run.

@@ -233,9 +233,8 @@ data "talos_machine_configuration" "worker" {
 ## Nodes
 ###########################################################################
 
-# Nodes read their initial config from user data via IMDS, so they never sit in
-# unauthenticated maintenance mode. Later config changes go through the Talos API
-# (talos_machine_configuration_apply) and OS upgrades through `talosctl upgrade`,
+# User data gives nodes their config at boot, so they skip unauthenticated maintenance mode.
+# Later config changes use the Talos API and upgrades use `talosctl upgrade`,
 # so ami and user_data changes are ignored here.
 resource "aws_instance" "control_plane" {
   count                       = var.control_plane_count
@@ -455,8 +454,8 @@ resource "talos_machine_configuration_apply" "control_plane" {
   machine_configuration_input = data.talos_machine_configuration.control_plane.machine_configuration
   # Applied over the Talos API rather than user data, which is capped at 16 KB
   config_patches = concat(local.backup_config_patches, [
-    yamlencode({ apiVersion = "v1alpha1", kind = "KubeServiceAccountConfig", issuer = { issuerURL = local.canary_oidc_issuer_url } }),
-    yamlencode({ apiVersion = "v1alpha1", kind = "KubeAPIServerConfig", extraArgs = { "service-account-jwks-uri" = "${local.canary_oidc_issuer_url}/keys.json" } })
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeServiceAccountConfig", issuer = { issuerURL = local.service_account_oidc_issuer_url } }),
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeAPIServerConfig", extraArgs = { "service-account-jwks-uri" = "${local.service_account_oidc_issuer_url}/keys.json" } })
   ])
   endpoint = local.talos_api_endpoint
   node     = aws_instance.control_plane[count.index].private_ip

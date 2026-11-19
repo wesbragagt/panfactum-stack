@@ -39,8 +39,9 @@ def main():
     try:
         target = directory / "talosctl"
         local = shutil.which("talosctl")
-        if local and VERSION in subprocess.run([local, "version", "--client", "--short"],
-                                               text=True, capture_output=True).stdout:
+        # Wrapper scripts named talosctl break once copied out of their repository
+        if local and Path(local).read_bytes()[:4] == b"\x7fELF" and VERSION in subprocess.run(
+                [local, "version", "--client", "--short"], text=True, capture_output=True).stdout:
             shutil.copyfile(local, target)
         else:
             base = f"https://github.com/siderolabs/talos/releases/download/{VERSION}/"
@@ -58,11 +59,12 @@ def main():
             f"127.0.0.1:{args.port}:4566", "-e", "FLOCI_SERVICES_UI_ENABLED=false", FLOCI_IMAGE)
         wait_for(["aws", "s3api", "list-buckets"], env)
         run("aws", "s3api", "create-bucket", "--bucket", name, env=env)
-        state["kms_key"] = run("aws", "kms", "create-key", "--description", name,
-                               "--query", "KeyMetadata.Arn", "--output", "text", env=env, capture=True)
         (directory / "harness.json").write_text(json.dumps(state, indent=2) + "\n")
         patch = directory / "api-access.yaml"
-        patch.write_text("apiVersion: v1alpha1\nkind: KubeTalosAPIAccessConfig\n"
+        # The node's disk is the shared host disk, so default eviction would taint it on a busy workstation
+        patch.write_text("apiVersion: v1alpha1\nkind: KubeletConfig\nconfig:\n  evictionHard:\n"
+                         "    nodefs.available: 1%\n    imagefs.available: 1%\n---\n"
+                         "apiVersion: v1alpha1\nkind: KubeTalosAPIAccessConfig\n"
                          "allowedRoles:\n  - os:etcd:backup\n"
                          "allowedKubernetesNamespaces:\n  - default\n")
         run(target, "cluster", "create", "docker", "--name", name, "--state", directory / "clusters",
