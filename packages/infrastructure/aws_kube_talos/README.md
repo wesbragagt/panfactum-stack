@@ -83,14 +83,7 @@ In the commands below, `<module>` is the path to this module folder in your repo
    - `.kube/config.talos.yaml` holds the region, ports, module path and CA. It has no secrets. Commit it.
    - `.kube/config.talos.user.yaml` holds each operator's AWS profile per cluster. Keep it out of git.
 
-7. Wire the repository once:
-   - Add `!config.talos.yaml` to `.kube/.gitignore`.
-   - Add these lines to `.envrc` after `use flake`, so every shell load merges the Talos contexts into `.kube/config`:
-
-     ```sh
-     watch_file .kube/config.talos.yaml .kube/config.talos.user.yaml
-     python3 <module>/scripts/pf-bootstrap-talos merge || true
-     ```
+7. Add `!config.talos.yaml` to `.kube/.gitignore` so the committed file is tracked.
 
 8. Check access:
 
@@ -113,7 +106,7 @@ In the commands below, `<module>` is the path to this module folder in your repo
 
 ## Everyday access
 
-- `kubectl`, `kubectx` and `k9s` work after the shell loads. The context's credential command opens or reuses a background tunnel per cluster, with its state in `~/.local/state/talos-cluster-access/<cluster>`.
+- `kubectl`, `kubectx` and `k9s` use the contexts in `.kube/config`. The context's credential command opens or reuses a background tunnel per cluster, with its state in `~/.local/state/talos-cluster-access/<cluster>`.
 - `terragrunt plan` and `apply` need the tunnel. Add a `before_hook` to the caller that opens it, and an `after_hook` that keeps the context current:
 
   ```hcl
@@ -136,7 +129,8 @@ In the commands below, `<module>` is the path to this module folder in your repo
 
   Add the `before_hook` only after the first apply, because it reads the cluster's outputs.
 - For `talosctl`, run `python3 <module>/scripts/cluster_access.py --cluster my-cluster --profile <aws-profile> --region <region> --module <caller>`. It holds the tunnel in the foreground and prints an `export TALOSCONFIG=...` line.
-- A new operator clones the repository, adds their profile to `.kube/config.talos.user.yaml`, and reloads the shell.
+- A new operator clones the repository, adds their profile to `.kube/config.talos.user.yaml`, then runs `python3 <module>/scripts/pf-bootstrap-talos merge`.
+- Run `merge` again whenever `.kube/config.talos.yaml` changes or something rewrites `.kube/config`, such as `pf devshell sync`. It makes no AWS calls and only replaces the Talos entries.
 - Every AWS profile that can open the tunnel and read the Terraform state gets cluster-admin, because the credential is the admin client certificate. Restrict both with IAM.
 
 ## More than one cluster
