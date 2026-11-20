@@ -270,6 +270,12 @@ resource "helm_release" "ebs_csi_driver" {
               key      = "controller"
               operator = "Exists"
               effect   = "NoSchedule"
+            },
+            {
+              key      = module.constants.workflow_taint.key
+              operator = "Equal"
+              value    = module.constants.workflow_taint.value
+              effect   = module.constants.workflow_taint.effect
             }
           ]
         )

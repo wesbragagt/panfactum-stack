@@ -25,6 +25,15 @@ output "controller_taint" {
   }
 }
 
+output "workflow_taint" {
+  description = "The taint added to every workflow-only node. Node DaemonSets must tolerate it to initialize those nodes."
+  value = {
+    key    = "workflow"
+    value  = "true"
+    effect = "NoSchedule"
+  }
+}
+
 output "default_priority_class_name" {
   description = "The default Kubernetes Priority Class"
   value       = "default"

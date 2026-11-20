@@ -67,6 +67,13 @@ module "util_cni" {
       effect   = "NoExecute"
       key      = "node.kubernetes.io/not-ready"
       operator = "Exists"
+    },
+    // Workflow nodes taint everything else, but the CNI must run on all nodes
+    {
+      key      = module.constants.workflow_taint.key
+      operator = "Equal"
+      value    = module.constants.workflow_taint.value
+      effect   = module.constants.workflow_taint.effect
     }
   ]
 }

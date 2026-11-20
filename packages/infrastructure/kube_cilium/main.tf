@@ -301,6 +301,14 @@ resource "helm_release" "cilium" {
             key      = "node.kubernetes.io/pid-pressure"
             operator = "Exists"
             effect   = "NoSchedule"
+          },
+
+          // Workflow nodes taint everything else, but the agent must run on all nodes
+          {
+            key      = module.constants.workflow_taint.key
+            operator = "Equal"
+            value    = module.constants.workflow_taint.value
+            effect   = module.constants.workflow_taint.effect
           }
         ],
         module.util_agent.tolerations,
