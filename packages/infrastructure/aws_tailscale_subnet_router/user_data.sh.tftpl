@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+
+cat > /etc/sysctl.d/99-tailscale.conf <<CONF
+net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
+CONF
+sysctl -p /etc/sysctl.d/99-tailscale.conf
+
+# Loading the AL2023 repo metadata gets dnf OOM-killed on a 512 MiB t4g.nano without swap
+dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo '/swapfile none swap defaults 0 0' >> /etc/fstab
+
+curl -fsSL -o /etc/yum.repos.d/tailscale.repo https://pkgs.tailscale.com/stable/amazon-linux/2023/tailscale.repo
+dnf install -y tailscale
+systemctl enable --now tailscaled
+
+secret="$(aws ssm get-parameter --region ${region} --name ${parameter} --with-decryption --query Parameter.Value --output text)"
+
+# Ephemeral keys remove a terminated router from the tailnet; preauthorized skips device approval
+tailscale up \
+  --auth-key="$${secret}?ephemeral=true&preauthorized=true" \
+  --advertise-tags=${tag} \
+  --advertise-routes=${routes} \
+  --hostname=${hostname}

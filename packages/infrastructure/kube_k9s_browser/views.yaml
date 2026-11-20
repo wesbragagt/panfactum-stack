@@ -1,0 +1,14 @@
+views:
+  v1/nodes:
+    columns:
+      - NAME
+      - STATUS
+      - CLASS:.metadata.labels.panfactum\.com/class
+      - CAPACITY:.metadata.labels.node\.kubernetes\.io/lifecycle
+      - INSTANCE:.metadata.labels.node\.kubernetes\.io/instance-type
+      - ZONE:.metadata.labels.topology\.kubernetes\.io/zone
+      - VERSION
+      - PODS
+      - AGE
+      # k9s appends unlisted default columns; |H hides one.
+      - ROLE|H
