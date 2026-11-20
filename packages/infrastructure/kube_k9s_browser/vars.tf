@@ -1,11 +1,11 @@
-variable "namespace" {
-  description = "The namespace to create for this k9s instance"
-  type        = string
-}
-
-variable "domain" {
-  description = "The domain that serves this k9s instance"
-  type        = string
+variable "instances" {
+  description = "The k9s instances to deploy, keyed by a short name. Each gets its own namespace and domain. read_only true runs k9s with --readonly and binds the view ClusterRole plus read access to nodes; false binds cluster-admin. allowed_vault_roles are the Vault groups whose members may open the instance."
+  type = map(object({
+    namespace           = string
+    domain              = string
+    read_only           = bool
+    allowed_vault_roles = list(string)
+  }))
 }
 
 variable "vault_domain" {
@@ -19,18 +19,6 @@ variable "gateway_api" {
     parent_name      = string
     parent_namespace = string
   })
-}
-
-variable "read_only" {
-  description = "If true, k9s runs with --readonly and a ServiceAccount bound to the view ClusterRole plus read access to nodes. If false, the ServiceAccount is bound to cluster-admin."
-  type        = bool
-  default     = true
-}
-
-variable "allowed_vault_roles" {
-  description = "The Vault groups whose members may open this instance"
-  type        = list(string)
-  default     = ["rbac-superusers", "rbac-admins", "rbac-readers"]
 }
 
 variable "context_name" {

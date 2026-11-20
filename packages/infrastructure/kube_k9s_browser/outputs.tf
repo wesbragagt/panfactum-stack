@@ -1,9 +1,9 @@
 output "url" {
-  description = "The URL of this k9s instance"
-  value       = "https://${var.domain}"
+  description = "The URL of each k9s instance, keyed like var.instances"
+  value       = { for k, v in var.instances : k => "https://${v.domain}" }
 }
 
 output "service_account" {
-  description = "The ServiceAccount that k9s uses; its RBAC decides what users can do"
-  value       = "system:serviceaccount:${var.namespace}:k9s"
+  description = "The ServiceAccount that each k9s instance uses, keyed like var.instances; its RBAC decides what users can do"
+  value       = { for k, v in var.instances : k => "system:serviceaccount:${v.namespace}:k9s" }
 }

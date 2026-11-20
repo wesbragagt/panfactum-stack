@@ -197,7 +197,9 @@ resource "helm_release" "oauth2_proxy" {
     })
   ]
 
-  timeout = 60
+  # Required host anti-affinity means a rollout's surge pod often needs a new
+  # Karpenter node, which takes longer than 60s to become Ready.
+  timeout = 600
 }
 
 resource "kubectl_manifest" "pdb" {

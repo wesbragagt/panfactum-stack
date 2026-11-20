@@ -1,10 +1,10 @@
 # kube_k9s_browser
 
-k9s in the browser through ttyd, behind a Vault or OpenBao login (`kube_vault_proxy`). Each call deploys one instance in its own namespace. The Vault group decides who may open the instance. The instance's ServiceAccount decides what k9s may do.
+k9s in the browser through ttyd, behind a Vault or OpenBao login (`kube_vault_proxy`). Each entry in `instances` deploys one instance in its own namespace. The Vault group decides who may open the instance. The instance's ServiceAccount decides what k9s may do.
 
 | `read_only` | ClusterRoles | k9s mode |
 | --- | --- | --- |
-| `true` (default) | `view` (no Secrets) plus get, list and watch on nodes | `--readonly` |
+| `true` | `view` (no Secrets) plus get, list and watch on nodes | `--readonly` |
 | `false` | `cluster-admin` | read-write |
 
 The init container (`setup.sh`) installs ttyd 1.7.7 and k9s v0.51.0 for the node's architecture (arm64 or amd64) and checks their sha256. It also unpacks Alpine 3.22 `vim` with `apk fetch` (signature-checked) and sets it as `KUBE_EDITOR`. `views.yaml` adds CLASS (`panfactum.com/class`), INSTANCE and ZONE columns to the node view.
@@ -17,7 +17,7 @@ The init container (`setup.sh`) installs ttyd 1.7.7 and k9s v0.51.0 for the node
 
 ## Usage
 
-One caller per instance. A typical pair is a read-only instance for readers and a read-write instance for admins:
+One caller deploys every instance. A typical pair is a read-only instance for readers and a read-write instance for admins:
 
 ```hcl
 terraform {
@@ -27,22 +27,33 @@ terraform {
 dependencies { paths = ["../kube_vault", "../vault_auth_oidc", "../kube_kgateway"] }
 
 inputs = {
-  namespace           = "k9s-reader"
-  domain              = "k9s.example.com"
-  vault_domain        = "vault.example.com"
-  gateway_api         = { parent_name = "public", parent_namespace = "kgateway-system" }
-  read_only           = true
-  allowed_vault_roles = ["rbac-superusers", "rbac-admins", "rbac-readers"]
-  context_name        = "my-cluster"
+  instances = {
+    reader = {
+      namespace           = "k9s-reader"
+      domain              = "k9s.example.com"
+      read_only           = true
+      allowed_vault_roles = ["rbac-superusers", "rbac-admins", "rbac-readers"]
+    }
+    admin = {
+      namespace           = "k9s-admin"
+      domain              = "k9s-admin.example.com"
+      read_only           = false
+      allowed_vault_roles = ["rbac-superusers", "rbac-admins"]
+    }
+  }
+  vault_domain = "vault.example.com"
+  gateway_api  = { parent_name = "public", parent_namespace = "kgateway-system" }
+  context_name = "my-cluster"
 }
 ```
 
-For the admin instance, set `read_only = false`, `allowed_vault_roles = ["rbac-superusers", "rbac-admins"]` and a different `namespace` and `domain`.
+Every other input applies to all instances. The outputs `url` and `service_account` are maps keyed like `instances`. Each instance's resources live in the nested `instance/` module at `module.instance["<key>"]`, so renaming a key destroys and recreates that instance.
 
 ## Gotchas
 
 - The first plan of a new caller fails with `metadata.0.labels ("<null>")`. `panfactum.hcl` generates the `pf` provider only after `.terraform.lock.hcl` lists `panfactum/pf`, and the first run writes that lock file. Plan again.
 - `kube_vault_proxy` names its Secret `oauth2-proxy`, so two instances cannot share a namespace.
+- The `panfactum.com/root-module` label is the caller directory name and is set on the pod templates. Renaming the caller or moving instances to another caller restarts the pods even when the state moves are exact.
 
 ## Test
 
