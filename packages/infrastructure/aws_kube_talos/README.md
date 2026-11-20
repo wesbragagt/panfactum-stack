@@ -249,7 +249,7 @@ A replacement keeps the fixed IP, so it gets the same hostname, etcd name and No
 
 1. From a healthy controller, run `talosctl -n <healthy-ip> etcd members` and `talosctl -n <healthy-ip> etcd remove-member <dead-member-id>`.
 2. Run `kubectl delete node <dead-node>` before the replacement boots. A stale Node keeps the old, immutable `providerID`.
-3. Apply with `-replace='aws_instance.control_plane[<i>]'`. The pre-join snapshot runs first. The same apply re-pushes that controller's Talos config (OIDC issuer, backup patches), because `talos_machine_configuration_apply` is replaced with its instance.
+3. Apply with `-replace='aws_instance.control_plane[<i>]'`. The pre-join snapshot runs only if the dead instance is already terminated; otherwise the module still counts it, so take a snapshot first as in "Check etcd backups". The same apply re-pushes that controller's Talos config (OIDC issuer, backup patches), because `talos_machine_configuration_apply` is replaced with its instance.
 4. The OIDC service-account issuer is in user data, so the new API server signs and accepts the same issuer from first boot. If a controller ever booted with the default issuer (`https://<private_api_dns_name>:6443`), pods that started meanwhile hold tokens every other API server rejects until kubelet refreshes them (about 48 minutes). Find them by decoding the `iss` claim of `/var/run/secrets/kubernetes.io/serviceaccount/token` and restart them; linkerd-cni and cilium agents fail CNI ADD and API calls until then.
 5. If the new Node has an empty `spec.providerID`, the CCM could not resolve the short hostname. Set it: `kubectl patch node <node> -p '{"spec":{"providerID":"aws:///<az>/<instance-id>"}}'`.
 
