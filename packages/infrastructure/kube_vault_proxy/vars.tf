@@ -109,3 +109,9 @@ variable "gateway_api" {
   })
   default = null
 }
+
+variable "helm_timeout_seconds" {
+  description = "Seconds to wait for the oauth2-proxy Helm release to become ready"
+  type        = number
+  default     = 60
+}

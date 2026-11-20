@@ -224,4 +224,8 @@ module "vault_proxy" {
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
   vpa_enabled                          = var.vpa_enabled
+
+  # Required host anti-affinity means a rollout's surge pod often waits for a new
+  # Karpenter node, which took 61s and 90s to become Ready on 2026-11-20.
+  helm_timeout_seconds = 300
 }
