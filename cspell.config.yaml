@@ -290,6 +290,11 @@ words:
     "homelab",
     "siderolabs",
     "Sidero",
+    "runbook",
+    "tftest",
+    "kubeconfigs",
+    "clientconfig",
+    "IMDS",
   ]
 languageSettings:
   - languageId:
