@@ -83,6 +83,7 @@ data "aws_subnet" "control_plane" {
 }
 
 data "aws_subnets" "worker" {
+  count = var.worker_count > 0 ? 1 : 0
   filter {
     name   = "vpc-id"
     values = [var.vpc_id]
@@ -326,7 +327,9 @@ resource "aws_instance" "control_plane" {
   }
 }
 
+# Without AWS node config the on-demand ASG reuses this template.
 resource "aws_launch_template" "worker" {
+  count         = var.worker_count > 0 || (!var.aws_node_config_enabled && length(var.on_demand_worker_subnets) > 0) ? 1 : 0
   name_prefix   = "${var.cluster_name}-worker-"
   image_id      = data.aws_ami.talos.id
   instance_type = var.worker_instance_type
@@ -377,6 +380,7 @@ resource "aws_launch_template" "worker" {
 }
 
 resource "aws_autoscaling_group" "worker" {
+  count               = var.worker_count > 0 ? 1 : 0
   suspended_processes = var.worker_suspended_processes
   capacity_rebalance  = var.worker_capacity_rebalance
   dynamic "tag" {
@@ -391,14 +395,14 @@ resource "aws_autoscaling_group" "worker" {
   min_size            = var.worker_count
   max_size            = var.worker_count
   desired_capacity    = var.worker_count
-  vpc_zone_identifier = data.aws_subnets.worker.ids
+  vpc_zone_identifier = data.aws_subnets.worker[0].ids
   health_check_type   = "EC2"
 
   dynamic "launch_template" {
     for_each = length(var.worker_instance_types) > 0 ? [] : [1]
     content {
-      id      = aws_launch_template.worker.id
-      version = aws_launch_template.worker.latest_version
+      id      = aws_launch_template.worker[0].id
+      version = aws_launch_template.worker[0].latest_version
     }
   }
 
@@ -413,8 +417,8 @@ resource "aws_autoscaling_group" "worker" {
       }
       launch_template {
         launch_template_specification {
-          launch_template_id = aws_launch_template.worker.id
-          version            = aws_launch_template.worker.latest_version
+          launch_template_id = aws_launch_template.worker[0].id
+          version            = aws_launch_template.worker[0].latest_version
         }
         dynamic "override" {
           for_each = var.worker_instance_types
@@ -428,6 +432,16 @@ resource "aws_autoscaling_group" "worker" {
 
   # Workers join over the private API address, not their changing public IPs.
   depends_on = [talos_machine_bootstrap.this]
+}
+
+moved {
+  from = aws_launch_template.worker
+  to   = aws_launch_template.worker[0]
+}
+
+moved {
+  from = aws_autoscaling_group.worker
+  to   = aws_autoscaling_group.worker[0]
 }
 
 data "aws_subnets" "worker_on_demand" {
@@ -460,8 +474,8 @@ resource "aws_autoscaling_group" "worker_on_demand" {
     }
     launch_template {
       launch_template_specification {
-        launch_template_id = var.aws_node_config_enabled ? aws_launch_template.worker_on_demand[0].id : aws_launch_template.worker.id
-        version            = var.aws_node_config_enabled ? aws_launch_template.worker_on_demand[0].latest_version : aws_launch_template.worker.latest_version
+        launch_template_id = var.aws_node_config_enabled ? aws_launch_template.worker_on_demand[0].id : aws_launch_template.worker[0].id
+        version            = var.aws_node_config_enabled ? aws_launch_template.worker_on_demand[0].latest_version : aws_launch_template.worker[0].latest_version
       }
       override {
         instance_type = var.worker_instance_type

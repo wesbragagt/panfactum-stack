@@ -346,7 +346,7 @@ run "worker_config_known_while_adding_controllers" {
     private_api_dns_name      = "api.test.internal"
   }
   assert {
-    condition     = data.talos_machine_configuration.worker.machine_configuration != null
+    condition     = output.worker_machine_configuration != null
     error_message = "Worker config must be known at plan time when private_api_dns_name is set."
   }
 }
@@ -450,5 +450,36 @@ run "resize_one_controller_changes_only_its_type" {
   assert {
     condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "KubeServiceAccountConfig")
     error_message = "Controller user data must carry the OIDC issuer so a replaced controller never serves the default issuer."
+  }
+}
+
+# Karpenter launches every worker; the ASG path must allow zero and keep the outputs Karpenter reads.
+run "zero_workers_create_no_asgs" {
+  command = plan
+  variables {
+    aws_node_config_enabled  = true
+    worker_count             = 0
+    on_demand_worker_subnets = []
+    private_api_dns_name     = "api.test.internal"
+  }
+  assert {
+    condition     = length(aws_launch_template.worker) + length(aws_autoscaling_group.worker) + length(aws_launch_template.worker_on_demand) + length(aws_autoscaling_group.worker_on_demand) == 0
+    error_message = "worker_count = 0 with no on-demand subnets must create no worker launch templates or ASGs."
+  }
+  assert {
+    condition     = output.worker_machine_configuration != null
+    error_message = "Karpenter still needs worker_machine_configuration."
+  }
+  assert {
+    condition     = output.talos_ami_id != null
+    error_message = "Karpenter still needs talos_ami_id."
+  }
+}
+
+run "default_workers_keep_spot_asg" {
+  command = plan
+  assert {
+    condition     = length(aws_autoscaling_group.worker) == 1 && length(aws_launch_template.worker) == 1
+    error_message = "worker_count above 0 must keep the Spot worker ASG."
   }
 }

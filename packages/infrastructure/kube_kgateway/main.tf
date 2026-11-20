@@ -48,6 +48,7 @@ resource "helm_release" "kgateway" {
       replicaCount   = 1
       strategy       = { type = "Recreate" }
       nodeSelector   = var.node_selector
+      tolerations    = var.tolerations
       podAnnotations = { "linkerd.io/inject" = "disabled" }
       image = {
         registry   = "ghcr.io/kgateway-dev"
@@ -88,6 +89,7 @@ resource "kubectl_manifest" "gateway_parameters" {
         podTemplate = {
           extraAnnotations = { "linkerd.io/inject" = "disabled" }
           nodeSelector     = var.node_selector
+          tolerations      = var.tolerations
           topologySpreadConstraints = [{
             maxSkew           = 1
             topologyKey       = "kubernetes.io/hostname"

@@ -45,3 +45,9 @@ variable "node_selector" {
   type    = map(string)
   default = {}
 }
+
+variable "tolerations" {
+  description = "Tolerations for the kgateway controller and gateway proxy pods"
+  type        = list(map(string))
+  default     = []
+}

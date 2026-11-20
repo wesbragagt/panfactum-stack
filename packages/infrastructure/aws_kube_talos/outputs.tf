@@ -35,8 +35,8 @@ output "control_plane_private_ips" {
 }
 
 output "worker_autoscaling_group_name" {
-  description = "Auto Scaling group maintaining the desired Spot worker count."
-  value       = aws_autoscaling_group.worker.name
+  description = "Auto Scaling group maintaining the desired Spot worker count, or null when worker_count is 0."
+  value       = one(aws_autoscaling_group.worker[*].name)
 }
 
 output "talosconfig" {
