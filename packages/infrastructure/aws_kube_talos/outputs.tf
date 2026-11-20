@@ -14,6 +14,11 @@ output "cluster_ca_data" {
   value = nonsensitive(local.machine_secrets.certs.k8s.cert)
 }
 
+output "cluster_region" {
+  description = "The AWS region to which the Talos cluster is deployed"
+  value       = data.aws_region.current.region
+}
+
 output "node_security_group_id" {
   description = "Security group shared by all Talos nodes."
   value       = aws_security_group.nodes.id

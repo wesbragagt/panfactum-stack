@@ -2,6 +2,33 @@
 
 This module runs a Talos Linux Kubernetes cluster on EC2. Controllers and workers sit in private subnets with no public addresses. etcd is backed up to S3, and OIDC discovery for service-account tokens is published in a public S3 bucket. Operators reach the Kubernetes and Talos APIs through an AWS SSM port forward, so no API is exposed to the internet by default.
 
+## Components
+
+```mermaid
+flowchart LR
+  op["Operator<br/>kubectl / talosctl"] -->|SSM port forward| dns
+  subgraph aws["AWS VPC, private subnets A/B/C"]
+    dns["Route53 private zone<br/>api.&lt;cluster&gt;.internal<br/>A records of controller IPs"]
+    cp["Controllers<br/>1, 3 or 5 on-demand EC2<br/>fixed IPs, one per AZ<br/>API server + etcd on EBS"]
+    wk["Worker ASGs<br/>Spot + on-demand<br/>until Karpenter takes over"]
+    dns --> cp
+    wk -->|KubePrism| cp
+  end
+  cfg["Talos machine config<br/>user data: base, SANs, OIDC issuer<br/>Talos API push: etcd backup patches"] --> cp
+  cfg --> wk
+  cp -->|hourly etcd snapshot<br/>KMS-encrypted| bkp["S3 etcd backup bucket"]
+  cp -->|signs service-account tokens| oidc["S3 OIDC bucket<br/>discovery + JWKS<br/>IAM OIDC provider for IRSA"]
+```
+
+| Component | Purpose |
+|---|---|
+| Controllers (`aws_instance.control_plane`) | Run the Kubernetes API and etcd. Long-lived, never Spot; resize in place, replace by hand (see "Controller runbook"). |
+| Private API name (`aws_route53_record.private_api`) | One stable name for the API; clients try each controller IP. |
+| Worker ASGs (`aws_autoscaling_group.worker`, `worker_on_demand`) | Bootstrap capacity for the first pods, since controllers carry the `controller=true:NoSchedule` taint. |
+| Talos config (`talos_machine_configuration`, `_apply`, `_bootstrap`) | User data boots each node; the apply pushes patches too large for the 16 KB user data limit; bootstrap starts etcd once. |
+| etcd backups (`backup.tf`) | Hourly KMS-encrypted snapshots to S3, plus a snapshot before any new controller joins. |
+| OIDC (`oidc.tf`) | Public discovery documents so AWS IAM trusts service-account tokens (IRSA). |
+
 ## Requirements
 
 - A VPC with subnets tagged `Name = PRIVATE_A`, `PRIVATE_B` and `PRIVATE_C` that route `0.0.0.0/0` through NAT. Nodes pull images and join the cluster through that route.
@@ -12,6 +39,20 @@ This module runs a Talos Linux Kubernetes cluster on EC2. Controllers and worker
 In the commands below, `<module>` is the path to this module folder in your repository and `<caller>` is the Terragrunt directory that deploys it. Run them from the repository root.
 
 ## Bootstrap a new cluster
+
+This follows the Panfactum guide [Kubernetes Cluster](https://panfactum.com/docs/edge/guides/bootstrapping/kubernetes-cluster) step for step. Each step says "same" or states the Talos difference.
+
+### 1. Get upstream registry credentials
+
+Same as the guide.
+
+### 2. Deploy the ECR pull-through cache
+
+Same as the guide: deploy `aws_ecr_pull_through_cache`.
+
+### 3. Deploy the cluster
+
+This module replaces `aws_eks`. It needs Talos-only setup before the apply.
 
 1. Create the secrets bundle. Add a SOPS creation rule for the file, then run:
 
@@ -26,6 +67,19 @@ In the commands below, `<module>` is the path to this module folder in your repo
    ```hcl
    terraform {
      source = "${get_repo_root()}/<module>"
+
+     before_hook "talos_tunnel" {
+       commands = ["plan", "apply", "destroy"]
+       execute  = ["python3", "${get_repo_root()}/<module>/scripts/cluster_access.py", "--bootstrap", "--background",
+                   "--cluster", "my-cluster", "--profile", "<aws-profile>", "--region", "<region>"]
+     }
+     after_hook "talos_register" {
+       commands     = ["apply"]
+       execute      = ["python3", "${get_repo_root()}/<module>/scripts/pf-bootstrap-talos", "register",
+                       "--cluster", "my-cluster", "--module", get_terragrunt_dir(),
+                       "--region", "<region>", "--profile", "<aws-profile>"]
+       run_on_error = false
+     }
    }
 
    dependency "vpc" {
@@ -33,15 +87,20 @@ In the commands below, `<module>` is the path to this module folder in your repo
    }
 
    inputs = {
-     cluster_name                      = "my-cluster"
-     vpc_id                            = dependency.vpc.outputs.vpc_id
-     secrets_bundle                    = yamldecode(sops_decrypt_file("${get_terragrunt_dir()}/talos-secrets.yaml"))
-     private_api_dns_name              = "api.my-cluster.internal"
-     operator_tunnel_security_group_id = "sg-0123456789abcdef0" # security group of the SSM host
+     cluster_name                       = "my-cluster"
+     vpc_id                             = dependency.vpc.outputs.vpc_id
+     secrets_bundle                     = yamldecode(sops_decrypt_file("${get_terragrunt_dir()}/talos-secrets.yaml"))
+     private_api_dns_name               = "api.my-cluster.internal"
+     operator_tunnel_security_group_ids = ["sg-0123456789abcdef0"] # security groups of the SSM hosts
+     control_plane_count                = 3
+     control_plane_subnets              = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
+     control_plane_private_ips          = ["10.0.64.10", "10.0.128.10", "10.0.192.10"]
    }
    ```
 
    `private_api_dns_name` creates a private hosted zone for its parent domain. Clusters in the same VPC need different parent domains, such as `api.a.internal` and `api.b.internal`.
+
+   The `before_hook` forwards the Talos port to `my-cluster-control-plane-0`, so the first apply runs in one terminal. `--background` returns within a few seconds, leaves a helper that holds the forward, and closes it when Terragrunt exits. It waits up to 15 minutes for the controller to launch and reuses a live `--ensure` tunnel on the same port. Its log is `bootstrap.log` in the tunnel state directory. The `after_hook` runs step 4's `register` after every successful apply.
 
 3. Check your setup:
 
@@ -51,91 +110,180 @@ In the commands below, `<module>` is the path to this module folder in your repo
 
    Fix every `FAIL` line before you continue. The SSM host is found by `Name = nat-*`. Pass `--tunnel-name-pattern` if yours is named differently.
 
-4. In a second terminal, open the Talos forward and leave it running:
+4. Run `pf-tf-init` and `terragrunt apply` in `<caller>`. The module launches the controllers, bootstraps etcd and starts the workers. The Talos provider keeps retrying until the forward connects.
 
-   ```sh
-   python3 <module>/scripts/pf-bootstrap-talos forward --cluster my-cluster --profile <aws-profile> --region <region>
-   ```
+#### Use cases
 
-   It waits up to 15 minutes for `my-cluster-control-plane-0` to launch, then forwards `127.0.0.1:50000` to it.
+Pick a starting size, then scale with the controller runbook. Every case keeps controllers on-demand.
 
-   To skip the second terminal, open the forward from a `before_hook` instead. `--background` returns within a few seconds, leaves a helper that holds the forward, and closes it when Terragrunt exits. It reuses a live `--ensure` tunnel on the same port. Its log is `bootstrap.log` in the tunnel state directory.
+| Use case | Inputs | Result |
+|---|---|---|
+| Bootstrap (cheapest start, no HA) | `control_plane_count = 1`, `worker_count = 1` | 1 controller, 1 worker. Losing the controller stops the API until it is replaced or restored from S3. |
+| Upscale to HA | `control_plane_count = 3` (or 5) | 1 controller per AZ. etcd survives 1 lost controller (2 with 5). |
+| Upscale a controller's size | one `control_plane_instance_types` entry larger | In-place stop/start of that controller, about 2 to 2.5 minutes. |
+| Downscale | `control_plane_count` 5 to 3 to 1, or one type smaller | Fewer or smaller controllers. Each removed controller leaves etcd before its instance is destroyed. |
 
-   ```hcl
-   terraform {
-     before_hook "talos_tunnel" {
-       commands = ["plan", "apply", "destroy"]
-       execute  = ["python3", "scripts/cluster_access.py", "--bootstrap", "--background", "--cluster", "my-cluster",
-                   "--profile", "<aws-profile>", "--region", "<region>"]
-     }
-   }
-   ```
+Bootstrap mode. There is no `bootstrap_mode_enabled` input. A new cluster is in bootstrap mode while it runs only what this module creates:
 
-5. In the first terminal, run `terragrunt apply` in `<caller>`. The module launches the controllers, bootstraps etcd and starts the workers. The Talos provider keeps retrying until the forward connects. Stop the forward with Ctrl-C once the apply finishes.
+1. Controllers carry the `controller=true:NoSchedule` taint from the first boot. Pods that do not tolerate it, such as the guide's test pods, run on the module's worker Auto Scaling groups (`worker_count`, default 1).
+2. Panfactum services that tolerate the taint, such as Cilium, CoreDNS and Karpenter, can run on controllers.
+3. Bootstrap mode ends when Karpenter's node pools launch workers. Then lower `worker_count` (or remove the worker groups) and let Karpenter run the rest.
 
-6. Register kubectl access:
+Upscale. To start small and reach HA:
+
+1. Bootstrap with `control_plane_count = 1` and `private_api_dns_name` set, so the API name already exists.
+2. List all 3 (or 5) subnets in `control_plane_subnets` from the start; the module uses only the first `control_plane_count`. `control_plane_private_ips` must have exactly `control_plane_count` entries, so plan the addresses now and add them when you raise the count.
+3. Set `control_plane_count = 3`, append the new addresses to `control_plane_private_ips` and apply, as in "Grow 1 to 3 to 5". The module snapshots etcd to S3 first, then adds the new controllers.
+4. To give a controller more CPU or memory, change its `control_plane_instance_types` entry and apply, one controller at a time, as in "Resize one controller at a time".
+
+Downscale. To cut cost:
+
+1. Shrink a controller's size first if that is enough: change one `control_plane_instance_types` entry to a smaller type of the same CPU architecture and apply.
+2. To remove controllers, follow "Shrink 5 to 3 to 1": for each controller that goes, run `talosctl etcd leave` on it and delete its Node, then lower `control_plane_count`, drop the matching trailing entries from `control_plane_private_ips` and apply.
+3. Going from 3 to 1 passes through 2 etcd members, which tolerate no failure. Take a snapshot first (see "Check etcd backups") and do it in one sitting.
+
+The outputs are `cluster_name`, `cluster_url`, `cluster_ca_data` and `cluster_region`, the same as `aws_eks`.
+
+### 4. Connect to the cluster
+
+Talos uses `pf-bootstrap-talos` in place of `pf-update-kube`, and `.kube/config.talos.yaml` and `.kube/config.talos.user.yaml` in place of `.kube/config.yaml` and `.kube/config.user.yaml`.
+
+1. Superuser, the same role as `pf-update-kube --build`. The `after_hook` from step 3 already ran `register`. To run it by hand:
 
    ```sh
    python3 <module>/scripts/pf-bootstrap-talos register --cluster my-cluster --module <caller> --region <region> --profile <aws-profile>
    ```
 
-   This writes two files and merges the cluster into `.kube/config`:
-   - `.kube/config.talos.yaml` holds the region, ports, module path and CA. It has no secrets. Commit it.
-   - `.kube/config.talos.user.yaml` holds each operator's AWS profile per cluster. Keep it out of git.
+   It writes `.kube/config.talos.yaml`, which holds the region, ports, module path and CA with no secrets, and merges the cluster into `.kube/config`. It also adds the cluster to `.kube/config.talos.user.yaml`. Commit `.kube/config.talos.yaml`. The `.kube/.gitignore` must contain `!config.talos.yaml`.
 
-7. Add `!config.talos.yaml` to `.kube/.gitignore` so the committed file is tracked.
+2. Each user, the same role as `config.user.yaml` and `pf-update-kube`. Create `.kube/config.talos.user.yaml`, which stays out of git, and list your clusters:
 
-8. Check access:
+   ```yaml
+   clusters:
+     - name: my-cluster
+       aws_profile: <aws-profile>
+   ```
+
+   Then run:
+
+   ```sh
+   python3 <module>/scripts/pf-bootstrap-talos merge
+   ```
+
+3. Check access, as in the guide:
 
    ```sh
    kubectx my-cluster
-   kubectl get nodes
+   kubectl cluster-info
+   k9s
    ```
 
-   The first call opens the tunnel, which takes about 30 seconds. Later calls reuse it.
+   The first call opens the SSM tunnel, which takes about 30 seconds. Later calls reuse it.
 
-9. Install Cilium and CoreDNS. This module disables Flannel, kube-proxy and the Talos CoreDNS but does not install replacements, so nodes stay `NotReady` until Cilium runs. Then deploy the remaining Panfactum modules in guide order.
+### 5. Reset the cluster
 
-10. Check etcd backups:
+No command is needed, so skip `pf-eks-reset`. The module turns off Flannel, kube-proxy and the Talos CoreDNS in the machine config, so there are no AWS-installed add-ons to remove. Nodes stay `NotReady` until Cilium and CoreDNS are installed. The Panfactum guide "Internal Cluster Networking" installs both, so do that next.
 
-    ```sh
-    kubectl -n etcd-backup create job --from=cronjob/etcd-backup test-1
-    ```
+### 6. Configure the Kubernetes provider
 
-    Confirm that a new `<cluster>-<timestamp>.snap` object appears under `etcd/<cluster>/` in the bucket from the `etcd_backup_bucket` output.
+Same as the guide. Add the keys to the region's `region.yaml`, with the tunnel's local port:
+
+```yaml
+kube_config_context: my-cluster
+kube_api_server: https://127.0.0.1:16443
+```
+
+Use the `--kube-port` value for the port if you changed it. Modules that run inside the cluster, such as `kube_cilium`, override `kube_api_server` with the in-cluster URL in their `module.yaml`.
+
+### Check etcd backups
+
+After Cilium is running:
+
+```sh
+kubectl -n etcd-backup create job --from=cronjob/etcd-backup test-1
+```
+
+Confirm that a new `<cluster>-<timestamp>.snap` object appears under `etcd/<cluster>/` in the bucket from the `etcd_backup_bucket` output.
+
+### Differences from the EKS guide
+
+- No `pf-update-kube`, because it hardcodes the EKS `pf-get-kube-token` credential. Talos uses its own two files and `pf-bootstrap-talos merge`.
+- The API is private. An SSM tunnel reaches it, and the kubeconfig's exec credential plugin (`cluster_access.py --exec-credential`) opens the tunnel on first use.
+- Credentials are client certificates, not tokens.
+
+## Controller runbook
+
+Controllers are 1, 3 or 5 on-demand `aws_instance` nodes. Each has a fixed IP from `control_plane_private_ips` and is named `<cluster>-control-plane-<position>`. `api.<cluster>.internal` is an A record with every controller IP. Clients try each address, and KubePrism load-balances inside the cluster. Nothing removes etcd members automatically, so every count change follows the steps below. Check etcd after each step:
+
+```sh
+talosctl -n <controller-ip> etcd members
+talosctl -n <controller-ip> etcd status
+```
+
+### Resize one controller at a time
+
+1. Change one entry of `control_plane_instance_types`, up or down, for example `t4g.medium` to `t4g.large`.
+2. Plan. Expect `aws_instance.control_plane[<i>]` updated in place (`~ instance_type`) and `0 to destroy`. Stop if the plan shows a replace.
+3. Apply. The AWS provider stops the instance, changes the type and starts it. The IP, root EBS volume and etcd member stay the same. With one controller the API is down until it boots.
+4. Wait until `etcd status` lists every member and the Node is `Ready`, then resize the next controller.
+
+Stay on the same CPU architecture (for example t4g to m7g, both arm64). A type with no shared architecture, such as t4g to t3, makes the AWS provider replace the instance instead of resizing it.
+
+### Grow 1 to 3 to 5
+
+1. Set `private_api_dns_name` if it is unset, and apply.
+2. Append subnets to `control_plane_subnets` and addresses to `control_plane_private_ips`, then set `control_plane_count` to 3 (or 5).
+3. Apply with `KUBECONFIG` pointing at the operator tunnel. The module first runs the pre-join etcd snapshot, then creates the new controllers. Talos joins each one as a learner and promotes it.
+4. Check that `etcd members` lists every controller.
+
+### Shrink 5 to 3 to 1
+
+The module removes the highest positions. Keep `bootstrap_control_plane` among the controllers that stay.
+
+1. For each controller that goes, one at a time: run `talosctl -n <its-ip> etcd leave`, then `kubectl delete node <its-node>`. Check `etcd members` before the next one.
+2. Set `control_plane_count` to the new value, remove the same trailing entries from `control_plane_private_ips`, and apply. The plan destroys only the controllers that left.
+
+### Replace a dead controller
+
+A replacement keeps the fixed IP, so it gets the same hostname, etcd name and Node name.
+
+1. From a healthy controller, run `talosctl -n <healthy-ip> etcd members` and `talosctl -n <healthy-ip> etcd remove-member <dead-member-id>`.
+2. Run `kubectl delete node <dead-node>` before the replacement boots. A stale Node keeps the old, immutable `providerID`.
+3. Apply with `-replace='aws_instance.control_plane[<i>]'`. The pre-join snapshot runs first. The same apply re-pushes that controller's Talos config (OIDC issuer, backup patches), because `talos_machine_configuration_apply` is replaced with its instance.
+4. The OIDC service-account issuer is in user data, so the new API server signs and accepts the same issuer from first boot. If a controller ever booted with the default issuer (`https://<private_api_dns_name>:6443`), pods that started meanwhile hold tokens every other API server rejects until kubelet refreshes them (about 48 minutes). Find them by decoding the `iss` claim of `/var/run/secrets/kubernetes.io/serviceaccount/token` and restart them; linkerd-cni and cilium agents fail CNI ADD and API calls until then.
+5. If the new Node has an empty `spec.providerID`, the CCM could not resolve the short hostname. Set it: `kubectl patch node <node> -p '{"spec":{"providerID":"aws:///<az>/<instance-id>"}}'`.
+
+### Restore from S3
+
+Use this when etcd has lost quorum. See also "Recovery" below.
+
+1. Copy the newest `etcd/<cluster>/<cluster>-<timestamp>.snap` from the `etcd_backup_bucket` output. Reading it needs `kms:Decrypt` on `etcd_backup_kms_key_arn`.
+2. Wipe etcd on every controller: `talosctl -n <ip> reset --system-labels-to-wipe EPHEMERAL --reboot --graceful=false`.
+3. On the bootstrap controller, run `talosctl -n <ip> bootstrap --recover-from=./<snapshot>.snap`. The other controllers join it.
+4. Check `etcd members`, then run a plan. It must show no change to `talos_machine_bootstrap.this`.
 
 ## Everyday access
 
 - `kubectl`, `kubectx` and `k9s` use the contexts in `.kube/config`. The context's credential command opens or reuses a background tunnel per cluster, with its state in `~/.local/state/talos-cluster-access/<cluster>`.
-- `terragrunt plan` and `apply` need the tunnel. Add a `before_hook` to the caller that opens it, and an `after_hook` that keeps the context current:
+- `terragrunt plan` and `apply` need the tunnel. After the first apply, change the caller's `talos_tunnel` `before_hook` from `--bootstrap --background` to `--ensure`, which reads the cluster's outputs and prints a kubeconfig. Keep the `talos_register` `after_hook` from step 3, so the context stays current:
 
   ```hcl
-  terraform {
-    before_hook "talos_tunnel" {
-      commands = ["plan", "apply"]
-      execute  = ["python3", "${get_repo_root()}/<module>/scripts/cluster_access.py", "--ensure",
-                  "--cluster", "my-cluster", "--profile", "<aws-profile>", "--region", "<region>",
-                  "--module", get_terragrunt_dir()]
-    }
-    after_hook "talos_register" {
-      commands     = ["apply"]
-      execute      = ["python3", "${get_repo_root()}/<module>/scripts/pf-bootstrap-talos", "register",
-                      "--cluster", "my-cluster", "--module", get_terragrunt_dir(),
-                      "--region", "<region>", "--profile", "<aws-profile>"]
-      run_on_error = false
-    }
+  before_hook "talos_tunnel" {
+    commands = ["plan", "apply"]
+    execute  = ["python3", "${get_repo_root()}/<module>/scripts/cluster_access.py", "--ensure",
+                "--cluster", "my-cluster", "--profile", "<aws-profile>", "--region", "<region>",
+                "--module", get_terragrunt_dir()]
   }
   ```
 
-  Add the `before_hook` only after the first apply, because it reads the cluster's outputs.
 - For `talosctl`, run `python3 <module>/scripts/cluster_access.py --cluster my-cluster --profile <aws-profile> --region <region> --module <caller>`. It holds the tunnel in the foreground and prints an `export TALOSCONFIG=...` line.
-- A new operator clones the repository, adds their profile to `.kube/config.talos.user.yaml`, then runs `python3 <module>/scripts/pf-bootstrap-talos merge`.
+- A new operator clones the repository, adds their profile to `.kube/config.talos.user.yaml` as in step 4, then runs `python3 <module>/scripts/pf-bootstrap-talos merge`.
 - Run `merge` again whenever `.kube/config.talos.yaml` changes or something rewrites `.kube/config`, such as `pf devshell sync`. It makes no AWS calls and only replaces the Talos entries.
 - Every AWS profile that can open the tunnel and read the Terraform state gets cluster-admin, because the credential is the admin client certificate. Restrict both with IAM.
 
 ## More than one cluster
 
-Each cluster needs its own local ports. Pass `--kube-port` and `--talos-port` to `register`, pass the same `--talos-port` to `forward` and `cluster_access.py`, and set `talos_api_endpoint = "127.0.0.1:<talos-port>"` in the caller.
+Each cluster needs its own local ports. Pass `--kube-port` and `--talos-port` to `register`, pass the same `--talos-port` to the hooks that call `cluster_access.py`, and set `talos_api_endpoint = "127.0.0.1:<talos-port>"` in the caller.
 
 ## Recovery
 
@@ -147,6 +295,9 @@ If the first apply cannot reach Talos, target what the first call needs, then ru
 
 - Networking: `cilium_enabled = true` (default) disables Flannel and kube-proxy. Set `cilium_enabled = false` and `core_dns_enabled = true` only to use the Talos-managed networking and DNS.
 - AWS integration: `aws_node_config_enabled = true` sets kubelet `cloud-provider=external` and applies `pod_subnets` and `service_subnets`. It requires the AWS cloud controller manager and a worker identity through `worker_instance_profile_arn`. Use it for Cilium ENI IPAM.
+- Controllers: `control_plane_count` is 1, 3 or 5; above 1 needs `private_api_dns_name`. State is keyed by position in `control_plane_subnets`, so names must be unique and the list is append-only. Growing from 1 to 3 controllers appends two subnets; see "Controller runbook". Reordering or removing an entry replaces nodes. `bootstrap_control_plane`, a subnet name that defaults to the first entry, selects the controller that runs `talos_machine_bootstrap` and serves the kubeconfig.
+- Controller class: controllers get the label `panfactum.com/class=controller` and the taint `controller=true:NoSchedule`, the same as `aws_eks`. Only pods that tolerate that taint run there: Panfactum cluster services such as Karpenter, Cilium, CoreDNS, cert-manager, Kyverno and Vault. Karpenter also selects `panfactum.com/class=controller`, so it needs at least one controller in this class. `control_plane_workloads_enabled` defaults to `true`. Setting it to `false` keeps the default Talos control-plane taint and drops the label.
+- Controller identity: `controller_instance_profile` sets the instance profile name on every controller.
 - Images: pass `ami_id` and the matching `installer_image` for a custom Talos factory image.
 - OIDC: the module creates the `<cluster_name>-oidc-<account_id>` bucket and configures the API server issuer. Planning needs Python 3 and OpenSSL. Rotating the service-account signing key needs a separate procedure that keeps old keys until their tokens expire.
 - Public controllers: set `control_plane_public_ip_enabled = true`, choose PUBLIC subnets, and set `talos_api_allowed_cidrs` and `kube_api_allowed_cidrs`. Set `talos_api_endpoint = null` to reach Talos through the Elastic IP.

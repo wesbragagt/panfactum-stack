@@ -15,9 +15,20 @@ variable "control_plane_private_ips" {
 }
 
 variable "control_plane_subnets" {
-  description = "Subnet names (Name tag), one per control plane node in order. Use PUBLIC subnets only with control_plane_public_ip_enabled. Repeating a subnet places several nodes in one AZ, which an AZ outage takes down together."
+  description = "Subnet names (Name tag), one per control plane node in order. Use PUBLIC subnets only with control_plane_public_ip_enabled. Names must be unique. Node state is keyed by list position, so only append entries; reordering or removing one replaces nodes."
   type        = list(string)
   default     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
+
+  validation {
+    condition     = length(distinct(var.control_plane_subnets)) == length(var.control_plane_subnets)
+    error_message = "control_plane_subnets must not repeat a subnet name."
+  }
+}
+
+variable "bootstrap_control_plane" {
+  description = "Subnet name of the controller that runs talos_machine_bootstrap and serves as the cluster endpoint fallback. Null uses the first entry of control_plane_subnets. Must be one of the active subnets."
+  type        = string
+  default     = null
 }
 
 variable "worker_subnets" {
@@ -27,22 +38,21 @@ variable "worker_subnets" {
 }
 
 variable "control_plane_count" {
-  description = "Number of control plane nodes, placed in control_plane_subnets order. 3 requires private_api_dns_name so nodes do not depend on one controller's address."
+  description = "Number of on-demand control plane nodes, placed in control_plane_subnets order. Above 1 requires private_api_dns_name so nodes do not depend on one controller's address."
   type        = number
   default     = 1
 
-  # etcd quorum: 3 members tolerate one loss; 2 tolerate none.
+  # etcd quorum: 3 members tolerate one loss and 5 tolerate two; even counts add no tolerance.
   validation {
-    condition     = contains([1, 3], var.control_plane_count)
-    error_message = "control_plane_count must be 1 or 3."
+    condition     = contains([1, 3, 5], var.control_plane_count)
+    error_message = "control_plane_count must be 1, 3 or 5."
   }
-
 }
 
-variable "control_plane_spot_enabled" {
-  description = "Run control planes as persistent Spot instances that stop (keeping their disk, private IP and etcd membership) on interruption and can be stopped to suspend the cluster."
-  type        = bool
-  default     = false
+variable "controller_instance_profile" {
+  description = "IAM instance profile name for controllers. Changing it on a running controller re-associates the profile in place."
+  type        = string
+  default     = null
 }
 
 variable "control_plane_public_ip_enabled" {
@@ -64,15 +74,15 @@ variable "control_plane_instance_type" {
 }
 
 variable "control_plane_instance_types" {
-  description = "Optional per-node instance types in control_plane_subnets order, overriding control_plane_instance_type. Lets each Spot node use a type with capacity in its AZ."
+  description = "Optional per-node instance types in control_plane_subnets order, overriding control_plane_instance_type. A change resizes that controller in place (stop, modify, start)."
   type        = list(string)
   default     = []
 }
 
 variable "control_plane_workloads_enabled" {
-  description = "Allow ordinary workloads on control planes for small clusters; they share resources with etcd and the API server."
+  description = "Whether controllers join the Panfactum controller class: they get the panfactum.com/class=controller label, lose the default control-plane taint and get the controller=true:NoSchedule taint. When false, controllers keep the default Talos control-plane taint and no class label."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "worker_count" {
@@ -166,6 +176,24 @@ variable "etcd_backup_schedule" {
   description = "Cron schedule for etcd backups in UTC."
   type        = string
   default     = "0 * * * *"
+}
+
+variable "etcd_pre_membership_snapshot_enabled" {
+  description = "Run the etcd-backup CronJob and wait for it before creating controllers that join an existing cluster."
+  type        = bool
+  default     = true
+}
+
+variable "etcd_pre_membership_snapshot_kubeconfig" {
+  description = "Path to a kubeconfig that reaches the API through the operator tunnel. Required only when an apply adds controllers to an existing cluster; kubectl must be on PATH."
+  type        = string
+  default     = null
+}
+
+variable "etcd_pre_membership_snapshot_timeout_seconds" {
+  description = "Seconds to wait for the pre-membership snapshot job to complete."
+  type        = number
+  default     = 600
 }
 
 variable "machine_secrets" {

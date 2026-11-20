@@ -166,6 +166,20 @@ def cmd_merge(_args):
     return 0
 
 
+def append_user_entry(text, name, profile):
+    """Add an entry in the file's layout: a bare list stays bare, anything else uses `clusters:`."""
+    lines = text.splitlines()
+    bare = (not any(line.split("#")[0].strip() == "clusters:" for line in lines)
+            and any(line.startswith("- ") for line in lines))
+    pad = "" if bare else "  "
+    if lines and not text.endswith("\n"):
+        text += "\n"
+    if not bare and not any(line.split("#")[0].strip() == "clusters:" for line in lines):
+        text += "clusters:\n"
+    text += f"{pad}- name: {name}\n"
+    return text + (f"{pad}  aws_profile: {profile}\n" if profile else "")
+
+
 def cmd_register(args):
     directory = kube_dir()
     root = repo_root(directory)
@@ -203,8 +217,7 @@ def cmd_register(args):
             entries.append({"name": args.cluster, **({"aws_profile": profile} if profile else {})})
             text = dump(data).decode()
         else:
-            text += ("\n" if text and not text.endswith("\n") else "") + f"- name: {args.cluster}\n"
-            text += f"  aws_profile: {profile}\n" if profile else ""
+            text = append_user_entry(text, args.cluster, profile)
         atomic_write(user_path, text.encode())
     return cmd_merge(args)
 

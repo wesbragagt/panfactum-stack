@@ -5,6 +5,8 @@ Needs openssl for a throwaway CA certificate (present in the dev shell).
 """
 
 import base64
+import importlib.machinery
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -70,14 +72,51 @@ class PfBootstrapTalosTests(unittest.TestCase):
         self.assertEqual(committed, {"region": "us-east-2", "kube_port": 16443, "talos_port": 50000,
                                      "module": "env/a", "ca_data": self.ca})
         self.assertEqual((self.kube / "config.talos.user.yaml").read_text(),
-                         "- name: a\n  aws_profile: prof-a\n")
+                         "clusters:\n  - name: a\n    aws_profile: prof-a\n")
         config = self.config()
         self.assertEqual(config["clusters"][0]["cluster"]["server"], "https://127.0.0.1:16443")
         self.assertEqual((self.kube / "config").stat().st_mode & 0o777, 0o600)
         # A second register keeps the user's existing profile entry.
         self.register(profile="other")
         self.assertEqual((self.kube / "config.talos.user.yaml").read_text(),
-                         "- name: a\n  aws_profile: prof-a\n")
+                         "clusters:\n  - name: a\n    aws_profile: prof-a\n")
+
+    def user_file(self):
+        return self.kube / "config.talos.user.yaml"
+
+    def user_profiles(self):
+        spec = importlib.util.spec_from_loader(
+            "pf_bootstrap_talos", importlib.machinery.SourceFileLoader("pf_bootstrap_talos", str(SCRIPT)))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.read_user(self.user_file())
+
+    def test_register_new_user_file_starts_with_clusters_key(self):
+        self.assertEqual(self.register().returncode, 0)
+        lines = [line for line in self.user_file().read_text().splitlines()
+                 if line.strip() and not line.startswith("#")]
+        self.assertEqual(lines[0], "clusters:")
+        self.assertEqual(self.user_profiles(), {"a": "prof-a"})
+
+    def test_register_appends_to_clusters_file_idempotently(self):
+        self.kube.mkdir()
+        self.user_file().write_text("# mine\nclusters:\n  - name: x\n    aws_profile: px\n")
+        self.assertEqual(self.register().returncode, 0)
+        expected = ("# mine\nclusters:\n  - name: x\n    aws_profile: px\n"
+                    "  - name: a\n    aws_profile: prof-a\n")
+        self.assertEqual(self.user_file().read_text(), expected)
+        self.assertEqual(self.register(profile="other").returncode, 0)
+        self.assertEqual(self.user_file().read_text(), expected)
+        self.assertEqual(self.user_profiles(), {"x": "px", "a": "prof-a"})
+
+    def test_register_keeps_bare_list_form(self):
+        self.kube.mkdir()
+        self.user_file().write_text("- name: x\n  aws_profile: px\n")
+        self.assertEqual(self.user_profiles(), {"x": "px"})
+        self.assertEqual(self.register().returncode, 0)
+        self.assertEqual(self.user_file().read_text(),
+                         "- name: x\n  aws_profile: px\n- name: a\n  aws_profile: prof-a\n")
+        self.assertEqual(self.user_profiles(), {"x": "px", "a": "prof-a"})
 
     def test_default_kube_dir_is_repo_root_from_subdirectory(self):
         # Terragrunt hooks run from a nested cache directory without KUBE_DIR.

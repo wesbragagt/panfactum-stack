@@ -254,3 +254,57 @@ locals {
     })
   ]
 }
+
+# Existing controllers are found by Name tag, so the step is skipped on first bootstrap
+# (none exist) and on re-applies (every desired node already has an instance).
+data "aws_instances" "existing_control_plane" {
+  filter {
+    name   = "tag:Name"
+    values = [for k in range(local.control_plane_node_count) : "${var.cluster_name}-control-plane-${k}"]
+  }
+  instance_state_names = ["pending", "running", "stopping", "stopped"]
+}
+
+locals {
+  pre_membership_snapshot_needed = (
+    var.etcd_pre_membership_snapshot_enabled
+    && length(data.aws_instances.existing_control_plane.ids) > 0
+    && length(data.aws_instances.existing_control_plane.ids) < local.control_plane_node_count
+  )
+}
+
+# An etcd join passes through a 2-member state with no fault tolerance, so snapshot first.
+# The job uploads a KMS-encrypted snapshot to S3; nothing is written to the operator's disk.
+# aws_instance.control_plane depends on this, so a failed job stops the apply before any new instance.
+resource "terraform_data" "pre_membership_snapshot" {
+  count = local.pre_membership_snapshot_needed ? 1 : 0
+
+  triggers_replace = [for k in range(local.control_plane_node_count) : tostring(k)]
+
+  provisioner "local-exec" {
+    interpreter = ["bash", "-c"]
+    environment = {
+      KUBECONFIG = var.etcd_pre_membership_snapshot_kubeconfig
+      NAMESPACE  = local.backup_namespace
+      CONTEXT    = var.cluster_name
+      TIMEOUT    = "${var.etcd_pre_membership_snapshot_timeout_seconds}s"
+    }
+    command = <<-EOT
+      set -euo pipefail
+      # The kubeconfig context is named after the cluster; never fall back to another current-context.
+      job="etcd-pre-join-$(date +%s)"
+      kubectl --context "$CONTEXT" -n "$NAMESPACE" create job --from=cronjob/etcd-backup "$job"
+      if ! kubectl --context "$CONTEXT" -n "$NAMESPACE" wait --for=condition=complete --timeout="$TIMEOUT" "job/$job"; then
+        echo "etcd snapshot job $NAMESPACE/$job failed or timed out; no controllers were added" >&2
+        exit 1
+      fi
+    EOT
+  }
+
+  lifecycle {
+    precondition {
+      condition     = var.etcd_pre_membership_snapshot_kubeconfig != null && try(trimspace(var.etcd_pre_membership_snapshot_kubeconfig) != "", false)
+      error_message = "Adding controllers to an existing cluster needs etcd_pre_membership_snapshot_kubeconfig (path to a kubeconfig reachable through the operator tunnel, with kubectl on PATH), or set etcd_pre_membership_snapshot_enabled = false."
+    }
+  }
+}

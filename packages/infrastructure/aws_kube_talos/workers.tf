@@ -1,7 +1,7 @@
 data "talos_machine_configuration" "worker_on_demand" {
   count              = var.aws_node_config_enabled && length(var.on_demand_worker_subnets) > 0 ? 1 : 0
   cluster_name       = var.cluster_name
-  cluster_endpoint   = var.private_api_dns_name == null ? "https://${aws_instance.control_plane[0].private_ip}:6443" : local.cluster_endpoint
+  cluster_endpoint   = local.worker_cluster_endpoint
   machine_type       = "worker"
   machine_secrets    = local.machine_secrets
   talos_version      = var.talos_version

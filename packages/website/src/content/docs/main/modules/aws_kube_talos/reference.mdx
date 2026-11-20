@@ -6,6 +6,14 @@
 
 The following input variables are supported:
 
+### ami\_id
+
+Description: Optional custom Talos AMI ID.
+
+Type: `string`
+
+Default: `null`
+
 ### api\_dns
 
 Description: Optional public DNS name for the Kubernetes API. Creates an A record to the Elastic IP in this Route53 zone and makes the name the cluster endpoint.
@@ -21,13 +29,29 @@ object({
 
 Default: `null`
 
+### aws\_node\_config\_enabled
+
+Description: Configure primary-interface DHCP, ECR credentials, external CCM and worker lifecycle labels for AWS.
+
+Type: `bool`
+
+Default: `false`
+
+### bootstrap\_control\_plane
+
+Description: Subnet name of the controller that runs talos\_machine\_bootstrap and serves as the cluster endpoint fallback. Null uses the first entry of control\_plane\_subnets. Must be one of the active subnets.
+
+Type: `string`
+
+Default: `null`
+
 ### cilium\_enabled
 
 Description: Disable Talos-managed Flannel and kube-proxy on every node before installing Cilium with kube-proxy replacement.
 
 Type: `bool`
 
-Default: `false`
+Default: `true`
 
 ### client\_configuration
 
@@ -43,7 +67,7 @@ object({
   })
 ```
 
-Default: n/a
+Default: `null`
 
 ### cluster\_name
 
@@ -63,7 +87,7 @@ Default: `[]`
 
 ### control\_plane\_count
 
-Description: Number of control plane nodes, placed in control\_plane\_subnets order. 3 requires private\_api\_dns\_name so nodes do not depend on one controller's address.
+Description: Number of on-demand control plane nodes, placed in control\_plane\_subnets order. Above 1 requires private\_api\_dns\_name so nodes do not depend on one controller's address.
 
 Type: `number`
 
@@ -79,15 +103,23 @@ Default: `"t4g.medium"`
 
 ### control\_plane\_instance\_types
 
-Description: Optional per-node instance types in control\_plane\_subnets order, overriding control\_plane\_instance\_type. Lets each Spot node use a type with capacity in its AZ.
+Description: Optional per-node instance types in control\_plane\_subnets order, overriding control\_plane\_instance\_type. A change resizes that controller in place (stop, modify, start).
 
 Type: `list(string)`
 
 Default: `[]`
 
-### control\_plane\_spot\_enabled
+### control\_plane\_private\_ips
 
-Description: Run control planes as persistent Spot instances that stop (keeping their disk, private IP and etcd membership) on interruption and can be stopped to suspend the cluster.
+Description: Optional fixed private IPs for control plane nodes, one per node in control\_plane\_subnets order. A fixed address lets an SSM tunnel target the controller before it exists, so the first bootstrap needs no public ingress. Changing it replaces the nodes.
+
+Type: `list(string)`
+
+Default: `[]`
+
+### control\_plane\_public\_ip\_enabled
+
+Description: Give controllers a public IP and an Elastic IP API endpoint. Off by default: controllers sit in private subnets and operators reach them through an SSM tunnel, which needs private\_api\_dns\_name or control\_plane\_private\_ips.
 
 Type: `bool`
 
@@ -95,7 +127,7 @@ Default: `false`
 
 ### control\_plane\_subnets
 
-Description: PUBLIC subnet names (Name tag), one per control plane node in order. Repeating a subnet places several nodes in one AZ, which an AZ outage takes down together.
+Description: Subnet names (Name tag), one per control plane node in order. Use PUBLIC subnets only with control\_plane\_public\_ip\_enabled. Names must be unique. Node state is keyed by list position, so only append entries; reordering or removing one replaces nodes.
 
 Type: `list(string)`
 
@@ -103,15 +135,31 @@ Default:
 
 ```json
 [
-  "PUBLIC_A",
-  "PUBLIC_B",
-  "PUBLIC_C"
+  "PRIVATE_A",
+  "PRIVATE_B",
+  "PRIVATE_C"
 ]
 ```
 
 ### control\_plane\_workloads\_enabled
 
-Description: Allow ordinary workloads on control planes for small homelab clusters; they share resources with etcd and the API server.
+Description: Whether controllers join the Panfactum controller class: they get the panfactum.com/class=controller label, lose the default control-plane taint and get the controller=true:NoSchedule taint. When false, controllers keep the default Talos control-plane taint and no class label.
+
+Type: `bool`
+
+Default: `true`
+
+### controller\_instance\_profile
+
+Description: IAM instance profile name for controllers. Changing it on a running controller re-associates the profile in place.
+
+Type: `string`
+
+Default: `null`
+
+### core\_dns\_enabled
+
+Description: Whether Talos deploys its own CoreDNS. Disabled by default for Panfactum kube\_core\_dns.
 
 Type: `bool`
 
@@ -133,13 +181,45 @@ Type: `string`
 
 Default: `"0 * * * *"`
 
+### etcd\_pre\_membership\_snapshot\_enabled
+
+Description: Run the etcd-backup CronJob and wait for it before creating controllers that join an existing cluster.
+
+Type: `bool`
+
+Default: `true`
+
+### etcd\_pre\_membership\_snapshot\_kubeconfig
+
+Description: Path to a kubeconfig that reaches the API through the operator tunnel. Required only when an apply adds controllers to an existing cluster; kubectl must be on PATH.
+
+Type: `string`
+
+Default: `null`
+
+### etcd\_pre\_membership\_snapshot\_timeout\_seconds
+
+Description: Seconds to wait for the pre-membership snapshot job to complete.
+
+Type: `number`
+
+Default: `600`
+
+### installer\_image
+
+Description: Optional Talos factory installer image matching the AMI.
+
+Type: `string`
+
+Default: `null`
+
 ### kube\_api\_allowed\_cidrs
 
 Description: CIDRs allowed to reach the Kubernetes API (TCP 6443) on the control plane's Elastic IP.
 
 Type: `list(string)`
 
-Default: n/a
+Default: `[]`
 
 ### kube\_version
 
@@ -174,7 +254,7 @@ object({
   })
 ```
 
-Default: n/a
+Default: `null`
 
 ### on\_demand\_worker\_subnets
 
@@ -184,13 +264,27 @@ Type: `list(string)`
 
 Default: `[]`
 
-### operator\_tunnel\_security\_group\_id
+### operator\_tunnel\_security\_group\_ids
 
-Description: Optional security group of SSM tunnel hosts allowed to reach the private Kubernetes and Talos APIs.
+Description: Security groups of SSM tunnel hosts (for example one NAT per AZ) allowed to reach the private Kubernetes and Talos APIs.
 
-Type: `string`
+Type: `list(string)`
 
-Default: `null`
+Default: `[]`
+
+### pod\_subnets
+
+Description: Kubernetes pod network ranges.
+
+Type: `list(string)`
+
+Default:
+
+```json
+[
+  "10.244.0.0/16"
+]
+```
 
 ### private\_api\_dns\_name
 
@@ -208,13 +302,43 @@ Type: `number`
 
 Default: `20`
 
-### talos\_api\_allowed\_cidrs
+### secrets\_bundle
 
-Description: CIDRs allowed to reach the Talos API (TCP 50000). Must include the machine running tofu.
+Description: Decrypted talosctl secrets bundle, including clientconfig. Keep the source SOPS-encrypted.
+
+Type: `any`
+
+Default: `null`
+
+### service\_subnets
+
+Description: Kubernetes service network ranges.
 
 Type: `list(string)`
 
-Default: n/a
+Default:
+
+```json
+[
+  "10.96.0.0/12"
+]
+```
+
+### talos\_api\_allowed\_cidrs
+
+Description: CIDRs allowed to reach the Talos API (TCP 50000). Empty by default; operators reach the API through the SSM tunnel instead.
+
+Type: `list(string)`
+
+Default: `[]`
+
+### talos\_api\_endpoint
+
+Description: Talos API endpoint for the provider and talosconfig. The default reaches the controller through an SSM tunnel forwarding 127.0.0.1:50000. Null uses the Elastic IP (requires control\_plane\_public\_ip\_enabled).
+
+Type: `string`
+
+Default: `"127.0.0.1"`
 
 ### talos\_version
 
@@ -232,6 +356,14 @@ Type: `string`
 
 Default: n/a
 
+### worker\_capacity\_rebalance
+
+Description: Replace Spot workers on EC2 rebalance notices.
+
+Type: `bool`
+
+Default: `false`
+
 ### worker\_config\_patches
 
 Description: Additional Talos configuration patches for workers.
@@ -247,6 +379,14 @@ Description: Number of worker nodes.
 Type: `number`
 
 Default: `1`
+
+### worker\_instance\_profile\_arn
+
+Description: Worker IAM instance profile ARN.
+
+Type: `string`
+
+Default: `null`
 
 ### worker\_instance\_type
 
@@ -264,9 +404,17 @@ Type: `list(string)`
 
 Default: `[]`
 
+### worker\_public\_ip\_enabled
+
+Description: Assign public IPv4 addresses to workers. Only useful in PUBLIC subnets; PRIVATE subnets route outbound through NAT.
+
+Type: `bool`
+
+Default: `false`
+
 ### worker\_subnets
 
-Description: List of PUBLIC subnet names (Name tag) for the worker nodes.
+Description: Subnet names (Name tag) for the worker nodes. PRIVATE subnets need a NAT route for outbound access; PUBLIC subnets also need worker\_public\_ip\_enabled.
 
 Type: `list(string)`
 
@@ -274,11 +422,19 @@ Default:
 
 ```json
 [
-  "PUBLIC_A",
-  "PUBLIC_B",
-  "PUBLIC_C"
+  "PRIVATE_A",
+  "PRIVATE_B",
+  "PRIVATE_C"
 ]
 ```
+
+### worker\_suspended\_processes
+
+Description: ASG processes to suspend for Spot workers.
+
+Type: `list(string)`
+
+Default: `[]`
 
 ## Outputs
 
@@ -291,6 +447,10 @@ Description: Base64-encoded Kubernetes cluster CA certificate.
 ### cluster\_name
 
 Description: The name of the Talos cluster.
+
+### cluster\_region
+
+Description: The AWS region to which the Talos cluster is deployed
 
 ### cluster\_url
 
@@ -324,6 +484,18 @@ Description: Admin kubeconfig. The context is named admin@<cluster\_name>.
 
 Description: Security group shared by all Talos nodes.
 
+### oidc\_issuer\_url
+
+Description: Public service-account issuer; configure Talos to sign tokens with this issuer.
+
+### oidc\_provider\_arn
+
+Description: IAM OIDC provider for sts.amazonaws.com service-account tokens.
+
+### talos\_ami\_id
+
+Description: Talos AMI used by workers.
+
 ### talosconfig
 
 Description: talosctl client configuration.
@@ -332,11 +504,17 @@ Description: talosctl client configuration.
 
 Description: Auto Scaling group maintaining the desired Spot worker count.
 
+### worker\_machine\_configuration
+
+Description: Worker Talos machine config (with caller patches) for Karpenter EC2NodeClass userData. Contains join credentials.
+
 ## Providers
 
 The following providers are needed by this module:
 
 - [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
+
+- external (2.3.5)
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 

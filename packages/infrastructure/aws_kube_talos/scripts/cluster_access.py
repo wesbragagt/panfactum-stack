@@ -74,28 +74,51 @@ def command(argv, *, cwd=None, timeout=90, env=None):
     return stdout
 
 
-def stop_group(process):
+def stop_group(process, group=True):
     # The process-group leader may have exited while its plugin is still alive.
+    # Forwards share the daemon's group, so they are signalled individually.
+    send = os.killpg if group else os.kill
     try:
-        os.killpg(process.pid, signal.SIGTERM)
+        send(process.pid, signal.SIGTERM)
     except ProcessLookupError:
         pass
     try:
         process.wait(timeout=3)
     except subprocess.TimeoutExpired:
         pass
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+    # A reaped pid may be reused, so never signal a single process after wait().
+    if group or process.poll() is None:
+        try:
+            send(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     process.wait()
+
+
+def die_with_parent():
+    # Forwards stay in the daemon's group; this also ends them if the daemon is SIGKILLed.
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        import ctypes
+        ctypes.CDLL(None).prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
+    except (OSError, AttributeError, ImportError):
+        pass
+
+
+def rotate_after(items, current):
+    # Start after the endpoint that just failed, so a dead controller is tried last.
+    if current not in items:
+        return list(items)
+    position = items.index(current) + 1
+    return items[position:] + items[:position]
 
 
 class Access:
     def __init__(self, args):
         self.args = args
         self.sessions = []
-        self.reason = "cluster-access-" + uuid.uuid4().hex
+        self.reason = f"cluster-access-{args.cluster}-{uuid.uuid4().hex}"
         self.targets = set()
         self.closed_sessions = set()
 
@@ -115,29 +138,38 @@ class Access:
         return [instance for reservation in response["Reservations"]
                 for instance in reservation["Instances"]]
 
-    def discover(self, states=("running",)):
-        if self.args.control_plane_name:
-            names = [self.args.control_plane_name]
-        else:
-            # Controllers keep their position in the Name tag (0..2) across 1 or 3 replicas.
-            names = [f"{self.args.cluster}-control-plane-{position}" for position in range(3)]
-        # Reject AWS filter wildcards so this remains an exact Name lookup.
-        if any(char in name for name in names for char in "*?\\"):
+    def controllers(self, states):
+        exact = self.args.control_plane_name
+        prefix = f"{self.args.cluster}-control-plane-"
+        # Reject AWS filter wildcards in operator input so the lookup stays a prefix or exact match.
+        if any(char in value for value in (exact or prefix,) for char in "*?\\"):
             raise AccessError("Control-plane Name must be exact, without AWS wildcards")
-        found = self.instances([f"Name=tag:Name,Values={','.join(names)}",
+        # Controllers are named <cluster>-control-plane-<position>.
+        found = self.instances([f"Name=tag:Name,Values={exact or prefix + '*'}",
                                 f"Name=instance-state-name,Values={','.join(states)}"])
-        controllers = []
-        for name in names:
-            matches = [node for node in found
-                       if any(tag["Key"] == "Name" and tag["Value"] == name
-                              for tag in node.get("Tags", []))]
-            if len(matches) > 1:
-                raise AccessError(f"Expected at most one control plane with exact Name {name}; "
-                                  f"found {len(matches)}")
-            controllers.extend(matches)
+        named = []
+        for node in found:
+            name = next((tag["Value"] for tag in node.get("Tags", []) if tag["Key"] == "Name"), "")
+            suffix = name[len(prefix):] if name.startswith(prefix) else ""
+            if exact and name == exact or not exact and suffix.isdigit():
+                named.append((name, suffix, node))
+        if exact and len(named) > 1:
+            raise AccessError(f"Expected at most one control plane with exact Name {exact}; "
+                              f"found {len(named)}")
+
+        def order(item):
+            name, suffix, node = item
+            # Running before pending, then by position; the address breaks a tie between same-Name instances.
+            return (node.get("State", {}).get("Name") != "running",
+                    int(suffix) if suffix.isdigit() else 0, name, node["PrivateIpAddress"])
+        return [node for _name, _suffix, node in sorted(named, key=order)]
+
+    def discover(self, states=("running",)):
+        controllers = self.controllers(states)
         if not controllers:
-            raise ControllerNotFound(f"Expected a {'/'.join(states)} control plane with exact "
-                                     f"Name in {names}; found none")
+            raise ControllerNotFound(f"Expected a {'/'.join(states)} control plane named "
+                                     f"{self.args.control_plane_name or self.args.cluster + '-control-plane-*'}; "
+                                     "found none")
         private_ips = [str(ipaddress.IPv4Address(node["PrivateIpAddress"])) for node in controllers]
         if self.args.target:
             return private_ips, list(self.args.target)
@@ -167,7 +199,7 @@ class Access:
 
     def close_forwards(self):
         for process, _log in self.sessions:
-            stop_group(process)
+            stop_group(process, group=False)
         # Parse only IDs, never print plugin output (which may contain diagnostics).
         ids = set()
         for _process, log in self.sessions:
@@ -204,7 +236,7 @@ class Access:
                               "--reason", self.reason, "--document-name",
                               "AWS-StartPortForwardingSessionToRemoteHost", "--parameters",
                               json.dumps(parameters)), stdout=log, stderr=log,
-                stdin=subprocess.DEVNULL, start_new_session=True)
+                stdin=subprocess.DEVNULL, preexec_fn=die_with_parent)
         except BaseException:
             log.close()
             raise
@@ -528,6 +560,154 @@ def background(args, access):
     return 0
 
 
+def process_table():
+    # Same columns on Linux and macOS; the full command line carries the SSM reason.
+    try:
+        output = subprocess.run(["ps", "-eo", "pid,pgid,args"], capture_output=True, text=True,
+                                timeout=10).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    rows = []
+    for line in output.splitlines()[1:]:
+        fields = line.split(None, 2)
+        if len(fields) == 3 and fields[0].isdigit() and fields[1].isdigit():
+            rows.append((int(fields[0]), int(fields[1]), fields[2]))
+    return rows
+
+
+def owned_forwards(args):
+    # Ownership is the SSM reason of this cluster. The 32 hex digits keep a cluster
+    # whose name prefixes another (talos, talos-2) from matching the other's reason.
+    reason = re.compile(rf"(?<![\w-])cluster-access-{re.escape(args.cluster)}-[0-9a-f]{{32}}(?!\w)")
+    port = re.compile(r'"localPortNumber\\?":\s*\[\s*\\?"(\d+)\\?"')
+    target = re.compile(r"--target\s+(\S+)|\\?\"Target\\?\":\s*\\?\"([^\\\"]+)")
+    host = re.compile(r'"host\\?":\s*\[\s*\\?"([^\\"]+)')
+    forwards = []
+    for pid, _pgid, line in process_table():
+        found, number = reason.search(line), port.search(line)
+        if pid == os.getpid() or not found or not number:
+            continue
+        where, node = target.search(line), host.search(line)
+        forwards.append({"pid": pid, "reason": found.group(0), "port": int(number.group(1)),
+                         "target": where and (where.group(1) or where.group(2)),
+                         "host": node and node.group(1)})
+    return forwards
+
+
+def listener_pids(port):
+    pids = set()
+    if sys.platform.startswith("linux"):
+        try:
+            output = subprocess.run(["ss", "-ltnp"], capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            output = ""
+        for line in output.splitlines():
+            fields = line.split()
+            if len(fields) > 3 and fields[3].endswith(f":{port}"):
+                pids.update(int(pid) for pid in re.findall(r"pid=(\d+)", line))
+    if not pids:
+        try:
+            output = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                                    capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            output = ""
+        pids.update(int(item) for item in output.split() if item.isdigit())
+    return pids
+
+
+def process_name(pid):
+    try:
+        output = subprocess.run(["ps", "-o", "comm=", "-p", str(pid)], capture_output=True, text=True,
+                                timeout=10).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        output = ""
+    return Path(output).name or "unknown"
+
+
+def port_listening(port):
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def tls_verifies(port, tls_context):
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as connection:
+            with tls_context.wrap_socket(connection, server_hostname="127.0.0.1"):
+                return True
+    except (OSError, ssl.SSLError):
+        return False
+
+
+def reap_forwards(args, forwards):
+    # Only processes whose args carry this cluster's reason; SIGKILL re-checks that
+    # after the grace period so a reused pid is never signalled.
+    pids = {item["pid"] for item in forwards}
+    for pid in sorted(pids):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+    deadline = time.monotonic() + 3
+    while any(alive(pid) for pid in pids) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    for pid in sorted(pids & {item["pid"] for item in owned_forwards(args)}):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    # A killed forward cannot terminate its remote session; close each by exact reason.
+    for reason in sorted({item["reason"] for item in forwards}):
+        access = Access(args)
+        access.reason = reason
+        access.targets = {item["target"] for item in forwards if item["reason"] == reason and item["target"]}
+        access.close_forwards()
+
+
+def adopt_or_clear_ports(args, state, directory):
+    """Return a kubeconfig path for an adopted tunnel, or None when both ports are free to use."""
+    owned = owned_forwards(args)
+    if not port_listening(args.kube_port):
+        stray = [item for item in owned if item["port"] == args.talos_port]
+        if stray and port_listening(args.talos_port):
+            reap_forwards(args, stray)
+        return None
+    kube = [item for item in owned if item["port"] == args.kube_port]
+    holders = listener_pids(args.kube_port)
+    mine = [item for item in kube if not holders or item["pid"] in holders]
+    if not mine:
+        pid = min(holders) if holders else None
+        raise AccessError(f"port {args.kube_port} is held by PID {pid or 'unknown'} "
+                          f"({process_name(pid) if pid else 'unknown'}); not a tunnel for {args.cluster}")
+    adopted = directory / "adopted"
+    shutil.rmtree(adopted, ignore_errors=True)
+    adopted.mkdir(mode=0o700)
+    talos = next((item for item in owned if item["port"] == args.talos_port and item["host"]), None)
+    config, tls_context = kubeconfig(args, adopted)
+    healthy = talos is not None and tls_verifies(args.kube_port, tls_context)
+    talos_path = None
+    if healthy and args.source_kubeconfig is None:
+        talos_path, talos_tls = talosconfig(args, adopted, talos["host"])
+        healthy = tls_verifies(args.talos_port, talos_tls)
+    elif healthy:
+        healthy = port_listening(args.talos_port)
+    if not healthy:
+        # Our own forward fails certificate verification, so it is replaced.
+        shutil.rmtree(adopted, ignore_errors=True)
+        reap_forwards(args, [item for item in owned if item["port"] in (args.kube_port, args.talos_port)])
+        return None
+    pending = state.with_suffix(".tmp")
+    pending.unlink(missing_ok=True)
+    private_write(pending, json.dumps(
+        {"pid": mine[0]["pid"], "kubeconfig": str(config), "talosconfig": str(talos_path) if talos_path else None,
+         "cluster": args.cluster, "kube_port": args.kube_port, "talos_port": args.talos_port,
+         "adopted": True}).encode())
+    pending.replace(state)
+    return str(config)
+
+
 def ensure_access(args, forwarded):
     directory = args.state_dir
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -555,12 +735,20 @@ def ensure_access(args, forwarded):
                     args.report(ready["kubeconfig"])
                     return 0
                 else:
-                    # Its controller is gone (Spot stop); replace the tunnel with one to a live controller.
-                    os.killpg(ready["pid"], signal.SIGTERM)
-                    deadline = time.monotonic() + 30
-                    while state.exists() and time.monotonic() < deadline:
-                        time.sleep(0.2)
+                    # Its controller is gone (stopped or replaced); replace the tunnel with one to a live controller.
+                    if ready.get("adopted"):
+                        # No daemon owns these forwards, so there is no group to signal.
+                        reap_forwards(args, owned_forwards(args))
+                    else:
+                        os.killpg(ready["pid"], signal.SIGTERM)
+                        deadline = time.monotonic() + 30
+                        while state.exists() and time.monotonic() < deadline:
+                            time.sleep(0.2)
                     state.unlink(missing_ok=True)
+        adopted = adopt_or_clear_ports(args, state, directory)
+        if adopted is not None:
+            args.report(adopted)
+            return 0
         log_path = directory / "access.log"
         descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(descriptor, "w") as log:
@@ -582,23 +770,141 @@ def ensure_access(args, forwarded):
             raise
 
 
+LOOPBACK_HEX = ("0100007F", "0000000000000000FFFF00000100007F")  # 127.0.0.1 in tcp and tcp6
+
+
+def established_connections(port):
+    # Counts ESTABLISHED sockets on 127.0.0.1:<port>. None means unknown, which callers treat as busy.
+    try:
+        if sys.platform.startswith("linux"):
+            count = 0
+            for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+                with open(table) as rows:
+                    for row in rows.readlines()[1:]:
+                        fields = row.split()
+                        address, _, hex_port = fields[1].partition(":")
+                        if fields[3] == "01" and address in LOOPBACK_HEX and int(hex_port, 16) == port:
+                            count += 1
+            return count
+        # lsof also matches the client end of each connection, which only errs toward busy.
+        result = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:ESTABLISHED"],
+                                capture_output=True, text=True, timeout=10)
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode not in (0, 1):
+        return None
+    # lsof exits 1 when nothing matches; otherwise its first line is a header.
+    return max(len(result.stdout.splitlines()) - 1, 0)
+
+
+def last_activity(args, last_active):
+    # Each successful --ensure or --exec-credential touches the lease; an open connection is activity now.
+    try:
+        last_active = max(last_active, (args.state_dir / "lease").stat().st_mtime)
+    except OSError:
+        pass
+    if any(established_connections(port) != 0 for port in (args.kube_port, args.talos_port)):
+        return time.time()
+    return last_active
+
+
+def close_when_idle(args, access, last_active):
+    """Close an idle tunnel as SIGTERM does; return the last activity time, or None after closing."""
+    with (args.state_dir / "startup.lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            # An --ensure holds the lock and touches the lease when it succeeds.
+            return last_active
+        last_active = last_activity(args, last_active)
+        idle = time.time() - last_active
+        if idle < args.idle_timeout:
+            return last_active
+        print(f"idle for {int(idle)}s; closing tunnel", flush=True)
+        access.close_forwards()
+        (args.state_dir / "ready.json").unlink(missing_ok=True)
+        (args.state_dir / "credential.json").unlink(missing_ok=True)
+        return None
+
+
+def replace_json(path, value):
+    # Unique temp name so concurrent writers never share or corrupt a file.
+    pending = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    pending.unlink(missing_ok=True)
+    private_write(pending, json.dumps(value).encode())
+    pending.replace(path)
+
+
+def mark_ok(state):
+    ready = read_state(state)
+    # A tunnel that exited removed ready.json; do not resurrect it.
+    if isinstance(ready, dict) and state.exists():
+        ready["last_ok"] = time.time()
+        replace_json(state, ready)
+
+
+def cached_credential(args, ready, credential):
+    """Return the cached ExecCredential status when the tunnel is alive and its TLS verifies, else None."""
+    try:
+        os.kill(ready["pid"], 0)
+        cache = json.loads(credential.read_text())
+        if cache["kubeconfig"] != ready["kubeconfig"]:
+            return None
+        config = json.loads(Path(ready["kubeconfig"]).read_text())
+        context = next(item["context"] for item in config["contexts"]
+                       if item["name"] == config["current-context"])
+        cluster = next(item["cluster"] for item in config["clusters"] if item["name"] == context["cluster"])
+        tls_context = ssl.create_default_context(
+            cadata=base64.b64decode(cluster["certificate-authority-data"], validate=True).decode("ascii"))
+        status = {key: cache[key] for key in ("clientCertificateData", "clientKeyData")}
+    except (OSError, ValueError, KeyError, StopIteration, TypeError, ssl.SSLError):
+        return None
+    if not all(isinstance(value, str) for value in status.values()):
+        return None
+    return status if tls_verifies(args.kube_port, tls_context) else None
+
+
+def warm_credential(args):
+    state = args.state_dir / "ready.json"
+    ready = read_state(state)
+    if not isinstance(ready, dict):
+        return None
+    status = cached_credential(args, ready, args.state_dir / "credential.json")
+    if status is None:
+        return None
+    last_ok = ready.get("last_ok")
+    if not isinstance(last_ok, (int, float)) or time.time() - last_ok >= 30:
+        try:
+            command(["kubectl", "--kubeconfig", ready["kubeconfig"],
+                     "--request-timeout=15s", "get", "--raw=/readyz"], timeout=20)
+        except (AccessError, subprocess.TimeoutExpired):
+            return None
+        mark_ok(state)
+    return status
+
+
 def exec_credential(args, forwarded):
-    paths = []
-    args.report = paths.append
-    code = ensure_access(args, forwarded)
-    if code:
-        return code
-    # The tunnel kubeconfig is JSON when we wrote it, but a legacy one may be YAML.
-    raw = command(["kubectl", "--kubeconfig", paths[0], "config", "view",
-                   "--raw", "--flatten", "-o", "json"])
-    config = json.loads(raw)
-    context = next(item["context"] for item in config["contexts"]
-                   if item["name"] == config["current-context"])
-    user = next(item["user"] for item in config["users"] if item["name"] == context["user"])
-    status = {}
-    for key, field in (("clientCertificateData", "client-certificate-data"),
-                       ("clientKeyData", "client-key-data")):
-        status[key] = base64.b64decode(user[field], validate=True).decode("ascii")
+    status = warm_credential(args)
+    if status is None:
+        paths = []
+        args.report = paths.append
+        code = ensure_access(args, forwarded)
+        if code:
+            return code
+        # The tunnel kubeconfig is JSON when we wrote it, but a legacy one may be YAML.
+        raw = command(["kubectl", "--kubeconfig", paths[0], "config", "view",
+                       "--raw", "--flatten", "-o", "json"])
+        config = json.loads(raw)
+        context = next(item["context"] for item in config["contexts"]
+                       if item["name"] == config["current-context"])
+        user = next(item["user"] for item in config["users"] if item["name"] == context["user"])
+        status = {}
+        for key, field in (("clientCertificateData", "client-certificate-data"),
+                           ("clientKeyData", "client-key-data")):
+            status[key] = base64.b64decode(user[field], validate=True).decode("ascii")
+        # ensure_access just proved the tunnel healthy, so the next call can skip the probe.
+        replace_json(args.state_dir / "credential.json", {**status, "kubeconfig": paths[0]})
+        mark_ok(args.state_dir / "ready.json")
     print(json.dumps({"apiVersion": "client.authentication.k8s.io/v1", "kind": "ExecCredential",
                       "status": status}))
     return 0
@@ -608,7 +914,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--cluster", required=True,
                         help="Terraform cluster Name prefix; controllers are CLUSTER-control-plane-{0..2}")
-    parser.add_argument("--control-plane-name", help="exact EC2 Name instead of CLUSTER-control-plane-{0..2}")
+    parser.add_argument("--control-plane-name", help="exact EC2 Name instead of every CLUSTER-control-plane-* controller")
     parser.add_argument("--profile", help="AWS profile (default: AWS environment)")
     parser.add_argument("--region", help="AWS region (default: AWS environment)")
     parser.add_argument("--kube-port", type=int, default=16443, help="local Kubernetes API port (default: 16443)")
@@ -636,6 +942,11 @@ def main():
     parser.add_argument("--background", action="store_true",
                         help="--bootstrap: detach and return at once; the helper exits with its parent process "
                              "(for a terragrunt before_hook)")
+    parser.add_argument("--idle-timeout", type=int, default=3600,
+                        help="--ensure daemon: exit after this many seconds with no successful --ensure or "
+                             "--exec-credential and no open connection; 0 disables (default: 3600)")
+    # Tests only: a short check interval, which also allows idle timeouts below 60 s.
+    parser.add_argument("--idle-check-interval", type=float, help=argparse.SUPPRESS)
     parser.add_argument("--ready-file", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()  # --help exits before credentials, AWS or tool discovery.
     args.report = print
@@ -654,6 +965,11 @@ def main():
         return 1
     if not 0 < args.ready_timeout <= 300:
         parser.error("--ready-timeout must be greater than zero and at most 300 seconds")
+    if args.idle_timeout < 0 or (args.idle_timeout and args.idle_check_interval is None
+                                 and not 60 <= args.idle_timeout <= 86400):
+        parser.error("--idle-timeout must be 0 or between 60 and 86400 seconds")
+    if args.idle_check_interval is None:
+        args.idle_check_interval = 30
     for binary in ("aws", "session-manager-plugin", "kubectl",
                    *(("terragrunt", "talosctl") if args.source_kubeconfig is None and not args.bootstrap else ())):
         if not shutil.which(binary):
@@ -671,7 +987,10 @@ def main():
     if args.ensure or args.exec_credential:
         forwarded = [arg for arg in sys.argv[1:] if arg not in ("--ensure", "--exec-credential")]
         try:
-            return (exec_credential if args.exec_credential else ensure_access)(args, forwarded)
+            code = (exec_credential if args.exec_credential else ensure_access)(args, forwarded)
+            if code == 0:
+                (args.state_dir / "lease").touch()
+            return code
         except KeyError as exc:
             print(f"cluster-access: {exc.args[0]}", file=sys.stderr)
             return 1
@@ -717,6 +1036,8 @@ def main():
                     {"pid": os.getpid(), "kubeconfig": str(config), "talosconfig": str(talos_path) if talos_path else None,
                      "cluster": args.cluster, "kube_port": args.kube_port, "talos_port": args.talos_port}).encode())
                 pending.replace(args.ready_file)
+            last_active = time.time()
+            next_idle_check = 0.0
             try:
                 while True:
                     if any(process.poll() is not None for process, _ in access.sessions):
@@ -724,6 +1045,8 @@ def main():
                               file=sys.stderr, flush=True)
                         access.close_forwards()
                         private_ips, candidates = access.discover()
+                        # The controller may be gone or unhealthy: try the others first.
+                        private_ips = rotate_after(private_ips, private_ip)
                         # Start after the failed NAT and try it last: one pass, then exit.
                         if target in candidates:
                             position = candidates.index(target) + 1
@@ -731,6 +1054,11 @@ def main():
                         target, private_ip = access.establish(
                             private_ips, candidates, directory, tls_context, talos_tls, on_ready)
                         print(f"Forwarding through {target} to {private_ip}", flush=True)
+                    if args.ready_file is not None and args.idle_timeout and time.monotonic() >= next_idle_check:
+                        next_idle_check = time.monotonic() + args.idle_check_interval
+                        last_active = close_when_idle(args, access, last_active)
+                        if last_active is None:
+                            return 0
                     time.sleep(0.5)
             finally:
                 # Keep log files alive until remote-session cleanup has completed.

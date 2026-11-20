@@ -22,6 +22,12 @@ terraform {
 }
 
 locals {
+  # Indexed by position; subnets are append-only once nodes exist
+  control_plane_subnet_list = slice(var.control_plane_subnets, 0, min(var.control_plane_count, length(var.control_plane_subnets)))
+  control_plane_node_count  = length(local.control_plane_subnet_list)
+  bootstrap_subnet          = coalesce(var.bootstrap_control_plane, var.control_plane_subnets[0])
+  bootstrap_index           = try(index(local.control_plane_subnet_list, local.bootstrap_subnet), 0)
+
   public_ip        = var.control_plane_public_ip_enabled ? aws_eip.api[0].public_ip : null
   api_host         = var.api_dns != null ? var.api_dns.name : coalesce(local.public_ip, try(var.control_plane_private_ips[0], null), "unset")
   cluster_endpoint = var.private_api_dns_name == null ? "https://${local.api_host}:6443" : "https://${var.private_api_dns_name}:6443"
@@ -68,11 +74,11 @@ data "aws_ami" "talos" {
 
 # One lookup per node so placement follows control_plane_subnets order, not subnet IDs
 data "aws_subnet" "control_plane" {
-  count  = var.control_plane_count
+  count  = local.control_plane_node_count
   vpc_id = var.vpc_id
   filter {
     name   = "tag:Name"
-    values = [var.control_plane_subnets[count.index]]
+    values = [local.control_plane_subnet_list[count.index]]
   }
 }
 
@@ -131,9 +137,9 @@ resource "aws_vpc_security_group_ingress_rule" "kube_api" {
 
 # Nodes reach the endpoint through the Elastic IP, so traffic arrives from public addresses
 resource "aws_vpc_security_group_ingress_rule" "kube_api_nodes" {
-  for_each          = var.control_plane_public_ip_enabled ? { "0" = aws_eip.api[0].public_ip } : {}
+  count             = var.control_plane_public_ip_enabled ? 1 : 0
   security_group_id = aws_security_group.nodes.id
-  cidr_ipv4         = "${each.value}/32"
+  cidr_ipv4         = "${aws_eip.api[0].public_ip}/32"
   ip_protocol       = "tcp"
   from_port         = 6443
   to_port           = 6443
@@ -165,7 +171,7 @@ resource "aws_eip" "api" {
 resource "aws_eip_association" "api" {
   count         = var.control_plane_public_ip_enabled ? 1 : 0
   allocation_id = aws_eip.api[0].id
-  instance_id   = aws_instance.control_plane[0].id
+  instance_id   = aws_instance.control_plane[local.bootstrap_index].id
 }
 
 resource "aws_route53_zone" "private_api" {
@@ -202,6 +208,19 @@ resource "aws_route53_record" "api" {
 ## Talos machine configuration
 ###########################################################################
 
+locals {
+  # SANs live in user data so the first boot's certs already validate through an SSM tunnel at 127.0.0.1
+  control_plane_base_patches = concat([local.api_san_patch, local.talos_api_san_patch], local.cilium_config_patches, local.core_dns_config_patches, var.aws_node_config_enabled ? local.aws_control_plane_patches : [], var.control_plane_config_patches)
+  control_plane_node_config = {
+    apiVersion = "v1alpha1", kind = "KubeNodeConfig", labels = { "panfactum.com/class" = "controller" }
+    taints     = { "node-role.kubernetes.io/control-plane" = var.aws_node_config_enabled ? { "$patch" = "delete" } : null, "controller" = "true:NoSchedule" }
+  }
+  oidc_config_patches = [
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeServiceAccountConfig", issuer = { issuerURL = local.service_account_oidc_issuer_url } }),
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeAPIServerConfig", extraArgs = { "service-account-jwks-uri" = "${local.service_account_oidc_issuer_url}/keys.json" } })
+  ]
+}
+
 data "talos_machine_configuration" "control_plane" {
   cluster_name       = var.cluster_name
   cluster_endpoint   = local.cluster_endpoint
@@ -211,15 +230,25 @@ data "talos_machine_configuration" "control_plane" {
   kubernetes_version = var.kube_version
   docs               = false # With docs/examples the config exceeds the 16 KB EC2 user data limit
   examples           = false
-  # SANs live in user data so the first boot's certs already validate through an SSM tunnel at 127.0.0.1
-  config_patches = concat([local.api_san_patch, local.talos_api_san_patch], var.aws_node_config_enabled ? concat(local.cilium_config_patches, local.core_dns_config_patches, local.aws_control_plane_patches, var.control_plane_config_patches, var.control_plane_workloads_enabled ? [yamlencode({ apiVersion = "v1alpha1", kind = "KubeNodeConfig", labels = { "panfactum.com/class" = "controller" }, taints = { "node-role.kubernetes.io/control-plane" = { "$patch" = "delete" } } })] : []) : concat(local.cilium_config_patches, local.core_dns_config_patches, var.control_plane_config_patches, var.control_plane_workloads_enabled ? [
-    yamlencode({ apiVersion = "v1alpha1", kind = "KubeNodeConfig", taints = { "node-role.kubernetes.io/control-plane" = null } })
-  ] : []))
+  # The OIDC issuer rides in user data: a replaced controller that boots with the default issuer
+  # rejects valid tokens and issues tokens every other API server rejects until kubelet refreshes them.
+  config_patches = concat(local.control_plane_base_patches, local.oidc_config_patches, var.control_plane_workloads_enabled ? [yamlencode(local.control_plane_node_config)] : [])
+}
+
+# Workers reach the bootstrap controller IP only without a private API name. The indirection
+# keeps worker configs free of aws_instance references, so adding controllers does not defer them.
+resource "terraform_data" "worker_endpoint_ip" {
+  count = var.private_api_dns_name == null ? 1 : 0
+  input = aws_instance.control_plane[local.bootstrap_index].private_ip
+}
+
+locals {
+  worker_cluster_endpoint = var.private_api_dns_name == null ? "https://${one(terraform_data.worker_endpoint_ip[*].output)}:6443" : local.cluster_endpoint
 }
 
 data "talos_machine_configuration" "worker" {
   cluster_name       = var.cluster_name
-  cluster_endpoint   = var.private_api_dns_name == null ? "https://${aws_instance.control_plane[0].private_ip}:6443" : local.cluster_endpoint
+  cluster_endpoint   = local.worker_cluster_endpoint
   machine_type       = "worker"
   machine_secrets    = local.machine_secrets
   talos_version      = var.talos_version
@@ -237,7 +266,7 @@ data "talos_machine_configuration" "worker" {
 # Later config changes use the Talos API and upgrades use `talosctl upgrade`,
 # so ami and user_data changes are ignored here.
 resource "aws_instance" "control_plane" {
-  count                       = var.control_plane_count
+  count                       = local.control_plane_node_count
   ami                         = data.aws_ami.talos.id
   instance_type               = length(var.control_plane_instance_types) > 0 ? var.control_plane_instance_types[count.index] : var.control_plane_instance_type
   subnet_id                   = data.aws_subnet.control_plane[count.index].id
@@ -245,18 +274,8 @@ resource "aws_instance" "control_plane" {
   vpc_security_group_ids      = [aws_security_group.nodes.id]
   associate_public_ip_address = var.control_plane_public_ip_enabled
   user_data                   = data.talos_machine_configuration.control_plane.machine_configuration
-
-  # A stopped Spot node resumes with the same disk and IP, so it rejoins etcd without replacement
-  dynamic "instance_market_options" {
-    for_each = var.control_plane_spot_enabled ? [1] : []
-    content {
-      market_type = "spot"
-      spot_options {
-        spot_instance_type             = "persistent"
-        instance_interruption_behavior = "stop"
-      }
-    }
-  }
+  iam_instance_profile        = var.controller_instance_profile
+  depends_on                  = [terraform_data.pre_membership_snapshot]
 
   # Hop limit 1 keeps pods (and the machine config in user data) away from IMDS
   metadata_options {
@@ -278,17 +297,26 @@ resource "aws_instance" "control_plane" {
   lifecycle {
     ignore_changes = [ami, user_data]
 
+    # EC2 rejects user data over 16 KB raw; the OIDC patch must stay in it (see the config data source)
+    precondition {
+      condition     = length(data.talos_machine_configuration.control_plane.machine_configuration) <= 16384
+      error_message = "Controller user data exceeds the 16 KB EC2 limit; move large patches to talos_machine_configuration_apply.control_plane."
+    }
     # OpenTofu 1.8 variable validation cannot reference other variables
     precondition {
       condition     = var.control_plane_count <= length(var.control_plane_subnets)
       error_message = "control_plane_subnets needs one entry per control plane node."
     }
     precondition {
-      condition     = var.control_plane_count == 1 || var.private_api_dns_name != null
-      error_message = "control_plane_count = 3 requires private_api_dns_name."
+      condition     = contains(local.control_plane_subnet_list, local.bootstrap_subnet)
+      error_message = "bootstrap_control_plane must be one of the first control_plane_count entries of control_plane_subnets."
     }
     precondition {
-      condition     = length(var.control_plane_private_ips) == 0 || length(var.control_plane_private_ips) == var.control_plane_count
+      condition     = local.control_plane_node_count == 1 || var.private_api_dns_name != null
+      error_message = "control_plane_count above 1 requires private_api_dns_name."
+    }
+    precondition {
+      condition     = length(var.control_plane_private_ips) == 0 || length(var.control_plane_private_ips) == local.control_plane_node_count
       error_message = "control_plane_private_ips needs one address per control plane node, or none."
     }
     precondition {
@@ -449,42 +477,53 @@ resource "aws_autoscaling_group" "worker_on_demand" {
 ###########################################################################
 
 resource "talos_machine_configuration_apply" "control_plane" {
-  count                       = var.control_plane_count
+  count                       = local.control_plane_node_count
   client_configuration        = sensitive(local.client_configuration)
   machine_configuration_input = data.talos_machine_configuration.control_plane.machine_configuration
   # Applied over the Talos API rather than user data, which is capped at 16 KB
-  config_patches = concat(local.backup_config_patches, [
-    yamlencode({ apiVersion = "v1alpha1", kind = "KubeServiceAccountConfig", issuer = { issuerURL = local.service_account_oidc_issuer_url } }),
-    yamlencode({ apiVersion = "v1alpha1", kind = "KubeAPIServerConfig", extraArgs = { "service-account-jwks-uri" = "${local.service_account_oidc_issuer_url}/keys.json" } })
-  ])
-  endpoint = local.talos_api_endpoint
-  node     = aws_instance.control_plane[count.index].private_ip
+  config_patches = local.backup_config_patches
+  endpoint       = local.talos_api_endpoint
+  node           = aws_instance.control_plane[count.index].private_ip
 
   # Nodes resolve the cluster endpoint during the apply, so the record must exist first
   # On first bootstrap through a tunnel, the tunnel hosts need ingress before the first call
   depends_on = [aws_route53_record.api, aws_route53_record.private_api, aws_vpc_security_group_ingress_rule.operator_tunnel]
+
+  # A replacement reuses the fixed IP, so node never changes; without this the new instance keeps
+  # user data only and its API server rejects tokens from the shared OIDC issuer.
+  lifecycle {
+    replace_triggered_by = [aws_instance.control_plane[count.index].id]
+  }
 }
 
+locals {
+  bootstrap_node = aws_instance.control_plane[local.bootstrap_index].private_ip
+}
 
 resource "talos_machine_bootstrap" "this" {
   depends_on           = [talos_machine_configuration_apply.control_plane]
   client_configuration = sensitive(local.client_configuration)
   endpoint             = local.talos_api_endpoint
-  node                 = aws_instance.control_plane[0].private_ip
+  node                 = local.bootstrap_node
+
+  lifecycle {
+    # Bootstrap runs once. Re-running it on a replacement controller would start a second etcd cluster.
+    ignore_changes = [node]
+  }
 }
 
 resource "talos_cluster_kubeconfig" "this" {
   depends_on           = [talos_machine_bootstrap.this]
   client_configuration = sensitive(local.client_configuration)
   endpoint             = local.talos_api_endpoint
-  node                 = aws_instance.control_plane[0].private_ip
+  node                 = local.bootstrap_node
 }
 
 data "talos_client_configuration" "this" {
   cluster_name         = var.cluster_name
   client_configuration = sensitive(local.client_configuration)
   endpoints            = [local.talos_api_endpoint]
-  nodes                = [var.talos_api_endpoint == null ? local.talos_api_endpoint : aws_instance.control_plane[0].private_ip]
+  nodes                = [var.talos_api_endpoint == null ? local.talos_api_endpoint : local.bootstrap_node]
 }
 
 moved {

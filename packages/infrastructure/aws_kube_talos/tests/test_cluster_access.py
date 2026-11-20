@@ -70,6 +70,83 @@ class ClusterAccessTest(unittest.TestCase):
         self.assertEqual(helper.discover()[1], ["i-b"])
         self.assertIn("Name=tag:Name,Values=bastion-*", calls[1])
 
+    def test_three_controllers_are_returned_in_position_order(self):
+        helper = access(target=["i-nat"])
+        ips = {0: "10.0.128.10", 1: "10.0.64.10", 2: "10.0.192.10"}
+        # AWS returns instances in arbitrary order; position follows the Name tag.
+        helper.instances = lambda filters: [
+            {"PrivateIpAddress": ips[k], "VpcId": "vpc-1",
+             "Tags": [{"Key": "Name", "Value": f"c-control-plane-{k}"}]} for k in (2, 0, 1)]
+        self.assertEqual(helper.discover()[0], ["10.0.128.10", "10.0.64.10", "10.0.192.10"])
+
+    def test_discovery_filters_by_the_control_plane_name_prefix(self):
+        helper = access(target=["i-nat"])
+        calls = []
+        helper.instances = lambda filters: calls.append(filters) or []
+        with self.assertRaises(module.ControllerNotFound):
+            helper.discover()
+        self.assertIn("Name=tag:Name,Values=c-control-plane-*", calls[0])
+
+    def test_unrelated_names_matching_the_prefix_filter_are_ignored(self):
+        helper = access(target=["i-nat"])
+        helper.instances = lambda filters: [
+            {"PrivateIpAddress": "10.0.0.9", "Tags": [{"Key": "Name", "Value": "c-control-plane-"}]},
+            {"PrivateIpAddress": "10.0.0.8", "Tags": [{"Key": "Name", "Value": "c-control-plane-0/x"}]},
+            {"PrivateIpAddress": "10.0.0.6", "Tags": [{"Key": "Name", "Value": "c-control-plane-PRIVATE_A"}]},
+            {"PrivateIpAddress": "10.0.0.7", "Tags": [{"Key": "Name", "Value": "c-control-plane-1"}]}]
+        self.assertEqual(helper.discover()[0], ["10.0.0.7"])
+
+    def test_running_controllers_come_before_pending_ones(self):
+        helper = access(target=["i-nat"])
+        helper.instances = lambda filters: [
+            {"PrivateIpAddress": "10.0.0.1", "State": {"Name": "pending"},
+             "Tags": [{"Key": "Name", "Value": "c-control-plane-0"}]},
+            {"PrivateIpAddress": "10.0.0.2", "State": {"Name": "running"},
+             "Tags": [{"Key": "Name", "Value": "c-control-plane-1"}]}]
+        self.assertEqual(helper.discover(("pending", "running"))[0], ["10.0.0.2", "10.0.0.1"])
+
+    def test_explicit_control_plane_name_stays_exact(self):
+        helper = access(target=["i-nat"], control_plane_name="c-control-plane-1")
+        calls = []
+        helper.instances = lambda filters: calls.append(filters) or [
+            {"PrivateIpAddress": "10.0.64.10", "Tags": [{"Key": "Name", "Value": "c-control-plane-1"}]}]
+        self.assertEqual(helper.discover()[0], ["10.0.64.10"])
+        self.assertIn("Name=tag:Name,Values=c-control-plane-1", calls[0])
+        helper.instances = lambda filters: [
+            {"PrivateIpAddress": ip, "Tags": [{"Key": "Name", "Value": "c-control-plane-1"}]}
+            for ip in ("10.0.64.10", "10.0.64.11")]
+        with self.assertRaises(module.AccessError):
+            helper.discover()
+
+    def test_wildcards_in_the_cluster_name_are_rejected(self):
+        helper = access(target=["i-nat"], cluster="c*")
+        helper.instances = lambda filters: self.fail("must not query AWS")
+        with self.assertRaises(module.AccessError):
+            helper.discover()
+
+    def test_establish_fails_over_to_the_next_controller(self):
+        helper = access()
+        attempts = []
+
+        def start(target, private_ip, directory, tls_context, talos_tls=None):
+            attempts.append(private_ip)
+            if private_ip == "10.0.0.1":
+                raise module.AccessError("TLS timeout")
+        helper.start = start
+        helper.close_forwards = lambda: None
+        ready = []
+        result = helper.establish(["10.0.0.1", "10.0.0.2"], ["i-nat"], None, None, None, ready.append)
+        self.assertEqual(result, ("i-nat", "10.0.0.2"))
+        self.assertEqual(attempts, ["10.0.0.1", "10.0.0.2"])
+        self.assertEqual(ready, ["10.0.0.2"])
+
+    def test_rotation_tries_the_controller_after_the_failed_one_first(self):
+        rotate = module.rotate_after
+        self.assertEqual(rotate(["a", "b", "c"], "a"), ["b", "c", "a"])
+        self.assertEqual(rotate(["a", "b", "c"], "c"), ["a", "b", "c"])
+        self.assertEqual(rotate(["a", "b"], "gone"), ["a", "b"])
+        self.assertEqual(rotate(["a", "b"], None), ["a", "b"])
+
 
 FAKE_AWS = """#!%(python)s
 import json, os, socket, sys, time
