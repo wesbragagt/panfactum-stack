@@ -6,15 +6,15 @@
 
 The following input variables are supported:
 
-### aws\_ebs\_csi\_driver\_helm\_version
+### aws_ebs_csi_driver_helm_version
 
 Description: The version of the aws-ebs-csi-driver helm chart to deploy
 
 Type: `string`
 
-Default: `"2.68.0"`
+Default: `"2.45.1"`
 
-### aws\_iam\_ip\_allow\_list
+### aws_iam_ip_allow_list
 
 Description: A list of IPs that can use the service account token to authenticate with AWS API
 
@@ -22,7 +22,7 @@ Type: `list(string)`
 
 Default: `[]`
 
-### burstable\_nodes\_enabled
+### burstable_nodes_enabled
 
 Description: Whether to allow controller pods to schedule on burstable nodes. Does not affect DaemonSet pods.
 
@@ -30,33 +30,19 @@ Type: `bool`
 
 Default: `true`
 
-### cluster\_subnet\_ids
+### controller_nodes_enabled
 
-Description: Explicit subnets for source-IP policy discovery.
-
-Type: `set(string)`
-
-Default: `null`
-
-### controller\_nodes\_enabled
-
-Description: Whether to allow controller pods to schedule on EKS Node Group nodes (controller nodes). Does not affect DaemonSet pods.
+Description: Whether to allow controller pods to schedule on EKS Node Group nodes (controller nodes). Does not affect
+DaemonSet pods.
 
 Type: `bool`
 
 Default: `true`
 
-### extra\_helm\_values
+### extra_storage_classes
 
-Description: Explicit chart overrides merged last. Empty preserves existing EKS values.
-
-Type: `any`
-
-Default: `{}`
-
-### extra\_storage\_classes
-
-Description: Extra EBS-backed storage classes to add to the cluster. Keys are the name of the storage class and values are their configuration.
+Description: Extra EBS-backed storage classes to add to the cluster. Keys are the name of the storage class and values
+are their configuration.
 
 Type:
 
@@ -79,15 +65,7 @@ map(object({
 
 Default: n/a
 
-### ip\_restrictions\_enabled
-
-Description: Enable source-IP deny policies.
-
-Type: `bool`
-
-Default: `true`
-
-### monitoring\_enabled
+### monitoring_enabled
 
 Description: Whether to add active monitoring to the deployed systems
 
@@ -95,31 +73,7 @@ Type: `bool`
 
 Default: `false`
 
-### namespace\_labels
-
-Description: Extra labels scoped to the driver namespace, including any explicit host-access Pod Security exemption.
-
-Type: `map(string)`
-
-Default: `{}`
-
-### oidc\_issuer\_url
-
-Description: Existing OIDC issuer URL paired with its ARN.
-
-Type: `string`
-
-Default: `null`
-
-### oidc\_provider\_arn
-
-Description: Existing OIDC provider ARN; null retains EKS discovery.
-
-Type: `string`
-
-Default: `null`
-
-### panfactum\_scheduler\_enabled
+### panfactum_scheduler_enabled
 
 Description: Whether to use the Panfactum pod scheduler with enhanced bin-packing
 
@@ -127,7 +81,7 @@ Type: `bool`
 
 Default: `false`
 
-### pull\_through\_cache\_enabled
+### pull_through_cache_enabled
 
 Description: Whether to use the ECR pull through cache for the deployed images
 
@@ -135,15 +89,16 @@ Type: `bool`
 
 Default: `true`
 
-### sla\_target
+### sla_target
 
-Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest uptime (99.999%), highest Cost
+Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest
+uptime (99.999%), highest Cost
 
 Type: `number`
 
 Default: `3`
 
-### spot\_nodes\_enabled
+### spot_nodes_enabled
 
 Description: Whether to allow controller pods to schedule on spot nodes. Does not affect DaemonSet pods.
 
@@ -151,21 +106,7 @@ Type: `bool`
 
 Default: `true`
 
-### storage\_class\_mount\_options
-
-Description: Mount options for generated storage classes; use an empty list on hosts without SELinux.
-
-Type: `list(string)`
-
-Default:
-
-```json
-[
-  "context=\"system_u:object_r:local_t:s0\""
-]
-```
-
-### vpa\_enabled
+### vpa_enabled
 
 Description: Whether the VPA resources should be enabled
 
@@ -175,7 +116,9 @@ Default: `false`
 
 ### wait
 
-Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment failures.
+Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to
+proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment
+failures.
 
 Type: `bool`
 
@@ -189,17 +132,17 @@ No outputs.
 
 The following providers are needed by this module:
 
-- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.40.0/docs) (6.40.0)
 
-- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.3.0/docs) (3.3.0)
+- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.1.1/docs) (3.1.1)
 
-- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
 
-- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/2.35.0/docs) (2.35.0)
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 
-- [random](https://registry.terraform.io/providers/hashicorp/random/3.9.1/docs) (3.9.1)
+- [random](https://registry.terraform.io/providers/hashicorp/random/3.8.1/docs) (3.8.1)
 
 {/* eslint-enable import-x/order */}
 

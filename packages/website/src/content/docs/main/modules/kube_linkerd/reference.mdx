@@ -54,21 +54,13 @@ Type: `any`
 
 Default: `{}`
 
-### kyverno\_cel\_policies\_enabled
-
-Description: Use policies.kyverno.io/v1 CEL policies, required by Kyverno 1.20+. Existing legacy policies must be migrated with a reviewed replacement plan.
-
-Type: `bool`
-
-Default: `false`
-
 ### linkerd\_helm\_version
 
 Description: The version of the linkerd-crd and linkerd-control-plane helm charts to deploy (edge)
 
 Type: `string`
 
-Default: `"2026.11.2"`
+Default: `"2025.10.7"`
 
 ### log\_level
 
@@ -160,23 +152,19 @@ Default: `true`
 
 ## Outputs
 
-The following outputs are exported:
-
-### kyverno\_cel\_policy\_documents
-
-Description: CEL policy manifests for migration validation.
+No outputs.
 
 ## Providers
 
 The following providers are needed by this module:
 
-- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.40.0/docs) (6.40.0)
 
-- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.3.0/docs) (3.3.0)
+- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.1.1/docs) (3.1.1)
 
-- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
 
-- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/2.35.0/docs) (2.35.0)
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 
