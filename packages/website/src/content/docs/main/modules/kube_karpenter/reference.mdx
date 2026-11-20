@@ -6,7 +6,15 @@
 
 The following input variables are supported:
 
-### aws_iam_ip_allow_list
+### additional\_controller\_policy\_json
+
+Description: Additional AWS controller policy document for explicitly reviewed version-specific permissions; statement SIDs must not collide with module-owned statements.
+
+Type: `string`
+
+Default: `null`
+
+### aws\_iam\_ip\_allow\_list
 
 Description: A list of IPs that can use the service account token to authenticate with AWS API
 
@@ -14,7 +22,63 @@ Type: `list(string)`
 
 Default: `[]`
 
-### karpenter_helm_version
+### aws\_region
+
+Description: Explicit AWS region for controller SDK and IAM resource scope. Must match the AWS provider region; disables IMDS discovery.
+
+Type: `string`
+
+Default: `null`
+
+### cluster\_endpoint
+
+Description: Explicit reachable Kubernetes API endpoint for self-managed clusters; disables EKS endpoint-discovery permission.
+
+Type: `string`
+
+Default: `null`
+
+### cluster\_name
+
+Description: Override the metadata cluster name, including AWS resource tags and Karpenter settings.
+
+Type: `string`
+
+Default: `null`
+
+### cluster\_subnet\_ids
+
+Description: Forwarded subnet inputs for service-account IAM IP restrictions.
+
+Type: `list(string)`
+
+Default: `null`
+
+### existing\_instance\_profile\_arn
+
+Description: Existing worker instance profile ARN for scoped read permission; configure its name on EC2NodeClass separately. node\_role\_arn remains required for PassRole.
+
+Type: `string`
+
+Default: `null`
+
+### extra\_helm\_values
+
+Description: Additional Helm values merged after module defaults.
+
+Type: `any`
+
+Default: `{}`
+
+### ip\_restrictions\_enabled
+
+Description: Whether the service-account IAM role uses IP restrictions.
+
+Type: `bool`
+
+Default: `true`
+
+### karpenter\_helm\_version
 
 Description: The version of the karpenter helm chart to deploy
 
@@ -22,7 +86,7 @@ Type: `string`
 
 Default: `"1.10.0"`
 
-### log_level
+### log\_level
 
 Description: The log level for the karpenter pods
 
@@ -30,7 +94,15 @@ Type: `string`
 
 Default: `"warn"`
 
-### monitoring_enabled
+### manage\_instance\_profiles\_enabled
+
+Description: Allow creating/tagging/updating instance profiles. Disable when EC2NodeClass uses an existing instanceProfile.
+
+Type: `bool`
+
+Default: `true`
+
+### monitoring\_enabled
 
 Description: Whether to add active monitoring to the deployed systems
 
@@ -38,15 +110,39 @@ Type: `bool`
 
 Default: `false`
 
-### node_role_arn
+### namespace\_linkerd\_inject
 
-Description: The arn of the role the EKS cluster roles are assigned
+Description: Enable namespace mesh injection. Controller Pod itself always explicitly disables injection.
+
+Type: `bool`
+
+Default: `true`
+
+### node\_role\_arn
+
+Description: Worker EC2 IAM role ARN permitted by iam:PassRole, including the role attached to an existing worker instance profile.
 
 Type: `string`
 
 Default: n/a
 
-### pull_through_cache_enabled
+### oidc\_issuer\_url
+
+Description: Explicit shared self-managed OIDC issuer URL.
+
+Type: `string`
+
+Default: `null`
+
+### oidc\_provider\_arn
+
+Description: Explicit shared self-managed AWS OIDC provider ARN.
+
+Type: `string`
+
+Default: `null`
+
+### pull\_through\_cache\_enabled
 
 Description: Whether to use the ECR pull through cache for the deployed images
 
@@ -54,16 +150,23 @@ Type: `bool`
 
 Default: `false`
 
-### sla_target
+### replicas
 
-Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest
-uptime (99.999%), highest Cost
+Description: Controller replicas; null retains the SLA-based existing replica count.
+
+Type: `number`
+
+Default: `null`
+
+### sla\_target
+
+Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest uptime (99.999%), highest Cost
 
 Type: `number`
 
 Default: `3`
 
-### vpa_enabled
+### vpa\_enabled
 
 Description: Whether the VPA resources should be enabled
 
@@ -71,11 +174,17 @@ Type: `bool`
 
 Default: `false`
 
+### vpc\_id
+
+Description: Optional VPC scope for EC2 launch subnet/security-group permissions. NodeClass selectors must target the same VPC.
+
+Type: `string`
+
+Default: `null`
+
 ### wait
 
-Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to
-proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment
-failures.
+Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment failures.
 
 Type: `bool`
 
@@ -89,17 +198,17 @@ No outputs.
 
 The following providers are needed by this module:
 
-- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.40.0/docs) (6.40.0)
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
 
 - [helm](https://registry.terraform.io/providers/hashicorp/helm/3.1.1/docs) (3.1.1)
 
-- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
 
-- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/2.35.0/docs) (2.35.0)
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 
-- [random](https://registry.terraform.io/providers/hashicorp/random/3.8.1/docs) (3.8.1)
+- [random](https://registry.terraform.io/providers/hashicorp/random/3.9.1/docs) (3.9.1)
 
 {/* eslint-enable import-x/order */}
 

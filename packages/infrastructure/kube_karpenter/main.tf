@@ -4,11 +4,11 @@ terraform {
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "2.35.0"
+      version = "3.5.0"
     }
     kubectl = {
       source  = "alekc/kubectl"
-      version = "2.1.6"
+      version = "3.0.1"
     }
     helm = {
       source  = "hashicorp/helm"
@@ -16,11 +16,11 @@ terraform {
     }
     aws = {
       source  = "hashicorp/aws"
-      version = "6.40.0"
+      version = "6.73.0"
     }
     random = {
       source  = "hashicorp/random"
-      version = "3.8.1"
+      version = "3.9.1"
     }
     pf = {
       source  = "panfactum/pf"
@@ -545,7 +545,12 @@ data "aws_iam_policy_document" "karpenter" {
       "iam:GetInstanceProfile",
 
     ]
-    resources = var.existing_instance_profile_arn == null ? ["*"] : [var.existing_instance_profile_arn]
+    // NodeClass finalization reads the generated <cluster>_<hash> profile even when an
+    // existing profile is used; AccessDenied instead of NoSuchEntity blocks the finalizer.
+    resources = var.existing_instance_profile_arn == null ? ["*"] : [
+      var.existing_instance_profile_arn,
+      "arn:aws:iam::${data.aws_caller_identity.main.account_id}:instance-profile/${local.cluster_name}_*"
+    ]
   }
 
   // ListInstanceProfiles has no resource-level scope and is also used by
