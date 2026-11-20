@@ -1,0 +1,21 @@
+plugins:
+  # Based on https://github.com/derailed/k9s/blob/master/plugins/log-hl.yaml. /tools/k9s-hl (setup.sh) streams
+  # kubectl logs through hl into less: Ctrl-C pauses, PageUp/PageDown scroll, / searches, Shift-F resumes, q quits.
+  hl-pod:
+    shortCut: Shift-L
+    confirm: false
+    description: Logs (hl)
+    scopes:
+      - pods
+    command: /tools/k9s-hl
+    background: false
+    args: [$CONTEXT, $NAMESPACE, $NAME]
+  hl-container:
+    shortCut: Shift-L
+    confirm: false
+    description: Logs (hl)
+    scopes:
+      - containers
+    command: /tools/k9s-hl
+    background: false
+    args: [$CONTEXT, $NAMESPACE, $POD, $NAME]

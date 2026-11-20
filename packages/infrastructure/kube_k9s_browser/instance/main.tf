@@ -21,6 +21,7 @@ locals {
   config = {
     "setup.sh"              = file("${path.module}/../setup.sh")
     "views.yaml"            = file("${path.module}/../views.yaml")
+    "plugins.yaml"          = file("${path.module}/../plugins.yaml")
     "catppuccin-mocha.yaml" = file("${path.module}/../skins/catppuccin-mocha.yaml")
   }
   # Catppuccin Mocha for xterm.js; the browser renders the first fontFamily installed on the viewer's machine.
@@ -189,6 +190,7 @@ resource "kubectl_manifest" "deployment" {
               { name = "tmp", mountPath = "/tmp" },
               # subPath leaves the rest of the k9s config dir writable.
               { name = "config", mountPath = "/tmp/.config/k9s/views.yaml", subPath = "views.yaml", readOnly = true },
+              { name = "config", mountPath = "/tmp/.config/k9s/plugins.yaml", subPath = "plugins.yaml", readOnly = true },
               { name = "config", mountPath = "/tmp/.config/k9s/skins/catppuccin-mocha.yaml", subPath = "catppuccin-mocha.yaml", readOnly = true },
             ]
             securityContext = local.container_security_context
