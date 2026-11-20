@@ -121,7 +121,7 @@ Pick a starting size, then scale with the controller runbook. Every case keeps c
 | Bootstrap (cheapest start, no HA) | `control_plane_count = 1`, `worker_count = 1` | 1 controller, 1 worker. Losing the controller stops the API until it is replaced or restored from S3. |
 | Upscale to HA | `control_plane_count = 3` (or 5) | 1 controller per AZ. etcd survives 1 lost controller (2 with 5). |
 | Upscale a controller's size | one `control_plane_instance_types` entry larger | In-place stop/start of that controller, about 2 to 2.5 minutes. |
-| Downscale | `control_plane_count` 5 to 3 to 1, or one type smaller | Fewer or smaller controllers. Each removed controller leaves etcd before its instance is destroyed. |
+| Downscale | `control_plane_count` 5 to 3 to 1, or one type smaller | Fewer or smaller controllers. Each removed controller leaves etcd before its instance is destroyed; the plan fails while one is still a member. |
 
 Bootstrap mode. There is no `bootstrap_mode_enabled` input. A new cluster is in bootstrap mode while it runs only what this module creates:
 
@@ -242,6 +242,8 @@ The module removes the highest positions. Keep `bootstrap_control_plane` among t
 
 1. For each controller that goes, one at a time: run `talosctl -n <its-ip> etcd leave`, then `kubectl delete node <its-node>`. Check `etcd members` before the next one.
 2. Set `control_plane_count` to the new value, remove the same trailing entries from `control_plane_private_ips`, and apply. The plan destroys only the controllers that left.
+
+The plan fails if a controller being removed is still an etcd member, and names its IP. The check runs `talosctl etcd members` against a remaining controller, so `talosctl` must be on PATH and the operator tunnel up. It runs only while a controller above the new count still exists.
 
 ### Replace a dead controller
 

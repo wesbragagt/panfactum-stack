@@ -6,7 +6,7 @@ mock_provider "aws" {
 mock_provider "talos" {}
 mock_provider "external" {
   mock_data "external" {
-    defaults = { result = { jwks_json = "{}" } }
+    defaults = { result = { jwks_json = "{}", member_ips = "10.0.1.10,10.0.2.10" } }
   }
 }
 mock_provider "pf" {}
@@ -481,5 +481,51 @@ run "default_workers_keep_spot_asg" {
   assert {
     condition     = length(aws_autoscaling_group.worker) == 1 && length(aws_launch_template.worker) == 1
     error_message = "worker_count above 0 must keep the Spot worker ASG."
+  }
+}
+
+# override_data skips postconditions, so the mock external provider supplies members 10.0.1.10 and 10.0.2.10.
+run "shrink_blocked_while_removed_controller_is_etcd_member" {
+  command = plan
+  variables {
+    control_plane_count       = 1
+    control_plane_subnets     = ["a", "b", "c"]
+    control_plane_private_ips = ["10.0.1.10"]
+    talos_api_endpoint        = "127.0.0.1"
+  }
+  override_data {
+    target = data.aws_instances.removed_control_plane
+    values = { ids = ["i-0000000000000002"], private_ips = ["10.0.2.10"] }
+  }
+  override_data {
+    target = data.aws_instances.existing_control_plane
+    values = { ids = ["i-0000000000000001"], private_ips = ["10.0.1.10"] }
+  }
+  expect_failures = [data.external.etcd_members]
+}
+
+run "shrink_allowed_after_etcd_leave" {
+  command = plan
+  variables {
+    control_plane_count       = 1
+    control_plane_subnets     = ["a", "b", "c"]
+    control_plane_private_ips = ["10.0.1.10"]
+    talos_api_endpoint        = "127.0.0.1"
+  }
+  override_data {
+    target = data.aws_instances.removed_control_plane
+    values = { ids = ["i-0000000000000002"], private_ips = ["10.0.3.10"] }
+  }
+  override_data {
+    target = data.aws_instances.existing_control_plane
+    values = { ids = ["i-0000000000000001"], private_ips = ["10.0.1.10"] }
+  }
+}
+
+run "no_removed_controllers_makes_no_external_call" {
+  command = plan
+  assert {
+    condition     = length(data.external.etcd_members) == 0
+    error_message = "The etcd member lookup must only run when a removed controller exists."
   }
 }
