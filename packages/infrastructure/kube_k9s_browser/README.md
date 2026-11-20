@@ -7,7 +7,7 @@ k9s in the browser through ttyd, behind a Vault or OpenBao login (`kube_vault_pr
 | `true` | `view` (no Secrets) plus get, list and watch on nodes | `--readonly` |
 | `false` | `cluster-admin` | read-write |
 
-The init container (`setup.sh`) installs ttyd 1.7.7 and k9s v0.51.0 for the node's architecture (arm64 or amd64) and checks their sha256. It also unpacks Alpine 3.22 `vim` with `apk fetch` (signature-checked) and sets it as `KUBE_EDITOR`. `views.yaml` adds CLASS (`panfactum.com/class`), INSTANCE and ZONE columns to the node view.
+The init container (`setup.sh`) installs ttyd 1.7.7 and k9s v0.51.0 for the node's architecture (arm64 or amd64) and checks their sha256. It also unpacks Alpine 3.22 `vim` with `apk fetch` (signature-checked) and sets it as `KUBE_EDITOR`. `views.yaml` adds CLASS (`panfactum.com/class`), INSTANCE and ZONE columns to the node view. The terminal uses Catppuccin Mocha: ttyd sets the xterm.js palette and font, k9s loads the vendored `skins/catppuccin-mocha.yaml`, and vim uses its bundled `habamax` scheme on the terminal background.
 
 ## Prerequisites
 

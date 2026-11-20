@@ -19,8 +19,22 @@ locals {
   name   = "k9s"
   labels = merge(data.pf_kube_labels.labels.labels, { app = local.name })
   config = {
-    "setup.sh"   = file("${path.module}/../setup.sh")
-    "views.yaml" = file("${path.module}/../views.yaml")
+    "setup.sh"              = file("${path.module}/../setup.sh")
+    "views.yaml"            = file("${path.module}/../views.yaml")
+    "catppuccin-mocha.yaml" = file("${path.module}/../skins/catppuccin-mocha.yaml")
+  }
+  # Catppuccin Mocha for xterm.js; the browser renders the first fontFamily installed on the viewer's machine.
+  # ttyd JSON-parses each value, so a font list must be a JSON string or it stops at the first name.
+  ttyd_options = {
+    fontSize   = "15"
+    fontFamily = jsonencode("JetBrainsMono Nerd Font Mono, JetBrains Mono, Menlo, Consolas, DejaVu Sans Mono, monospace")
+    theme = jsonencode({
+      background  = "#1e1e2e", foreground = "#cdd6f4", cursor = "#f5e0dc", selectionBackground = "#585b70",
+      black       = "#45475a", red = "#f38ba8", green = "#a6e3a1", yellow = "#f9e2af",
+      blue        = "#89b4fa", magenta = "#f5c2e7", cyan = "#94e2d5", white = "#bac2de",
+      brightBlack = "#585b70", brightRed = "#f38ba8", brightGreen = "#a6e3a1", brightYellow = "#f9e2af",
+      brightBlue  = "#89b4fa", brightMagenta = "#f5c2e7", brightCyan = "#94e2d5", brightWhite = "#a6adc8",
+    })
   }
   container_security_context = {
     allowPrivilegeEscalation = false
@@ -150,16 +164,22 @@ resource "kubectl_manifest" "deployment" {
           containers = [{
             name = "ttyd"
             # Every browser tab gets its own k9s process.
-            image   = "alpine:3.22"
-            command = concat(["/tools/ttyd", "-W", "-p", "7681", "-t", "titleFixed=k9s ${var.context_name}", "/tools/k9s"], var.read_only ? ["--readonly"] : [])
+            image = "alpine:3.22"
+            command = concat(
+              ["/tools/ttyd", "-W", "-p", "7681", "-t", "titleFixed=k9s ${var.context_name}"],
+              flatten([for k, v in local.ttyd_options : ["-t", "${k}=${v}"]]),
+              ["/tools/k9s"], var.read_only ? ["--readonly"] : [],
+            )
             env = [
               { name = "HOME", value = "/tmp" },
+              { name = "PATH", value = "/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" },
               # k9s is built without cgo and resolves the user from $USER.
               { name = "USER", value = "k9s" },
               { name = "KUBECONFIG", value = "/tools/kubeconfig" },
               { name = "TERM", value = "xterm-256color" },
               { name = "KUBE_EDITOR", value = "/tools/vim" },
               { name = "EDITOR", value = "/tools/vim" },
+              { name = "K9S_SKIN", value = "catppuccin-mocha" },
             ]
             ports          = [{ name = "http", containerPort = 7681 }]
             readinessProbe = { tcpSocket = { port = "http" }, periodSeconds = 10 }
@@ -169,6 +189,7 @@ resource "kubectl_manifest" "deployment" {
               { name = "tmp", mountPath = "/tmp" },
               # subPath leaves the rest of the k9s config dir writable.
               { name = "config", mountPath = "/tmp/.config/k9s/views.yaml", subPath = "views.yaml", readOnly = true },
+              { name = "config", mountPath = "/tmp/.config/k9s/skins/catppuccin-mocha.yaml", subPath = "catppuccin-mocha.yaml", readOnly = true },
             ]
             securityContext = local.container_security_context
             resources       = { requests = { cpu = "100m", memory = "128Mi" }, limits = { memory = "512Mi" } }
