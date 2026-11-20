@@ -2,19 +2,19 @@ terraform {
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "2.35.0"
+      version = "3.5.0"
     }
     kubectl = {
       source  = "alekc/kubectl"
-      version = "2.1.6"
+      version = "3.0.1"
     }
     aws = {
       source  = "hashicorp/aws"
-      version = "6.40.0"
+      version = "6.73.0"
     }
     random = {
       source  = "hashicorp/random"
-      version = "3.8.1"
+      version = "3.9.1"
     }
     pf = {
       source  = "panfactum/pf"
@@ -278,19 +278,19 @@ locals {
   burstable_node_class_ref = {
     group = "karpenter.k8s.aws"
     kind  = "EC2NodeClass"
-    name  = try(kubectl_manifest.burstable_node_class[0].name, null)
+    name  = try(kubectl_manifest.burstable_node_class[0].name, kubectl_manifest.talos_node_class["burstable"].name, null)
   }
 
   spot_node_class_ref = {
     group = "karpenter.k8s.aws"
     kind  = "EC2NodeClass"
-    name  = try(kubectl_manifest.spot_node_class[0].name, null)
+    name  = try(kubectl_manifest.spot_node_class[0].name, kubectl_manifest.talos_node_class["spot"].name, null)
   }
 
   worker_node_class_ref = {
     group = "karpenter.k8s.aws"
     kind  = "EC2NodeClass"
-    name  = try(kubectl_manifest.default_node_class[0].name, null)
+    name  = try(kubectl_manifest.default_node_class[0].name, kubectl_manifest.talos_node_class["default"].name, null)
   }
 
   spot_grace_period      = "2m0s"
@@ -393,7 +393,7 @@ data "aws_ami" "amd64_ami" {
 *********************************************************************************************************************/
 
 resource "random_id" "default_node_class_name" {
-  count       = var.cluster_type == "eks" ? 1 : 0
+  count       = 1
   byte_length = 4
   prefix      = "default-"
   keepers = {
@@ -422,7 +422,7 @@ resource "kubectl_manifest" "default_node_class" {
 }
 
 resource "random_id" "spot_node_class_name" {
-  count       = var.cluster_type == "eks" ? 1 : 0
+  count       = 1
   byte_length = 4
   prefix      = "spot-"
   keepers = {
@@ -456,7 +456,7 @@ resource "kubectl_manifest" "spot_node_class" {
 }
 
 resource "random_id" "burstable_node_class_name" {
-  count       = var.cluster_type == "eks" ? 1 : 0
+  count       = 1
   byte_length = 4
   prefix      = "burstable-"
   keepers = {
@@ -588,7 +588,7 @@ resource "kubectl_manifest" "wf_burstable_node_pool" {
 }
 
 resource "random_id" "burstable_arm_node_pool_name" {
-  count       = var.cluster_type == "eks" ? 1 : 0
+  count       = 1
   byte_length = 4
   prefix      = "burstable-arm-"
   keepers = {
@@ -600,7 +600,7 @@ resource "random_id" "burstable_arm_node_pool_name" {
 }
 
 resource "kubectl_manifest" "burstable_arm_node_pool" {
-  count = var.cluster_type == "eks" ? 1 : 0
+  count = 1
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
@@ -642,7 +642,7 @@ resource "kubectl_manifest" "burstable_arm_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_burstable_arm_node_pool" {
-  count = var.cluster_type == "eks" ? 1 : 0
+  count = 1
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
@@ -782,7 +782,7 @@ resource "kubectl_manifest" "wf_spot_node_pool" {
 }
 
 resource "random_id" "spot_arm_node_pool_name" {
-  count       = var.cluster_type == "eks" ? 1 : 0
+  count       = 1
   byte_length = 4
   prefix      = "spot-arm-"
   keepers = {
@@ -793,7 +793,7 @@ resource "random_id" "spot_arm_node_pool_name" {
   }
 }
 resource "kubectl_manifest" "spot_arm_node_pool" {
-  count = var.cluster_type == "eks" ? 1 : 0
+  count = 1
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
@@ -835,7 +835,7 @@ resource "kubectl_manifest" "spot_arm_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_spot_arm_node_pool" {
-  count = var.cluster_type == "eks" ? 1 : 0
+  count = 1
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
@@ -882,7 +882,7 @@ resource "kubectl_manifest" "wf_spot_arm_node_pool" {
 }
 
 resource "random_id" "on_demand_arm_node_pool_name" {
-  count       = var.cluster_type == "eks" ? 1 : 0
+  count       = 1
   byte_length = 4
   prefix      = "on-demand-arm-"
   keepers = {
@@ -893,7 +893,7 @@ resource "random_id" "on_demand_arm_node_pool_name" {
   }
 }
 resource "kubectl_manifest" "on_demand_arm_node_pool" {
-  count = var.cluster_type == "eks" ? 1 : 0
+  count = 1
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
@@ -932,7 +932,7 @@ resource "kubectl_manifest" "on_demand_arm_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_on_demand_arm_node_pool" {
-  count = var.cluster_type == "eks" ? 1 : 0
+  count = 1
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
