@@ -84,7 +84,7 @@ resource "aws_iam_role_policy" "cache_import" {
 }
 
 resource "aws_iam_role" "controller" {
-  count              = var.controller_instance_id == null ? 0 : 1
+  count              = var.controller_instance_profile_enabled ? 1 : 0
   name_prefix        = "${var.name_prefix}-ctrl-"
   assume_role_policy = data.aws_iam_policy_document.ec2_trust.json
   tags               = local.tags
@@ -113,42 +113,22 @@ data "aws_iam_policy_document" "controller_read" {
 }
 
 resource "aws_iam_role_policy" "controller_read" {
-  count       = var.controller_instance_id == null ? 0 : 1
+  count       = var.controller_instance_profile_enabled ? 1 : 0
   name_prefix = "ecr-read-"
   role        = aws_iam_role.controller[0].id
   policy      = data.aws_iam_policy_document.controller_read.json
 }
 
 resource "aws_iam_role_policy" "controller_import" {
-  count       = var.controller_instance_id == null || length(var.ecr_cache_prefixes) == 0 ? 0 : 1
+  count       = var.controller_instance_profile_enabled && length(var.ecr_cache_prefixes) > 0 ? 1 : 0
   name_prefix = "ecr-cache-import-"
   role        = aws_iam_role.controller[0].id
   policy      = data.aws_iam_policy_document.cache_import[0].json
 }
 
 resource "aws_iam_instance_profile" "controller" {
-  count       = var.controller_instance_id == null ? 0 : 1
+  count       = var.controller_instance_profile_enabled ? 1 : 0
   name_prefix = "${var.name_prefix}-ctrl-"
   role        = aws_iam_role.controller[0].name
   tags        = local.tags
-}
-
-
-# AWS provider has no standalone association resource. This guarded adoption
-# intentionally has no destroy provisioner: removing state must never detach IAM.
-resource "terraform_data" "controller_association" {
-  count = var.controller_instance_id == null ? 0 : 1
-  input = {
-    instance = var.controller_instance_id
-    profile  = aws_iam_instance_profile.controller[0].arn
-  }
-  lifecycle { prevent_destroy = true }
-  provisioner "local-exec" {
-    command = "python3 ${path.module}/associate.py"
-    environment = {
-      ASSOCIATION_INSTANCE = self.input.instance
-      ASSOCIATION_PROFILE  = self.input.profile
-      ASSOCIATION_REGION   = data.aws_region.current.region
-    }
-  }
 }

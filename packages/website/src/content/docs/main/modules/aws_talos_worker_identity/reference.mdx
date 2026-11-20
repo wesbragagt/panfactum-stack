@@ -22,13 +22,13 @@ Type: `set(string)`
 
 Default: `[]`
 
-### controller\_instance\_id
+### controller\_instance\_profile\_enabled
 
-Description: Optional existing Talos controller identity opt-in. Creates a dedicated ECR-only profile; guarded in-place association refuses any conflicting profile. Does not create compute.
+Description: Create the ECR-only controller instance profile. aws\_kube\_talos sets it on each controller through controller\_instance\_profile.
 
-Type: `string`
+Type: `bool`
 
-Default: `null`
+Default: `false`
 
 ### ecr\_cache\_prefixes
 
@@ -52,7 +52,7 @@ The following outputs are exported:
 
 ### controller\_instance\_profile
 
-Description: Optional ECR-only controller profile; guarded association is tracked without compute ownership.
+Description: Optional ECR-only controller profile name; pass it to aws\_kube\_talos controller\_instance\_profile.
 
 ### node\_instance\_profile
 

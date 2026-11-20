@@ -26,14 +26,10 @@ variable "ecr_cache_prefixes" {
   }
 }
 
-variable "controller_instance_id" {
-  description = "Optional existing Talos controller identity opt-in. Creates a dedicated ECR-only profile; guarded in-place association refuses any conflicting profile. Does not create compute."
-  type        = string
-  default     = null
-  validation {
-    condition     = var.controller_instance_id == null ? true : can(regex("^i-[0-9a-f]+$", var.controller_instance_id))
-    error_message = "controller_instance_id must be an EC2 instance ID."
-  }
+variable "controller_instance_profile_enabled" {
+  description = "Create the ECR-only controller instance profile. aws_kube_talos sets it on each controller through controller_instance_profile."
+  type        = bool
+  default     = false
 }
 
 variable "controller_additional_ecr_repositories" {

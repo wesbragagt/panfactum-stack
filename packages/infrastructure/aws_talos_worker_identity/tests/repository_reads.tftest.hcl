@@ -45,3 +45,23 @@ run "wildcard_rejected" {
   }
   expect_failures = [var.controller_additional_ecr_repositories]
 }
+
+# aws_kube_talos sets this profile on each controller's aws_instance.iam_instance_profile.
+run "controller_profile_enabled" {
+  command = plan
+  variables {
+    controller_instance_profile_enabled = true
+  }
+  assert {
+    condition     = length(aws_iam_instance_profile.controller) == 1 && length(aws_iam_role_policy.controller_read) == 1
+    error_message = "controller_instance_profile_enabled must create the controller profile and its ECR read policy."
+  }
+}
+
+run "no_controller_profile_by_default" {
+  command = plan
+  assert {
+    condition     = length(aws_iam_instance_profile.controller) == 0
+    error_message = "The controller profile is opt-in."
+  }
+}

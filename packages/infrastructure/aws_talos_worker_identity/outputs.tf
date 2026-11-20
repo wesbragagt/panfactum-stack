@@ -14,6 +14,6 @@ output "node_instance_profile_arn" {
 }
 
 output "controller_instance_profile" {
-  description = "Optional ECR-only controller profile; guarded association is tracked without compute ownership."
+  description = "Optional ECR-only controller profile name; pass it to aws_kube_talos controller_instance_profile."
   value       = try(aws_iam_instance_profile.controller[0].name, null)
 }
