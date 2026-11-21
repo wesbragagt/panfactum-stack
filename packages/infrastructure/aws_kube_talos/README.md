@@ -32,7 +32,7 @@ flowchart LR
 ## Requirements
 
 - A VPC with subnets tagged `Name = PRIVATE_A`, `PRIVATE_B` and `PRIVATE_C` that route `0.0.0.0/0` through NAT. Nodes pull images and join the cluster through that route.
-- An EC2 host in the same VPC that is registered with SSM and shows `Online`, such as a NAT instance or bastion. Your AWS identity needs `ssm:StartSession` on it.
+- An SSM tunnel host in the same VPC that shows `Online`. Either let the module create one (`ssm_jump_host_enabled = true`, see "SSM jump host") or use an existing EC2 host registered with SSM, such as a NAT instance or bastion. Your AWS identity needs `ssm:StartSession` on it.
 - S3 Block Public Access on the account must allow a public bucket policy, and the applying identity must be able to create an IAM OIDC provider.
 - `python3`, `aws` CLI v2, `session-manager-plugin`, `terragrunt`, `kubectl`, `kubectx`, `talosctl` and `sops` on `PATH`. The Panfactum devshell provides all of them except `talosctl`.
 
@@ -91,16 +91,18 @@ This module replaces `aws_eks`. It needs Talos-only setup before the apply.
      vpc_id                             = dependency.vpc.outputs.vpc_id
      secrets_bundle                     = yamldecode(sops_decrypt_file("${get_terragrunt_dir()}/talos-secrets.yaml"))
      private_api_dns_name               = "api.my-cluster.internal"
-     operator_tunnel_security_group_ids = ["sg-0123456789abcdef0"] # security groups of the SSM hosts
+     ssm_jump_host_enabled              = true
      control_plane_count                = 3
      control_plane_subnets              = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
      control_plane_private_ips          = ["10.0.64.10", "10.0.128.10", "10.0.192.10"]
    }
    ```
 
+   `ssm_jump_host_enabled = true` creates the module's SSM jump host and opens ports 6443 and 50000 on the nodes to it. Set `operator_tunnel_security_group_ids = ["sg-0123456789abcdef0"]` as well only when you also tunnel through existing hosts, such as NAT instances. Pass the security groups of those hosts. If you leave `ssm_jump_host_enabled` at `false`, set `operator_tunnel_security_group_ids`, or no host can reach the APIs.
+
    `private_api_dns_name` creates a private hosted zone for its parent domain. Clusters in the same VPC need different parent domains, such as `api.a.internal` and `api.b.internal`.
 
-   The `before_hook` forwards the Talos port to `my-cluster-control-plane-0`, so the first apply runs in one terminal. `--background` returns within a few seconds, leaves a helper that holds the forward, and closes it when Terragrunt exits. It waits up to 15 minutes for the controller to launch and reuses a live `--ensure` tunnel on the same port. Its log is `bootstrap.log` in the tunnel state directory. The `after_hook` runs step 4's `register` after every successful apply.
+   The `before_hook` forwards the Talos port to `my-cluster-control-plane-0`, so the first apply runs in one terminal. The jump host does not exist before the first apply. In `--bootstrap` mode the hook waits within `--wait` for a host to come `Online`, so it picks up the jump host once it registers with SSM. `--background` returns within a few seconds, leaves a helper that holds the forward, and closes it when Terragrunt exits. It waits up to 15 minutes for the controller to launch and reuses a live `--ensure` tunnel on the same port. Its log is `bootstrap.log` in the tunnel state directory. The `after_hook` runs step 4's `register` after every successful apply.
 
 3. Check your setup:
 
@@ -108,9 +110,35 @@ This module replaces `aws_eks`. It needs Talos-only setup before the apply.
    python3 <module>/scripts/pf-bootstrap-talos preflight --cluster my-cluster --profile <aws-profile> --region <region>
    ```
 
-   Fix every `FAIL` line before you continue. The SSM host is found by `Name = nat-*`. Pass `--tunnel-name-pattern` if yours is named differently.
+   Fix every `FAIL` line before you continue. The preflight finds existing SSM hosts by `Name = nat-*`. Pass `--tunnel-name-pattern` if yours is named differently. It skips the host check before the first apply, because the controller does not exist yet and the module's jump host does not either.
 
 4. Run `pf-tf-init` and `terragrunt apply` in `<caller>`. The module launches the controllers, bootstraps etcd and starts the workers. The Talos provider keeps retrying until the forward connects.
+
+#### SSM jump host
+
+Set `ssm_jump_host_enabled = true` to let the module create the tunnel host, so the VPC needs no SSM-managed NAT instance or bastion. The default is `false`.
+
+| Input | Default | Meaning |
+|---|---|---|
+| `ssm_jump_host_enabled` | `false` | Creates the host and its node ingress rules. |
+| `ssm_jump_host_instance_type` | `t4g.nano` | Instance type. It must support arm64. |
+| `ssm_jump_host_subnet` | first `control_plane_subnets` entry | `Name` tag of the private subnet to launch in. |
+
+The host is named `<cluster_name>-ssm-tunnel`, runs Amazon Linux 2023 on arm64, has no public IP, requires IMDSv2 and has an encrypted gp3 root volume. Its IAM role has `AmazonSSMManagedInstanceCore`. Its security group has egress only and no ingress, so SSM sessions go outbound through the subnet's NAT route. The nodes allow ports 6443 and 50000 from that security group.
+
+The module reads the AMI from the SSM parameter `/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64`, so the applying role needs `ssm:GetParameter` on it. The module ignores later AMI changes, so a new AMI does not replace a host that has an open session. The outputs are `ssm_jump_host_instance_id` and `ssm_jump_host_security_group_id`.
+
+`cluster_access.py` looks for hosts named `<cluster>-ssm-tunnel` or matching `--tunnel-name-pattern`, and tries the jump host first. With `--bootstrap` it waits within `--wait` (default 900 seconds) for a host to become `Online`. Without `--bootstrap` it fails at once when no host is `Online`.
+
+Cost, estimated on 2026-11-20 from public us-east-2 list prices (the AWS CLI was not available to query them live), at 730 hours per month:
+
+| Item | Estimate |
+|---|---|
+| `t4g.nano` on-demand, about $0.0042 per hour | about $3.07 per month |
+| gp3 root volume, 8 GiB at about $0.08 per GB-month (the AL2023 AMI default size) | about $0.64 per month |
+| Total | about $3.71 per month |
+
+The host has no public IPv4 address, so there is no address charge. Larger instance types cost more.
 
 #### Use cases
 
@@ -156,7 +184,7 @@ Talos uses `pf-bootstrap-talos` in place of `pf-update-kube`, and `.kube/config.
 
    It writes `.kube/config.talos.yaml`, which holds the region, ports, module path and CA with no secrets, and merges the cluster into `.kube/config`. It also adds the cluster to `.kube/config.talos.user.yaml`. Commit `.kube/config.talos.yaml`. The `.kube/.gitignore` must contain `!config.talos.yaml`.
 
-2. Each user, the same role as `config.user.yaml` and `pf-update-kube`. Create `.kube/config.talos.user.yaml`, which stays out of git, and list your clusters:
+2. Each user, the same role as `config.user.yaml` and `pf-update-kube`. `register` already created or appended `.kube/config.talos.user.yaml`, which stays out of git. On a new machine, create that file yourself and list your clusters:
 
    ```yaml
    clusters:
@@ -178,7 +206,7 @@ Talos uses `pf-bootstrap-talos` in place of `pf-update-kube`, and `.kube/config.
    k9s
    ```
 
-   The first call opens the SSM tunnel, which takes about 30 seconds. Later calls reuse it.
+   `kubectx` only switches the context. The first `kubectl` request runs the credential helper, which opens the SSM tunnel and takes about 30 seconds. Later requests reuse it.
 
 ### 5. Reset the cluster
 
@@ -267,6 +295,7 @@ Use this when etcd has lost quorum. See also "Recovery" below.
 ## Everyday access
 
 - `kubectl`, `kubectx` and `k9s` use the contexts in `.kube/config`. The context's credential command opens or reuses a background tunnel per cluster, with its state in `~/.local/state/talos-cluster-access/<cluster>`.
+- The tunnel goes through the SSM host `<cluster_name>-ssm-tunnel` when the module created one, and otherwise through a host matching `--tunnel-name-pattern`. With no `Online` host, `--ensure` and `--exec-credential` fail at once.
 - `terragrunt plan` and `apply` need the tunnel. After the first apply, change the caller's `talos_tunnel` `before_hook` from `--bootstrap --background` to `--ensure`, which reads the cluster's outputs and prints a kubeconfig. Keep the `talos_register` `after_hook` from step 3, so the context stays current:
 
   ```hcl

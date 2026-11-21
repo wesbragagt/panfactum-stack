@@ -41,6 +41,10 @@ class ControllerNotFound(AccessError):
     pass
 
 
+class NoTunnelHost(AccessError):
+    pass
+
+
 class WaitTimeout(AccessError):
     pass
 
@@ -175,9 +179,13 @@ class Access:
             return private_ips, list(self.args.target)
         controller = controllers[0]
         pattern = self.args.tunnel_name_pattern
+        # The module's jump host has an exact Name; the cluster name must not widen the lookup.
+        if any(char in self.args.cluster for char in "*?\\,"):
+            raise AccessError("Cluster name must be exact, without AWS wildcards")
+        jump_name = f"{self.args.cluster}-ssm-tunnel"
         nats = self.instances([f"Name=vpc-id,Values={controller['VpcId']}",
                                "Name=instance-state-name,Values=running",
-                               f"Name=tag:Name,Values={pattern}"])
+                               f"Name=tag:Name,Values={jump_name},{pattern}"])
         online = set()
         # SSM returns only managed instances; NAT EC2 running status is insufficient.
         for offset in range(0, len(nats), 50):
@@ -188,11 +196,17 @@ class Access:
                             json.dumps([{"Key": "InstanceIds", "Values": ids}]))
             online.update(node["InstanceId"] for node in info["InstanceInformationList"]
                           if node["PingStatus"] == "Online")
-        candidates = sorted(node["InstanceId"] for node in nats
-                            if node["InstanceId"] in online)
+
+        def is_jump(node):
+            return any(tag["Key"] == "Name" and tag["Value"] == jump_name for tag in node.get("Tags", []))
+        # The module's jump host first, then other hosts; each group by instance ID.
+        candidates = [node["InstanceId"] for node in
+                      sorted((node for node in nats if node["InstanceId"] in online),
+                             key=lambda node: (not is_jump(node), node["InstanceId"]))]
         if not candidates:
-            raise AccessError(f"No SSM Online tunnel host found in control-plane VPC "
-                              f"{controller['VpcId']} (running Name={pattern} instances: {len(nats)}). "
+            raise NoTunnelHost(f"No SSM Online tunnel host found in control-plane VPC "
+                              f"{controller['VpcId']} (running Name={jump_name} or Name={pattern} "
+                              f"instances: {len(nats)}). "
                               "Restore its SSM registration/connectivity or pass --target; "
                               "this helper does not modify IAM or networking.")
         return private_ips, candidates
@@ -396,10 +410,12 @@ def wait_for_controller(args, access):
             # A pending instance already has its private IP, and Talos is reachable once it listens.
             private_ips, candidates = access.discover(("pending", "running"))
             return private_ips[0], candidates
-        except ControllerNotFound as exc:
+        except (ControllerNotFound, NoTunnelHost) as exc:
+            # A jump host created with the controller needs minutes to register with SSM.
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise WaitTimeout(f"Timed out after {args.wait:g}s waiting for the control plane: {exc}")
+                raise WaitTimeout(f"Timed out after {args.wait:g}s waiting for the control plane "
+                                  f"and an SSM Online tunnel host: {exc}")
             nap(args, min(5, remaining))
 
 
@@ -411,9 +427,9 @@ def forward_talos(args, access, candidates, private_ip, directory):
             access.wait_for_talos_forward()
             return target
         except AccessError as exc:
-            print(f"NAT {target}: {exc}; trying next Online NAT", file=sys.stderr)
+            print(f"Tunnel host {target}: {exc}; trying next Online tunnel host", file=sys.stderr)
             access.close_forwards()
-    raise AccessError("All SSM Online NAT candidates failed to establish the Talos forward")
+    raise AccessError("All SSM Online tunnel hosts failed to establish the Talos forward")
 
 
 def bootstrap(args, access):

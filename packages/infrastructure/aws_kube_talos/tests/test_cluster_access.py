@@ -68,7 +68,75 @@ class ClusterAccessTest(unittest.TestCase):
         helper.instances = instances
         helper.aws = lambda *args: {"InstanceInformationList": [{"InstanceId": "i-b", "PingStatus": "Online"}]}
         self.assertEqual(helper.discover()[1], ["i-b"])
-        self.assertIn("Name=tag:Name,Values=bastion-*", calls[1])
+        self.assertIn("Name=tag:Name,Values=c-ssm-tunnel,bastion-*", calls[1])
+
+    def hosts_access(self, hosts, online, **overrides):
+        helper = access(**overrides)
+        controller = {"PrivateIpAddress": "10.0.0.5", "VpcId": "vpc-1",
+                      "Tags": [{"Key": "Name", "Value": "c-control-plane-0"}]}
+        helper.instances = lambda filters: [controller] if len(filters) == 2 else [
+            {"InstanceId": i, "Tags": [{"Key": "Name", "Value": name}]} for i, name in hosts]
+        helper.aws = lambda *args: {"InstanceInformationList": [
+            {"InstanceId": i, "PingStatus": "Online"} for i in online()]}
+        return helper
+
+    def test_filter_includes_the_jump_host_name_and_the_pattern(self):
+        helper = access()
+        calls = []
+
+        def instances(filters):
+            calls.append(filters)
+            return [{"PrivateIpAddress": "10.0.0.5", "VpcId": "vpc-1", "InstanceId": "i-b",
+                     "Tags": [{"Key": "Name", "Value": "c-control-plane-0"}]}]
+        helper.instances = instances
+        helper.aws = lambda *args: {"InstanceInformationList": [{"InstanceId": "i-b", "PingStatus": "Online"}]}
+        helper.discover()
+        self.assertIn("Name=tag:Name,Values=c-ssm-tunnel,nat-*", calls[1])
+
+    def test_jump_host_is_preferred_over_nat(self):
+        helper = self.hosts_access([("i-a", "nat-a"), ("i-z", "c-ssm-tunnel"), ("i-b", "nat-b")],
+                                   lambda: ["i-a", "i-z", "i-b"])
+        self.assertEqual(helper.discover()[1], ["i-z", "i-a", "i-b"])
+
+    def test_nat_only_hosts_keep_instance_id_order(self):
+        helper = self.hosts_access([("i-b", "nat-b"), ("i-a", "nat-a")], lambda: ["i-a", "i-b"])
+        self.assertEqual(helper.discover()[1], ["i-a", "i-b"])
+
+    def test_missing_online_host_fails_at_once_and_names_the_jump_host(self):
+        helper = self.hosts_access([("i-z", "c-ssm-tunnel")], lambda: [])
+        with self.assertRaisesRegex(module.NoTunnelHost, "c-ssm-tunnel"):
+            helper.discover()
+
+    def test_bootstrap_waits_for_the_jump_host_to_turn_online(self):
+        polls = []
+
+        def online():
+            polls.append(1)
+            return ["i-z"] if len(polls) >= 3 else []
+        helper = self.hosts_access([("i-z", "c-ssm-tunnel")], online)
+        naps = []
+        original = module.nap
+        module.nap = lambda args, seconds: naps.append(seconds)
+        try:
+            result = module.wait_for_controller(SimpleNamespace(wait=900), helper)
+        finally:
+            module.nap = original
+        self.assertEqual(result, ("10.0.0.5", ["i-z"]))
+        self.assertEqual(len(polls), 3)
+        self.assertEqual(len(naps), 2)
+
+    def test_bootstrap_times_out_when_the_host_never_turns_online(self):
+        helper = self.hosts_access([("i-z", "c-ssm-tunnel")], lambda: [])
+        clock = [0.0]
+        originals = module.nap, module.time.monotonic
+        module.nap = lambda args, seconds: clock.__setitem__(0, clock[0] + seconds)
+        module.time.monotonic = lambda: clock[0]
+        try:
+            with self.assertRaises(module.WaitTimeout):
+                module.wait_for_controller(SimpleNamespace(wait=12), helper)
+        finally:
+            module.nap, module.time.monotonic = originals
+        self.assertEqual(clock[0], 12)
 
     def test_three_controllers_are_returned_in_position_order(self):
         helper = access(target=["i-nat"])

@@ -529,3 +529,53 @@ run "no_removed_controllers_makes_no_external_call" {
     error_message = "The etcd member lookup must only run when a removed controller exists."
   }
 }
+
+run "ssm_jump_host_off_by_default" {
+  command = plan
+  assert {
+    condition     = length(aws_instance.ssm_jump_host) + length(aws_security_group.ssm_jump_host) + length(aws_iam_role.ssm_jump_host) + length(aws_iam_instance_profile.ssm_jump_host) + length(aws_vpc_security_group_ingress_rule.ssm_jump_host_kubernetes) + length(aws_vpc_security_group_ingress_rule.ssm_jump_host_talos) == 0
+    error_message = "The jump host must not exist unless ssm_jump_host_enabled is true."
+  }
+  assert {
+    condition     = output.ssm_jump_host_instance_id == null && output.ssm_jump_host_security_group_id == null
+    error_message = "Jump host outputs must be null when disabled."
+  }
+}
+
+run "ssm_jump_host_enabled" {
+  command = plan
+  variables { ssm_jump_host_enabled = true }
+  assert {
+    condition     = length(aws_instance.ssm_jump_host) == 1 && aws_instance.ssm_jump_host[0].associate_public_ip_address == false
+    error_message = "Enabling must plan one jump host without a public IP."
+  }
+  assert {
+    condition     = aws_instance.ssm_jump_host[0].metadata_options[0].http_tokens == "required" && aws_instance.ssm_jump_host[0].root_block_device[0].encrypted == true
+    error_message = "The jump host must require IMDSv2 and encrypt its root volume."
+  }
+  assert {
+    condition     = aws_instance.ssm_jump_host[0].tags["Name"] == "test-ssm-tunnel"
+    error_message = "cluster_access.py discovers the host by the name <cluster_name>-ssm-tunnel."
+  }
+  assert {
+    condition     = aws_vpc_security_group_ingress_rule.ssm_jump_host_kubernetes[0].from_port == 6443 && aws_vpc_security_group_ingress_rule.ssm_jump_host_talos[0].from_port == 50000
+    error_message = "The node security group must admit the jump host on 6443 and 50000."
+  }
+  assert {
+    condition     = length(aws_security_group.ssm_jump_host[0].ingress) == 0
+    error_message = "The jump host security group must have no ingress."
+  }
+}
+
+run "reject_x86_ssm_jump_host" {
+  command = plan
+  variables {
+    ssm_jump_host_enabled       = true
+    ssm_jump_host_instance_type = "t3.nano"
+  }
+  override_data {
+    target = data.aws_ec2_instance_type.node
+    values = { supported_architectures = ["x86_64"] }
+  }
+  expect_failures = [data.aws_ec2_instance_type.node]
+}

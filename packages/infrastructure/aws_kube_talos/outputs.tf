@@ -76,3 +76,13 @@ output "talos_ami_id" {
   description = "Talos AMI used by workers."
   value       = data.aws_ami.talos.id
 }
+
+output "ssm_jump_host_instance_id" {
+  description = "Instance ID of the SSM jump host, or null when ssm_jump_host_enabled is false."
+  value       = one(aws_instance.ssm_jump_host[*].id)
+}
+
+output "ssm_jump_host_security_group_id" {
+  description = "Security group of the SSM jump host, or null when ssm_jump_host_enabled is false."
+  value       = one(aws_security_group.ssm_jump_host[*].id)
+}
