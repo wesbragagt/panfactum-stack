@@ -49,8 +49,8 @@ module "util" {
 
   workload_name                        = "cnpg-operator"
   instance_type_anti_affinity_required = var.sla_target == 3
-  az_spread_preferred                  = var.sla_target == 3
-  host_anti_affinity_required          = var.sla_target == 3
+  az_spread_preferred                  = var.sla_target >= 2
+  host_anti_affinity_required          = var.sla_target >= 2
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -123,7 +123,7 @@ resource "helm_release" "cnpg" {
       }
 
       priorityClassName         = module.constants.cluster_important_priority_class_name
-      replicaCount              = var.sla_target == 3 ? 2 : 1
+      replicaCount              = var.sla_target >= 2 ? 2 : 1
       affinity                  = module.util.affinity
       tolerations               = module.util.tolerations
       topologySpreadConstraints = module.util.topology_spread_constraints

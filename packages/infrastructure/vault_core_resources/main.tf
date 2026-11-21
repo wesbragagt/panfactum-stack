@@ -227,9 +227,9 @@ module "util_secrets_operator" {
   burstable_nodes_enabled              = var.burstable_nodes_enabled
   spot_nodes_enabled                   = var.spot_nodes_enabled
   controller_nodes_enabled             = var.controller_nodes_enabled
-  host_anti_affinity_required          = false
-  instance_type_anti_affinity_required = false // single replica
-  az_spread_preferred                  = false // single replica
+  host_anti_affinity_required          = var.vault_secrets_operator_replicas > 1
+  instance_type_anti_affinity_required = false
+  az_spread_preferred                  = var.vault_secrets_operator_replicas > 1
   extra_labels                         = data.pf_kube_labels.labels.labels
 }
 
@@ -249,6 +249,7 @@ resource "helm_release" "vault_secrets_operator" {
   values = [
     yamlencode({
       controller = {
+        replicas    = var.vault_secrets_operator_replicas
         tolerations = module.util_secrets_operator.tolerations
         affinity    = module.util_secrets_operator.affinity
         manager = {

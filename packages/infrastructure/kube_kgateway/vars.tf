@@ -36,6 +36,11 @@ variable "tls_secret_namespace" {
   default = "cert-manager"
 }
 
+variable "controller_replicas" {
+  type    = number
+  default = 1
+}
+
 variable "proxy_replicas" {
   type    = number
   default = 2

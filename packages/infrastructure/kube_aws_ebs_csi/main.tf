@@ -55,8 +55,8 @@ module "util_controller" {
   controller_nodes_enabled             = var.controller_nodes_enabled
   spot_nodes_enabled                   = var.spot_nodes_enabled
   instance_type_anti_affinity_required = false // Will prevent bootstrapping and simply unnecessary
-  az_spread_preferred                  = var.sla_target == 3
-  host_anti_affinity_required          = var.sla_target == 3
+  az_spread_preferred                  = var.sla_target >= 2
+  host_anti_affinity_required          = var.sla_target >= 2
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
   extra_labels                         = data.pf_kube_labels.labels.labels
@@ -143,7 +143,7 @@ resource "helm_release" "ebs_csi_driver" {
 
       controller = {
 
-        replicaCount              = var.sla_target == 3 ? 2 : 1
+        replicaCount              = var.sla_target >= 2 ? 2 : 1
         tolerations               = module.util_controller.tolerations
         affinity                  = module.util_controller.affinity
         topologySpreadConstraints = module.util_controller.topology_spread_constraints

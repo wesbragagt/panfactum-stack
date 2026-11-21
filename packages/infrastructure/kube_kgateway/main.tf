@@ -45,8 +45,12 @@ resource "helm_release" "kgateway" {
     fullnameOverride = "kgateway"
     image            = { registry = "ghcr.io/kgateway-dev" }
     controller = {
-      replicaCount   = 1
-      strategy       = { type = "Recreate" }
+      replicaCount = var.controller_replicas
+      strategy     = var.controller_replicas > 1 ? { type = "RollingUpdate" } : { type = "Recreate" }
+      affinity = var.controller_replicas > 1 ? { podAntiAffinity = { requiredDuringSchedulingIgnoredDuringExecution = [{
+        labelSelector = { matchLabels = { "app.kubernetes.io/instance" = "kgateway", "app.kubernetes.io/name" = "kgateway" } }
+        topologyKey   = "kubernetes.io/hostname"
+      }] } } : {}
       nodeSelector   = var.node_selector
       tolerations    = var.tolerations
       podAnnotations = { "linkerd.io/inject" = "disabled" }

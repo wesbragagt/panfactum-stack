@@ -1,3 +1,8 @@
+variable "vault_secrets_operator_replicas" {
+  type    = number
+  default = 1
+}
+
 variable "vault_api_namespace" {
   description = "Vault API namespace used by VSO cache encryption and default authentication; independent of the Kubernetes namespace. Set to an empty string for the OpenBao root namespace."
   type        = string
