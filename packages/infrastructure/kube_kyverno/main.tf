@@ -28,6 +28,10 @@ terraform {
 locals {
   name      = "kyverno"
   namespace = module.namespace.namespace
+
+  # Evicting every admission pod at once leaves the failurePolicy=Fail webhook with no
+  # endpoints, which blocks Pod creation cluster-wide; keep the descheduler off Kyverno.
+  pod_labels = merge(data.pf_kube_labels.labels.labels, { "panfactum.com/descheduler-enabled" = "false" })
 }
 
 data "pf_kube_labels" "labels" {
@@ -43,7 +47,7 @@ module "util_crd_migrate" {
   controller_nodes_enabled    = var.controller_nodes_enabled
   az_spread_preferred         = var.sla_target >= 2
   panfactum_scheduler_enabled = var.panfactum_scheduler_enabled
-  extra_labels                = data.pf_kube_labels.labels.labels
+  extra_labels                = local.pod_labels
 }
 
 module "util_admission_controller" {
@@ -54,7 +58,7 @@ module "util_admission_controller" {
   spot_nodes_enabled          = var.spot_nodes_enabled
   controller_nodes_enabled    = var.controller_nodes_enabled
   panfactum_scheduler_enabled = var.panfactum_scheduler_enabled
-  extra_labels                = data.pf_kube_labels.labels.labels
+  extra_labels                = local.pod_labels
   az_spread_required          = var.sla_target >= 2
 
   extra_tolerations = [
@@ -75,7 +79,7 @@ module "util_background_controller" {
   controller_nodes_enabled    = var.controller_nodes_enabled
   az_spread_preferred         = var.sla_target >= 2
   panfactum_scheduler_enabled = var.panfactum_scheduler_enabled
-  extra_labels                = data.pf_kube_labels.labels.labels
+  extra_labels                = local.pod_labels
 
   # This should be allowed to run on nodes where the linkerd taint exists
   # b/c this pod is what delete the taint
@@ -97,7 +101,7 @@ module "util_cleanup_controller" {
   controller_nodes_enabled    = var.controller_nodes_enabled
   az_spread_preferred         = var.sla_target >= 2
   panfactum_scheduler_enabled = var.panfactum_scheduler_enabled
-  extra_labels                = data.pf_kube_labels.labels.labels
+  extra_labels                = local.pod_labels
 }
 
 module "util_reports_controller" {
@@ -109,7 +113,7 @@ module "util_reports_controller" {
   controller_nodes_enabled    = var.controller_nodes_enabled
   az_spread_preferred         = var.sla_target >= 2
   panfactum_scheduler_enabled = var.panfactum_scheduler_enabled
-  extra_labels                = data.pf_kube_labels.labels.labels
+  extra_labels                = local.pod_labels
 }
 
 module "util_webhooks_cleanup" {
@@ -121,7 +125,7 @@ module "util_webhooks_cleanup" {
   controller_nodes_enabled    = var.controller_nodes_enabled
   az_spread_preferred         = var.sla_target >= 2
   panfactum_scheduler_enabled = var.panfactum_scheduler_enabled
-  extra_labels                = data.pf_kube_labels.labels.labels
+  extra_labels                = local.pod_labels
 }
 
 module "util_policy_reports_cleanup" {
@@ -133,7 +137,7 @@ module "util_policy_reports_cleanup" {
   controller_nodes_enabled    = var.controller_nodes_enabled
   az_spread_preferred         = var.sla_target >= 2
   panfactum_scheduler_enabled = var.panfactum_scheduler_enabled
-  extra_labels                = data.pf_kube_labels.labels.labels
+  extra_labels                = local.pod_labels
 }
 
 module "constants" {
