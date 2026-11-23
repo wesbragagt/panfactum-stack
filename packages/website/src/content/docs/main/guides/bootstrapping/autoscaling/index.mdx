@@ -438,6 +438,64 @@ Make that change and re-apply the module.
 
 ## Deploy Bin-Packing Kubernetes Scheduler
 
+### Talos
+
+Talos 1.14 and later can run both scheduler profiles in its control-plane `kube-scheduler` static pod. Keep
+`default-scheduler` for workloads that opt out and configure `panfactum` for bin packing.
+[Talos scheduler configuration](https://docs.siderolabs.com/talos/v1.14/reference/configuration/kubernetes/kubeschedulerconfig)
+
+1. In your `aws_kube_talos` caller, add the following document as `scheduler.yaml`. Match the scheduler image tag to
+   the caller's `kube_version`. Add `file("${get_terragrunt_dir()}/scheduler.yaml")` to
+   `inputs.control_plane_config_patches` alongside any existing patches.
+
+   ```yaml
+   apiVersion: v1alpha1
+   kind: KubeSchedulerConfig
+   image: registry.k8s.io/kube-scheduler:v1.35.10
+   config:
+     profiles:
+       - schedulerName: default-scheduler
+       - schedulerName: panfactum
+         plugins:
+           score:
+             enabled:
+               - name: NodeResourcesFit
+                 weight: 2
+         pluginConfig:
+           - name: NodeResourcesFit
+             args:
+               scoringStrategy:
+                 type: MostAllocated
+                 resources:
+                   - name: cpu
+                     weight: 1
+                   - name: memory
+                     weight: 1
+   ```
+
+2. Plan and apply `aws_kube_talos`. Check that the scheduler is Ready and that Talos rendered both profiles on the
+   control-plane nodes.
+
+   ```sh
+   talosctl --nodes <control-plane-ip> read /system/config/kubernetes/kube-scheduler/scheduler-config.yaml
+   kubectl -n kube-system get pods -l component=kube-scheduler
+   ```
+
+3. Set `extra_inputs.panfactum_scheduler_enabled: true` in `region.yaml` and
+   `inputs.panfactum_scheduler_talos_enabled = true` in the `kube_policies` caller. Apply `kube_policies` and reapply
+   any Kubernetes modules that should start using the `panfactum` profile.
+
+4. Create two test pods after Kyverno has refreshed its scheduler lookup. Leave the first pod's scheduler unset
+   and label the second pod `panfactum.com/scheduler-enabled=false`. Check that both pods schedule and their
+   `spec.schedulerName` values are `panfactum` and `default-scheduler`, respectively. Continue to KEDA with
+   `aws_kube_talos` as the scheduler dependency.
+
+For an existing Talos cluster with a standalone `kube_scheduler` Deployment, test the Talos settings under a
+temporary profile name. Update the Kyverno lookup, stop the standalone scheduler before activating Talos's
+`panfactum` profile, and test both final profile names before removing the standalone module.
+
+### EKS
+
 The [Kubernetes Scheduler](https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/) (`kube-scheduler`)
 is the control plane component that is in charge of assigning new Pods to Nodes. AWS provides a built-in one
 (`default-scheduler`) via EKS, but it comes with a few limitations. [^5] Most importantly, this scheduler
@@ -545,7 +603,7 @@ We provide a module [kube_keda](/docs/main/modules/kube_keda/overview) for deplo
 
 Let's deploy it now:
 
-1. Create a new directory adjacent to your `kube_scheduler` module called `kube_keda`.
+1. Create a new directory adjacent to your `kube_karpenter` module called `kube_keda`.
 
 2. Add a `terragrunt.hcl` to that directory that looks like this:
 
@@ -575,6 +633,8 @@ Let's deploy it now:
    ```
 
    :::
+
+   On Talos, set `dependency.scheduler.config_path` to `"../aws_kube_talos"`.
 
 3. Run `pf-tf-init` to enable the required providers.
 
