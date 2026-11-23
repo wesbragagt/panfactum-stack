@@ -34,6 +34,12 @@ variable "panfactum_scheduler_enabled" {
   default     = false
 }
 
+variable "panfactum_scheduler_talos_enabled" {
+  description = "Whether the Panfactum scheduler profile is served by the Talos control-plane scheduler."
+  type        = bool
+  default     = false
+}
+
 variable "environment_variable_injection_enabled" {
   description = "Whether a standard set of environment variables should be injected into each container"
   type        = bool

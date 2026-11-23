@@ -63,7 +63,7 @@ resource "kubectl_manifest" "scheduler_global_context" {
     }
     spec = {
       apiCall = {
-        urlPath         = "/api/v1/namespaces/scheduler/pods?fieldSelector=status.phase=Running"
+        urlPath         = var.panfactum_scheduler_talos_enabled ? "/api/v1/namespaces/kube-system/pods?fieldSelector=status.phase=Running&labelSelector=component%3Dkube-scheduler" : "/api/v1/namespaces/scheduler/pods?fieldSelector=status.phase=Running"
         refreshInterval = "60s"
       }
     }
