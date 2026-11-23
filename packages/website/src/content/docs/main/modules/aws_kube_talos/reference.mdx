@@ -304,7 +304,7 @@ Default:
 
 ### private\_api\_dns\_name
 
-Description: Optional private DNS name (e.g. api.example.internal) used as the cluster endpoint. Creates a private Route53 zone for the parent domain with an A record to every control plane private IP.
+Description: Optional private DNS name (e.g. api.example.internal) used as the cluster endpoint. Creates a private Route 53 A record with every controller private IP. Clients handle failover between those addresses. Node-local components can use KubePrism.
 
 Type: `string`
 

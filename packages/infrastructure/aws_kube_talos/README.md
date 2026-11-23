@@ -52,6 +52,27 @@ the full arguments. Use `operator` for the Kubernetes-only forward and
 Each session uses a document with a fixed remote destination. AWS IAM
 determines which principals can use each target and document.
 
+## Kubernetes API routing
+
+Talos v1.14.6 generates `KubePrismConfig` for controllers and workers. Keep
+the listener at `localhost:7445`. For `kube_cilium`, set
+`cluster_type = "talos"` and leave the API host and port overrides unset
+so Cilium uses the local listener.
+
+Set `private_api_dns_name` before bootstrapping. The module includes the
+hostname in the API certificate and creates a private A record with the
+controller IPs. Off-node Kubernetes clients connect to that hostname on
+TCP 6443. They need their own connection retries. A fixed-destination SSM
+session needs a new connection through a reachable controller after its
+destination fails. Keep direct Talos management on TCP 50000 for
+configuration and etcd bootstrap.
+
+With three controllers in separate Availability Zones, etcd can keep
+quorum after losing one. KubePrism on v1.14.6 can switch peers when TCP
+6443 is unreachable. It can still route to a server that accepts TCP
+while `/readyz` returns HTTP 500. The private A record lists all controller
+IPs regardless of health.
+
 ## Requirements
 
 - A VPC with subnets tagged `Name = PRIVATE_A`, `PRIVATE_B` and `PRIVATE_C` that route `0.0.0.0/0` through NAT. Nodes pull images and join the cluster through that route.

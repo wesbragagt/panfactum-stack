@@ -408,6 +408,14 @@ run "private_api_is_a_records_to_controller_ips" {
     condition     = toset(aws_route53_record.private_api[0].records) == toset(["10.0.2.10", "10.0.1.10", "10.0.3.10"])
     error_message = "The private API A record must list every controller IP."
   }
+  assert {
+    condition     = data.talos_machine_configuration.control_plane.cluster_endpoint == "https://api.test.internal:6443" && data.talos_machine_configuration.worker.cluster_endpoint == "https://api.test.internal:6443"
+    error_message = "Controllers and workers must share the private API hostname."
+  }
+  assert {
+    condition     = contains(yamldecode(local.api_san_patch).certExtraSANs, "api.test.internal")
+    error_message = "The Kubernetes API certificate must include the private API hostname."
+  }
 }
 
 run "controllers_are_on_demand_with_instance_profile" {

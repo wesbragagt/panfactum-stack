@@ -80,3 +80,28 @@ either route. Restrict the state, EC2 user data, and encrypted secrets to
 the operators trusted with cluster administration. IAM permissions on the
 SSM targets and documents determine which AWS principals can open the
 tunnels. The `operator` helper selects only the Kubernetes document.
+
+## 5. Verify node-local API failover
+
+Before installing Cilium, keep the generated `KubePrismConfig` on controllers
+and workers. Set `cluster_type = "talos"` in `kube_cilium` and leave the API
+host and port overrides unset. Confirm `127.0.0.1:7445` is listening with
+`talosctl netstat --tcp --listening` on the controller and on each worker
+after it joins.
+
+Keep `private_api_dns_name` as the Kubernetes API endpoint for off-node
+clients. Verify it with the cluster kubeconfig and
+`kubectl --server="https://$api_hostname:6443" get --raw /readyz` from a
+runner with access to the private VPC.
+
+To qualify high availability, grow to three controllers across three
+Availability Zones and verify three etcd voters before invoking an approved
+controller-loss drill. While one controller is down, verify an authenticated
+read and persisted write through KubePrism on a surviving node. Repeat
+through the private hostname using a reachable VPC path. Record transient
+failures and restore all three voters before testing another failure.
+
+Talos v1.14.6 KubePrism checks TCP reachability. A server can continue
+receiving requests while TCP 6443 is open and `/readyz` fails. The private
+A record continues listing every controller IP, so operator access depends
+on client retries and tunnel destination selection.

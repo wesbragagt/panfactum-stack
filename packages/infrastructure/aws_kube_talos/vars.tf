@@ -62,7 +62,7 @@ variable "control_plane_public_ip_enabled" {
 }
 
 variable "private_api_dns_name" {
-  description = "Optional private DNS name (e.g. api.example.internal) used as the cluster endpoint. Creates a private Route53 zone for the parent domain with an A record to every control plane private IP."
+  description = "Optional private DNS name (e.g. api.example.internal) used as the cluster endpoint. Creates a private Route 53 A record with every controller private IP. Clients handle failover between those addresses. Node-local components can use KubePrism."
   type        = string
   default     = null
 }
