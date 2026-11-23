@@ -24,8 +24,9 @@ Use `talos_api_source_security_groups` and `kube_api_source_security_groups`
 to grant each API access from its own set of source security groups.
 
 For Systems Manager, apply `aws_ssm_jump_host` and verify its instance is
-SSM Online. Apply `aws_talos_session_documents` with the cluster name and the
-controller's fixed private IPv4 address. The two documents forward to
+SSM Online. Set `ssm_session_documents_enabled = true` on `aws_kube_talos`
+and supply the controller's fixed private IPv4 address through
+`control_plane_private_ips`. The two documents forward to
 TCP 6443 and TCP 50000. Only the local port is a session parameter.
 
 Use the jump host security group in both ingress maps. For optional NAT

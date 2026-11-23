@@ -86,3 +86,8 @@ output "ssm_jump_host_security_group_id" {
   description = "Security group of the SSM jump host, or null when ssm_jump_host_enabled is false."
   value       = one(aws_security_group.ssm_jump_host[*].id)
 }
+
+output "document_names" {
+  description = "Session Manager document names keyed by API, or null when ssm_session_documents_enabled is false."
+  value       = var.ssm_session_documents_enabled ? { for api, document in aws_ssm_document.api : api => document.name } : null
+}

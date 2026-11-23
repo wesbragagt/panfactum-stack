@@ -48,6 +48,11 @@ variables {
 
 run "arm64_defaults" {
   command = plan
+
+  assert {
+    condition     = length(aws_ssm_document.api) == 0
+    error_message = "Session Manager documents must be opt-in."
+  }
 }
 run "reject_x86_worker" {
   command = plan
@@ -92,7 +97,7 @@ run "reject_x86_fallback" {
 run "fixed_controller_ip_and_requested_user_data_sans" {
   command = plan
   variables {
-    worker_count = 0
+    worker_count              = 0
     control_plane_private_ips = ["10.0.1.10"]
     kube_api_extra_sans       = ["127.0.0.1"]
     talos_api_extra_sans      = ["127.0.0.1"]
@@ -153,16 +158,62 @@ run "three_unique_subnets_plan_three_controllers" {
 run "bootstrap_follows_named_subnet" {
   command = plan
   variables {
-    control_plane_count       = 3
-    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
-    private_api_dns_name      = "api.test.internal"
-    bootstrap_control_plane   = "PRIVATE_B"
+    control_plane_count           = 3
+    control_plane_subnets         = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
+    control_plane_private_ips     = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
+    private_api_dns_name          = "api.test.internal"
+    bootstrap_control_plane       = "PRIVATE_B"
+    ssm_session_documents_enabled = true
   }
   assert {
     condition     = local.bootstrap_index == 1
     error_message = "bootstrap_control_plane must select its subnet's position."
   }
+  assert {
+    condition = alltrue([
+      for document in aws_ssm_document.api : jsondecode(document.content).properties.host == "10.0.2.10"
+    ])
+    error_message = "Both documents must target the named bootstrap controller's fixed IP."
+  }
+}
+
+run "ssm_session_documents_fix_remote_destination" {
+  command = plan
+  variables {
+    cluster_name                  = "operator-canary"
+    control_plane_private_ips     = ["10.0.128.20"]
+    ssm_session_documents_enabled = true
+  }
+  assert {
+    condition = alltrue([
+      for api, port in { kube = "6443", talos = "50000" } :
+      aws_ssm_document.api[api].name == "operator-canary-${api}-forward"
+      && aws_ssm_document.api[api].document_type == "Session"
+      && aws_ssm_document.api[api].document_format == "JSON"
+      && jsondecode(aws_ssm_document.api[api].content).sessionType == "Port"
+      && jsondecode(aws_ssm_document.api[api].content).properties.host == "10.0.128.20"
+      && jsondecode(aws_ssm_document.api[api].content).properties.portNumber == port
+      && jsondecode(aws_ssm_document.api[api].content).properties.localPortNumber == "{{ localPortNumber }}"
+      && jsondecode(aws_ssm_document.api[api].content).parameters == {
+        localPortNumber = {
+          type           = "String"
+          default        = "0"
+          allowedPattern = "^([0-9]|[1-9][0-9]{1,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$"
+        }
+      }
+    ])
+    error_message = "The documents must pin the controller and API port, and expose only the validated local port."
+  }
+}
+
+run "ssm_session_documents_require_fixed_controller_ip" {
+  command = plan
+  variables {
+    control_plane_private_ips     = []
+    private_api_dns_name          = "api.test.internal"
+    ssm_session_documents_enabled = true
+  }
+  expect_failures = [aws_ssm_document.api]
 }
 
 run "reject_inactive_bootstrap" {
@@ -546,7 +597,7 @@ run "no_removed_controllers_makes_no_external_call" {
 run "direct_private_api_has_no_ssm_dependency" {
   command = plan
   variables {
-    worker_count = 0
+    worker_count                     = 0
     private_api_dns_name             = "api.test.internal"
     talos_api_endpoint               = "10.0.1.10"
     kube_api_source_security_groups  = { runner = "sg-00000000000000001" }
@@ -573,7 +624,7 @@ run "direct_private_api_has_no_ssm_dependency" {
 run "caller_owned_ssm_path" {
   command = plan
   variables {
-    worker_count = 0
+    worker_count                     = 0
     private_api_dns_name             = "api.test.internal"
     talos_api_endpoint               = "127.0.0.1:50003"
     kube_api_extra_sans              = ["127.0.0.1", "kubectl.test.internal"]
@@ -606,7 +657,7 @@ run "caller_owned_ssm_path" {
 run "ssm_jump_host_enabled" {
   command = plan
   variables {
-    worker_count = 0
+    worker_count          = 0
     ssm_jump_host_enabled = true
     private_api_dns_name  = "api.test.internal"
   }

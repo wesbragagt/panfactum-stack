@@ -37,8 +37,11 @@ supplies its own API ingress. Set `kube_api_source_security_groups` and
 supply security group IDs as their values.
 
 For SSM, deploy `aws_ssm_jump_host` first and wait until its instance is SSM
-Online. Deploy `aws_talos_session_documents` with the cluster name and fixed
-controller IP. Pass the jump host security group to both ingress maps and set
+Online. Set `ssm_session_documents_enabled = true` and supply the bootstrap
+controller's fixed IP through `control_plane_private_ips`. The module creates
+`<cluster_name>-kube-forward` and `<cluster_name>-talos-forward` before it
+launches the controller, and `document_names` maps each API to its document.
+Pass the jump host security group to both ingress maps and set
 the endpoint to the local Talos forward. Add `127.0.0.1` to each API's extra
 SAN list. The maps also accept the security group of an explicitly selected
 emergency NAT.
