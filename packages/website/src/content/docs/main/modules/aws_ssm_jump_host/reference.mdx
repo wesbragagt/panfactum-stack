@@ -1,0 +1,61 @@
+{/* lint disable no-duplicate-headings */}
+
+{/* eslint-disable import-x/order */}
+
+## Inputs
+
+The following input variables are supported:
+
+### cluster\_name
+
+Description: Cluster name used for the jump host and its IAM resources. Must be unique in the AWS account.
+
+Type: `string`
+
+Default: n/a
+
+### instance\_type
+
+Description: Arm64 instance type for the jump host.
+
+Type: `string`
+
+Default: `"t4g.nano"`
+
+### subnet\_id
+
+Description: ID of the existing private subnet with outbound connectivity for the SSM agent.
+
+Type: `string`
+
+Default: n/a
+
+### vpc\_id
+
+Description: ID of the existing VPC.
+
+Type: `string`
+
+Default: n/a
+
+## Outputs
+
+The following outputs are exported:
+
+### instance\_id
+
+Description: EC2 instance ID to target with SSM StartSession.
+
+### security\_group\_id
+
+Description: Source security group ID to allow on the target APIs.
+
+## Providers
+
+The following providers are needed by this module:
+
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
+
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

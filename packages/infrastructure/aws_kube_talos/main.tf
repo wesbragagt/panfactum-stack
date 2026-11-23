@@ -35,14 +35,13 @@ locals {
   # Keep the Elastic IP valid in the API server cert so clients pinned to it survive a switch to the DNS name
   api_san_patch = yamlencode({
     apiVersion    = "v1alpha1", kind = "KubeAPIServerConfig"
-    certExtraSANs = compact(distinct([local.api_host, local.public_ip, var.private_api_dns_name, "127.0.0.1"]))
+    certExtraSANs = compact(distinct(concat([local.api_host, local.public_ip, var.private_api_dns_name], local.legacy_ssm_sans, var.kube_api_extra_sans)))
   })
 
-  # Callers behind the SSM tunnel reach the Talos API on 127.0.0.1; others keep the Elastic IP
   talos_api_endpoint = var.talos_api_endpoint != null ? var.talos_api_endpoint : aws_eip_association.api[0].public_ip
 
-  # The SSM tunnel connects on 127.0.0.1, so the Talos API cert must be valid there (Talos 1.14 has no typed doc for this)
-  talos_api_san_patch = yamlencode({ machine = { certSANs = ["127.0.0.1"] } })
+  talos_api_sans    = distinct(concat(local.legacy_ssm_sans, var.talos_api_extra_sans))
+  talos_api_patches = length(local.talos_api_sans) == 0 ? [] : [yamlencode({ machine = { certSANs = local.talos_api_sans } })]
 
   cilium_config_patches = var.cilium_enabled ? [
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeFlannelCNIConfig", "$patch" = "delete" }),
@@ -136,6 +135,26 @@ resource "aws_vpc_security_group_ingress_rule" "kube_api" {
   description       = "Kubernetes API"
 }
 
+resource "aws_vpc_security_group_ingress_rule" "talos_api_source" {
+  for_each                     = var.talos_api_source_security_groups
+  security_group_id            = aws_security_group.nodes.id
+  referenced_security_group_id = each.value
+  ip_protocol                  = "tcp"
+  from_port                    = 50000
+  to_port                      = 50000
+  description                  = "Talos API"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "kube_api_source" {
+  for_each                     = var.kube_api_source_security_groups
+  security_group_id            = aws_security_group.nodes.id
+  referenced_security_group_id = each.value
+  ip_protocol                  = "tcp"
+  from_port                    = 6443
+  to_port                      = 6443
+  description                  = "Kubernetes API"
+}
+
 # Nodes reach the endpoint through the Elastic IP, so traffic arrives from public addresses
 resource "aws_vpc_security_group_ingress_rule" "kube_api_nodes" {
   count             = var.control_plane_public_ip_enabled ? 1 : 0
@@ -211,7 +230,7 @@ resource "aws_route53_record" "api" {
 
 locals {
   # SANs live in user data so the first boot's certs already validate through an SSM tunnel at 127.0.0.1
-  control_plane_base_patches = concat([local.api_san_patch, local.talos_api_san_patch], local.cilium_config_patches, local.core_dns_config_patches, var.aws_node_config_enabled ? local.aws_control_plane_patches : [], var.control_plane_config_patches)
+  control_plane_base_patches = concat([local.api_san_patch], local.talos_api_patches, local.cilium_config_patches, local.core_dns_config_patches, var.aws_node_config_enabled ? local.aws_control_plane_patches : [], var.control_plane_config_patches)
   control_plane_node_config = {
     apiVersion = "v1alpha1", kind = "KubeNodeConfig", labels = { "panfactum.com/class" = "controller" }
     taints     = { "node-role.kubernetes.io/control-plane" = var.aws_node_config_enabled ? { "$patch" = "delete" } : null, "controller" = "true:NoSchedule" }
@@ -499,9 +518,16 @@ resource "talos_machine_configuration_apply" "control_plane" {
   endpoint       = local.talos_api_endpoint
   node           = aws_instance.control_plane[count.index].private_ip
 
-  # Nodes resolve the cluster endpoint during the apply, so the record must exist first
-  # On first bootstrap through a tunnel, the tunnel hosts need ingress before the first call
-  depends_on = [aws_route53_record.api, aws_route53_record.private_api, aws_vpc_security_group_ingress_rule.operator_tunnel]
+  # DNS and Talos ingress must exist before the first API call.
+  depends_on = [
+    aws_route53_record.api,
+    aws_route53_record.private_api,
+    aws_vpc_security_group_ingress_rule.talos_api,
+    aws_vpc_security_group_ingress_rule.talos_api_source,
+    aws_vpc_security_group_ingress_rule.operator_tunnel,
+    aws_instance.ssm_jump_host,
+    aws_vpc_security_group_ingress_rule.ssm_jump_host_talos,
+  ]
 
   # A replacement reuses the fixed IP, so node never changes; without this the new instance keeps
   # user data only and its API server rejects tokens from the shared OIDC issuer.

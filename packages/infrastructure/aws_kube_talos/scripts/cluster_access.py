@@ -149,8 +149,11 @@ class Access:
         if any(char in value for value in (exact or prefix,) for char in "*?\\"):
             raise AccessError("Control-plane Name must be exact, without AWS wildcards")
         # Controllers are named <cluster>-control-plane-<position>.
-        found = self.instances([f"Name=tag:Name,Values={exact or prefix + '*'}",
-                                f"Name=instance-state-name,Values={','.join(states)}"])
+        filters = [f"Name=tag:Name,Values={exact or prefix + '*'}",
+                   f"Name=instance-state-name,Values={','.join(states)}"]
+        if vpc_id := getattr(self.args, "vpc_id", None):
+            filters.append(f"Name=vpc-id,Values={vpc_id}")
+        found = self.instances(filters)
         named = []
         for node in found:
             name = next((tag["Value"] for tag in node.get("Tags", []) if tag["Key"] == "Name"), "")
@@ -241,14 +244,16 @@ class Access:
                 print(f"Warning: could not terminate owned SSM session {session_id}", file=sys.stderr)
 
     def forward(self, target, private_ip, directory, local_port, remote_port):
+        self.start_session(target, directory, "AWS-StartPortForwardingSessionToRemoteHost",
+                           {"host": [private_ip], "portNumber": [str(remote_port)],
+                            "localPortNumber": [str(local_port)]})
+
+    def start_session(self, target, directory, document, parameters):
         log = tempfile.TemporaryFile(dir=directory)
-        parameters = {"host": [private_ip], "portNumber": [str(remote_port)],
-                      "localPortNumber": [str(local_port)]}
         try:
             process = subprocess.Popen(
                 self.aws_args("ssm", "start-session", "--target", target,
-                              "--reason", self.reason, "--document-name",
-                              "AWS-StartPortForwardingSessionToRemoteHost", "--parameters",
+                              "--reason", self.reason, "--document-name", document, "--parameters",
                               json.dumps(parameters)), stdout=log, stderr=log,
                 stdin=subprocess.DEVNULL, preexec_fn=die_with_parent)
         except BaseException:
@@ -454,18 +459,24 @@ def bootstrap(args, access):
             access.close_forwards()
 
 
-def background_run(args, access):
+def background_run(args, access, initial, ready):
     failures = 0
     with tempfile.TemporaryDirectory(prefix="cluster-access-") as directory:
         try:
+            # A first apply must be able to create the controller and the SSM host.
+            if initial is None:
+                ready()
             while True:
                 started = None
                 try:
-                    private_ip, candidates = wait_for_controller(args, access)
+                    private_ip, candidates = initial or wait_for_controller(args, access)
                     require_free_port(args.talos_port)
                     target = forward_talos(args, access, candidates, private_ip, Path(directory))
                     started = time.monotonic()
                     print(f"Forwarding Talos to {private_ip} through {target}", flush=True)
+                    if initial is not None:
+                        ready()
+                        initial = None
                     while all(process.poll() is None for process, _ in access.sessions):
                         nap(args, 0.5)
                     raise AccessError("The SSM forward exited")
@@ -474,6 +485,8 @@ def background_run(args, access):
                     print(f"cluster-access: {exc}", file=sys.stderr, flush=True)
                     return 0
                 except AccessError as exc:
+                    if initial is not None:
+                        raise
                     print(f"cluster-access: {exc}", file=sys.stderr, flush=True)
                     access.close_forwards()
                     if started is not None and time.monotonic() - started > 60:
@@ -496,7 +509,7 @@ def read_state(path):
         return None
 
 
-def run_detached(args, access, parent, directory, write_fd):
+def run_detached(args, access, parent, directory, write_fd, initial):
     record = directory / "bootstrap.json"
     code = 1
     try:
@@ -514,10 +527,12 @@ def run_detached(args, access, parent, directory, write_fd):
         private_write(pending, json.dumps(
             {"pid": os.getpid(), "parent": parent, "talos_port": args.talos_port}).encode())
         pending.replace(record)
-        os.write(write_fd, str(os.getpid()).encode())
-        os.close(write_fd)
+        def ready():
+            os.write(write_fd, str(os.getpid()).encode())
+            os.close(write_fd)
+
         args.parent = parent
-        code = background_run(args, access)
+        code = background_run(args, access, initial, ready)
     except (ParentGone, Interrupted) as exc:
         code = 0 if isinstance(exc, ParentGone) else 128 + exc.signum
     except (AccessError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as exc:
@@ -541,12 +556,16 @@ def background(args, access):
         fcntl.flock(lock, fcntl.LOCK_EX)
         ready = read_state(directory / "ready.json")
         if isinstance(ready, dict) and ready.get("talos_port") == port and alive(ready.get("pid")):
+            if args.terragrunt_hook:
+                raise AccessError(f"Local Talos port {port} is reserved by an operator tunnel; stop that tunnel first")
             print(f"reusing live tunnel for {args.cluster} on 127.0.0.1:{port}")
             return 0
         previous = read_state(directory / "bootstrap.json")
         if (isinstance(previous, dict) and previous.get("talos_port") == port
                 and alive(previous.get("pid"))):
             if alive(previous.get("parent")):
+                if args.terragrunt_hook:
+                    raise AccessError(f"Local Talos port {port} is reserved by another tunnel helper")
                 print(f"reusing background helper {previous['pid']} for {args.cluster} on 127.0.0.1:{port}")
                 return 0
             # Its parent is gone, so it is closing its forward; wait for the port to free up.
@@ -554,6 +573,15 @@ def background(args, access):
             while alive(previous["pid"]) and time.monotonic() < deadline:
                 time.sleep(0.2)
         require_free_port(port)
+        initial = None
+        if args.terragrunt_hook:
+            # An existing cluster may need its API during the first provider refresh.
+            try:
+                private_ips, candidates = access.discover(("pending", "running"))
+            except (ControllerNotFound, NoTunnelHost) as exc:
+                print(f"Waiting in the background for Talos tunnel discovery: {exc}")
+            else:
+                initial = private_ips[0], candidates
         read_fd, write_fd = os.pipe()
         child = os.fork()
         if child == 0:
@@ -562,7 +590,7 @@ def background(args, access):
                 lock.close()
                 os.setsid()
                 if os.fork() == 0:
-                    run_detached(args, access, parent, directory, write_fd)
+                    run_detached(args, access, parent, directory, write_fd, initial)
             finally:
                 os._exit(0)
         os.close(write_fd)
@@ -570,7 +598,7 @@ def background(args, access):
         os.close(read_fd)
         os.waitpid(child, 0)
     if not helper:
-        raise AccessError("Background Talos helper failed to start")
+        raise AccessError(f"Background Talos helper failed to start; see {directory / 'bootstrap.log'}")
     print(f"Talos tunnel helper {helper.decode()} log: {directory / 'bootstrap.log'}")
     print(f'talos_api_endpoint = "127.0.0.1:{port}"', flush=True)
     return 0
@@ -965,6 +993,7 @@ def main():
     parser.add_argument("--idle-check-interval", type=float, help=argparse.SUPPRESS)
     parser.add_argument("--ready-file", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()  # --help exits before credentials, AWS or tool discovery.
+    args.terragrunt_hook = False
     args.report = print
     args.parent = None
     if args.background and not args.bootstrap:

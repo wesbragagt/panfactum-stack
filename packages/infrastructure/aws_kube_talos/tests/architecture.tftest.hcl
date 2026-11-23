@@ -89,16 +89,21 @@ run "reject_x86_fallback" {
   expect_failures = [data.aws_ec2_instance_type.node]
 }
 
-run "fixed_controller_ip_and_user_data_sans" {
+run "fixed_controller_ip_and_requested_user_data_sans" {
   command = plan
-  variables { control_plane_private_ips = ["10.0.1.10"] }
+  variables {
+    worker_count = 0
+    control_plane_private_ips = ["10.0.1.10"]
+    kube_api_extra_sans       = ["127.0.0.1"]
+    talos_api_extra_sans      = ["127.0.0.1"]
+  }
   assert {
     condition     = aws_instance.control_plane[0].private_ip == "10.0.1.10"
     error_message = "control_plane_private_ips must set the controller's private IP."
   }
   assert {
-    condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "127.0.0.1")
-    error_message = "Control plane user data must carry the 127.0.0.1 SANs for tunnel bootstrap."
+    condition     = contains(yamldecode(local.api_san_patch).certExtraSANs, "127.0.0.1") && local.talos_api_sans == tolist(["127.0.0.1"])
+    error_message = "Control plane user data must carry the requested loopback SANs for both APIs."
   }
 }
 
@@ -530,21 +535,89 @@ run "no_removed_controllers_makes_no_external_call" {
   }
 }
 
-run "ssm_jump_host_off_by_default" {
+run "direct_private_api_has_no_ssm_dependency" {
   command = plan
+  variables {
+    worker_count = 0
+    private_api_dns_name             = "api.test.internal"
+    talos_api_endpoint               = "10.0.1.10"
+    kube_api_source_security_groups  = { runner = "sg-00000000000000001" }
+    talos_api_source_security_groups = { runner = "sg-00000000000000001" }
+  }
   assert {
-    condition     = length(aws_instance.ssm_jump_host) + length(aws_security_group.ssm_jump_host) + length(aws_iam_role.ssm_jump_host) + length(aws_iam_instance_profile.ssm_jump_host) + length(aws_vpc_security_group_ingress_rule.ssm_jump_host_kubernetes) + length(aws_vpc_security_group_ingress_rule.ssm_jump_host_talos) == 0
-    error_message = "The jump host must not exist unless ssm_jump_host_enabled is true."
+    condition     = local.ssm_jump_host_count == 0 && length(aws_vpc_security_group_ingress_rule.operator_tunnel) == 0
+    error_message = "A direct cluster must not own a jump host or legacy tunnel ingress."
   }
   assert {
     condition     = output.ssm_jump_host_instance_id == null && output.ssm_jump_host_security_group_id == null
     error_message = "Jump host outputs must be null when disabled."
   }
+  assert {
+    condition     = local.talos_api_endpoint == "10.0.1.10" && output.cluster_url == "https://api.test.internal:6443"
+    error_message = "The Talos client must use the private address while the Kubernetes API retains private DNS."
+  }
+  assert {
+    condition     = length(local.talos_api_patches) == 0 && !contains(yamldecode(local.api_san_patch).certExtraSANs, "127.0.0.1")
+    error_message = "Direct reachability must not require loopback SANs."
+  }
+}
+
+run "caller_owned_ssm_path" {
+  command = plan
+  variables {
+    worker_count = 0
+    private_api_dns_name             = "api.test.internal"
+    talos_api_endpoint               = "127.0.0.1:50003"
+    kube_api_extra_sans              = ["127.0.0.1", "kubectl.test.internal"]
+    talos_api_extra_sans             = ["127.0.0.1"]
+    kube_api_source_security_groups  = { jump = "sg-00000000000000001", kubectl_runner = "sg-00000000000000002" }
+    talos_api_source_security_groups = { jump = "sg-00000000000000001", recovery = "sg-00000000000000003" }
+  }
+  assert {
+    condition     = local.ssm_jump_host_count == 0 && length(aws_vpc_security_group_ingress_rule.operator_tunnel) == 0
+    error_message = "A caller-owned SSM path must not create a cluster-owned jump host or legacy tunnel ingress."
+  }
+  assert {
+    condition     = local.talos_api_endpoint == "127.0.0.1:50003" && toset(yamldecode(local.api_san_patch).certExtraSANs) == toset(["10.0.1.10", "api.test.internal", "127.0.0.1", "kubectl.test.internal"]) && local.talos_api_sans == tolist(["127.0.0.1"])
+    error_message = "The cluster must retain private DNS and use the caller's Talos endpoint and SANs."
+  }
+  assert {
+    condition     = toset(keys(aws_vpc_security_group_ingress_rule.kube_api_source)) == toset(["jump", "kubectl_runner"]) && toset(keys(aws_vpc_security_group_ingress_rule.talos_api_source)) == toset(["jump", "recovery"])
+    error_message = "The Kubernetes-only and Talos-only sources must stay independent."
+  }
+  assert {
+    condition     = alltrue([for key, rule in aws_vpc_security_group_ingress_rule.kube_api_source : rule.referenced_security_group_id == var.kube_api_source_security_groups[key] && rule.ip_protocol == "tcp" && rule.from_port == 6443 && rule.to_port == 6443])
+    error_message = "Each caller-owned Kubernetes source must receive only TCP 6443."
+  }
+  assert {
+    condition     = alltrue([for key, rule in aws_vpc_security_group_ingress_rule.talos_api_source : rule.referenced_security_group_id == var.talos_api_source_security_groups[key] && rule.ip_protocol == "tcp" && rule.from_port == 50000 && rule.to_port == 50000])
+    error_message = "Each caller-owned Talos source must receive only TCP 50000."
+  }
 }
 
 run "ssm_jump_host_enabled" {
   command = plan
-  variables { ssm_jump_host_enabled = true }
+  variables {
+    worker_count = 0
+    ssm_jump_host_enabled = true
+    private_api_dns_name  = "api.test.internal"
+  }
+  assert {
+    condition     = aws_instance.control_plane[0].associate_public_ip_address == false && length(aws_eip.api) == 0
+    error_message = "A private cluster must launch its controller without a public IP or EIP."
+  }
+  assert {
+    condition     = aws_security_group.ssm_jump_host[0].vpc_id == var.vpc_id && aws_security_group.nodes.vpc_id == var.vpc_id && length(aws_vpc_security_group_ingress_rule.operator_tunnel) == 0
+    error_message = "The cluster and jump host must use the shared VPC without an external tunnel security group."
+  }
+  assert {
+    condition     = local.cluster_endpoint == "https://api.test.internal:6443" && local.talos_api_endpoint == "127.0.0.1"
+    error_message = "The Kubernetes API must use private DNS and the Talos provider must use the local tunnel."
+  }
+  assert {
+    condition     = contains(yamldecode(local.api_san_patch).certExtraSANs, "127.0.0.1") && local.talos_api_sans == tolist(["127.0.0.1"])
+    error_message = "Existing jump hosts must retain the loopback SAN on both APIs."
+  }
   assert {
     condition     = length(aws_instance.ssm_jump_host) == 1 && aws_instance.ssm_jump_host[0].associate_public_ip_address == false
     error_message = "Enabling must plan one jump host without a public IP."

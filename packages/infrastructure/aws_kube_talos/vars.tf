@@ -140,9 +140,33 @@ variable "kube_api_allowed_cidrs" {
 }
 
 variable "talos_api_endpoint" {
-  description = "Talos API endpoint for the provider and talosconfig. The default reaches the controller through an SSM tunnel forwarding 127.0.0.1:50000. Null uses the Elastic IP (requires control_plane_public_ip_enabled)."
+  description = "Reachable Talos API endpoint for the provider and talosconfig, with optional port. Set this explicitly for new callers. The legacy default is 127.0.0.1. Null uses the Elastic IP (requires control_plane_public_ip_enabled)."
   type        = string
   default     = "127.0.0.1"
+}
+
+variable "kube_api_extra_sans" {
+  description = "Additional DNS names or IPs in the Kubernetes API certificate."
+  type        = list(string)
+  default     = []
+}
+
+variable "talos_api_extra_sans" {
+  description = "Additional DNS names or IPs in the Talos API certificate. Include the endpoint name or IP if Talos does not discover it on boot."
+  type        = list(string)
+  default     = []
+}
+
+variable "kube_api_source_security_groups" {
+  description = "Security group IDs allowed to reach Kubernetes TCP 6443, keyed by stable caller-chosen names."
+  type        = map(string)
+  default     = {}
+}
+
+variable "talos_api_source_security_groups" {
+  description = "Security group IDs allowed to reach Talos TCP 50000, keyed by stable caller-chosen names."
+  type        = map(string)
+  default     = {}
 }
 
 variable "api_dns" {

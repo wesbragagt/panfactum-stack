@@ -221,6 +221,22 @@ Type: `list(string)`
 
 Default: `[]`
 
+### kube\_api\_extra\_sans
+
+Description: Additional DNS names or IPs in the Kubernetes API certificate.
+
+Type: `list(string)`
+
+Default: `[]`
+
+### kube\_api\_source\_security\_groups
+
+Description: Security group IDs allowed to reach Kubernetes TCP 6443, keyed by stable caller-chosen names.
+
+Type: `map(string)`
+
+Default: `{}`
+
 ### kube\_version
 
 Description: Kubernetes version (e.g., 1.37.0). Pinned so a talos provider upgrade does not change it; upgrade with `talosctl upgrade-k8s`.
@@ -324,6 +340,30 @@ Default:
 ]
 ```
 
+### ssm\_jump\_host\_enabled
+
+Description: Create an SSM jump host in the VPC that operators tunnel through to the private Kubernetes and Talos APIs.
+
+Type: `bool`
+
+Default: `false`
+
+### ssm\_jump\_host\_instance\_type
+
+Description: Instance type of the SSM jump host. Must support arm64.
+
+Type: `string`
+
+Default: `"t4g.nano"`
+
+### ssm\_jump\_host\_subnet
+
+Description: Name tag of the private subnet for the SSM jump host. Defaults to the first entry of control\_plane\_subnets.
+
+Type: `string`
+
+Default: `null`
+
 ### talos\_api\_allowed\_cidrs
 
 Description: CIDRs allowed to reach the Talos API (TCP 50000). Empty by default; operators reach the API through the SSM tunnel instead.
@@ -334,11 +374,27 @@ Default: `[]`
 
 ### talos\_api\_endpoint
 
-Description: Talos API endpoint for the provider and talosconfig. The default reaches the controller through an SSM tunnel forwarding 127.0.0.1:50000. Null uses the Elastic IP (requires control\_plane\_public\_ip\_enabled).
+Description: Reachable Talos API endpoint for the provider and talosconfig, with optional port. Set this explicitly for new callers. The legacy default is 127.0.0.1. Null uses the Elastic IP (requires control\_plane\_public\_ip\_enabled).
 
 Type: `string`
 
 Default: `"127.0.0.1"`
+
+### talos\_api\_extra\_sans
+
+Description: Additional DNS names or IPs in the Talos API certificate. Include the endpoint name or IP if Talos does not discover it on boot.
+
+Type: `list(string)`
+
+Default: `[]`
+
+### talos\_api\_source\_security\_groups
+
+Description: Security group IDs allowed to reach Talos TCP 50000, keyed by stable caller-chosen names.
+
+Type: `map(string)`
+
+Default: `{}`
 
 ### talos\_version
 
@@ -374,7 +430,7 @@ Default: `[]`
 
 ### worker\_count
 
-Description: Number of worker nodes.
+Description: Number of Spot worker nodes in the worker ASG. 0 creates no Spot ASG, for clusters where Karpenter launches every worker.
 
 Type: `number`
 
@@ -492,6 +548,14 @@ Description: Public service-account issuer; configure Talos to sign tokens with 
 
 Description: IAM OIDC provider for sts.amazonaws.com service-account tokens.
 
+### ssm\_jump\_host\_instance\_id
+
+Description: Instance ID of the SSM jump host, or null when ssm\_jump\_host\_enabled is false.
+
+### ssm\_jump\_host\_security\_group\_id
+
+Description: Security group of the SSM jump host, or null when ssm\_jump\_host\_enabled is false.
+
 ### talos\_ami\_id
 
 Description: Talos AMI used by workers.
@@ -502,7 +566,7 @@ Description: talosctl client configuration.
 
 ### worker\_autoscaling\_group\_name
 
-Description: Auto Scaling group maintaining the desired Spot worker count.
+Description: Auto Scaling group maintaining the desired Spot worker count, or null when worker\_count is 0.
 
 ### worker\_machine\_configuration
 

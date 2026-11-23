@@ -37,6 +37,8 @@ variable "ssm_jump_host_subnet" {
 }
 
 locals {
+  # Retain the existing certificates and state addresses during the rollout.
+  legacy_ssm_sans     = var.ssm_jump_host_enabled || length(var.operator_tunnel_security_group_ids) > 0 ? ["127.0.0.1"] : []
   ssm_jump_host_count = var.ssm_jump_host_enabled ? 1 : 0
   ssm_jump_host_name  = "${var.cluster_name}-ssm-tunnel"
 }
@@ -111,6 +113,9 @@ resource "aws_instance" "ssm_jump_host" {
   vpc_security_group_ids      = [aws_security_group.ssm_jump_host[0].id]
   iam_instance_profile        = aws_iam_instance_profile.ssm_jump_host[0].name
   associate_public_ip_address = false
+
+  # Attach the SSM policy before the agent starts on a new host.
+  depends_on = [aws_iam_role_policy_attachment.ssm_jump_host]
 
   metadata_options {
     http_endpoint               = "enabled"

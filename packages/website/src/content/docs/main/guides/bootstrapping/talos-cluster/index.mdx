@@ -1,0 +1,82 @@
+# Bootstrap a private Talos cluster on AWS
+
+Use `aws_kube_talos` with a private Talos endpoint reachable by the machine that
+runs Terragrunt. A runner inside the VPC can connect directly. A runner outside
+the VPC can use a caller-owned Systems Manager tunnel.
+
+## 1. Prepare the network and controller
+
+Choose an existing VPC and private subnet with outbound access to the image
+registries. Reserve a private controller IP and a private Kubernetes API DNS
+name. Use a dedicated controller instance profile, a new SOPS-encrypted Talos
+secrets bundle, and a separate state key for this cluster.
+
+For a one-controller bootstrap, set `control_plane_count = 1`,
+`worker_count = 0`, and `on_demand_worker_subnets = []`. Keep
+`control_plane_public_ip_enabled = false`. Install the networking add-ons
+required by your chosen cluster configuration before expecting the node to
+be Ready.
+
+## 2. Prepare access
+
+For direct access, set `talos_api_endpoint` to a reachable private address.
+Use `talos_api_source_security_groups` and `kube_api_source_security_groups`
+to grant each API access from its own set of source security groups.
+
+For Systems Manager, apply `aws_ssm_jump_host` and verify its instance is
+SSM Online. Apply `aws_talos_session_documents` with the cluster name and the
+controller's fixed private IPv4 address. The two documents forward to
+TCP 6443 and TCP 50000. Only the local port is a session parameter.
+
+Use the jump host security group in both ingress maps. For optional NAT
+recovery, include the security group of an explicit SSM-managed NAT in both
+maps. Use stable labels such as `jump` and `emergency` as the map keys.
+Set `talos_api_endpoint = "127.0.0.1:55000"` and put `127.0.0.1` in both
+`talos_api_extra_sans` and `kube_api_extra_sans`.
+
+## 3. Plan and apply
+
+In the SSM caller, configure a Terragrunt `before_hook` for `plan` and
+`apply` that directly executes the following command as an argument list.
+Use the same AWS profile as the AWS provider and the jump host's instance
+ID from its Terragrunt output.
+
+```sh
+python3 "$module_dir/scripts/operator_tunnel.py" bootstrap \
+  --cluster "$cluster" --profile "$profile" --region "$region" \
+  --account-id "$account" --vpc-id "$vpc" --controller-ip "$controller_ip" \
+  --jump-host "$jump_host" --talos-port 55000
+```
+
+The hook discovers the controller as the first apply creates it. On later
+plans it opens the tunnel before provider refresh. Apply a reviewed plan and
+retrieve the sensitive `kubeconfig` and `talosconfig` outputs into private
+files. Run a follow-up plan to check convergence.
+
+## 4. Verify access and recovery
+
+Use the existing AWS profile with permission to start the selected SSM
+sessions. Open both forwards through the dedicated host to check bootstrap.
+For recovery, close that local tunnel and replace `--jump-host "$jump_host"`
+with `--nat-host "$nat_host"` in the command below.
+
+```sh
+python3 "$module_dir/scripts/operator_tunnel.py" recovery \
+  --cluster "$cluster" --profile "$profile" --region "$region" \
+  --account-id "$account" --vpc-id "$vpc" --controller-ip "$controller_ip" \
+  --jump-host "$jump_host" --kube-port 26443 --talos-port 55000
+```
+
+With the tunnel running, verify both APIs from another terminal.
+
+```sh
+kubectl --kubeconfig "$admin_kubeconfig" --server https://127.0.0.1:26443 get --raw /readyz
+talosctl --talosconfig "$admin_talosconfig" --endpoints 127.0.0.1:55000 \
+  --nodes "$controller_ip" etcd members
+```
+
+The Talos admin certificate authenticates Kubernetes operations through
+either route. Restrict the state, EC2 user data, and encrypted secrets to
+the operators trusted with cluster administration. IAM permissions on the
+SSM targets and documents determine which AWS principals can open the
+tunnels. The `operator` helper selects only the Kubernetes document.

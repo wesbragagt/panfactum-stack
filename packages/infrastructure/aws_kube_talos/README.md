@@ -29,6 +29,29 @@ flowchart LR
 | etcd backups (`backup.tf`) | Hourly KMS-encrypted snapshots to S3, plus a snapshot before any new controller joins. |
 | OIDC (`oidc.tf`) | Public discovery documents so AWS IAM trusts service-account tokens (IRSA). |
 
+## Caller-owned bootstrap transport
+
+A direct-connect caller sets `talos_api_endpoint` to a reachable address and
+supplies its own API ingress. Set `kube_api_source_security_groups` and
+`talos_api_source_security_groups` independently. Use stable map keys and
+supply security group IDs as their values.
+
+For SSM, deploy `aws_ssm_jump_host` first and wait until its instance is SSM
+Online. Deploy `aws_talos_session_documents` with the cluster name and fixed
+controller IP. Pass the jump host security group to both ingress maps and set
+the endpoint to the local Talos forward. Add `127.0.0.1` to each API's extra
+SAN list. The maps also accept the security group of an explicitly selected
+emergency NAT.
+
+Run `scripts/operator_tunnel.py bootstrap` directly as a caller Terragrunt
+before hook with the cluster name, AWS profile, account, region, VPC, private
+controller IP, jump host ID and local Talos port. The hook can wait for a
+controller created by the same apply. Run `operator_tunnel.py --help` for
+the full arguments. Use `operator` for the Kubernetes-only forward and
+`recovery --nat-host <instance-id>` for both API forwards through the NAT.
+Each session uses a document with a fixed remote destination. AWS IAM
+determines which principals can use each target and document.
+
 ## Requirements
 
 - A VPC with subnets tagged `Name = PRIVATE_A`, `PRIVATE_B` and `PRIVATE_C` that route `0.0.0.0/0` through NAT. Nodes pull images and join the cluster through that route.
