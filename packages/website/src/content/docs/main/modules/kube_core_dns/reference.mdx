@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### burstable_nodes_enabled
+### burstable\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on burstable nodes
 
@@ -14,7 +14,7 @@ Type: `bool`
 
 Default: `true`
 
-### controller_nodes_enabled
+### controller\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on EKS Node Group nodes (controller nodes)
 
@@ -22,7 +22,7 @@ Type: `bool`
 
 Default: `true`
 
-### core_dns_image_version
+### core\_dns\_image\_version
 
 Description: The version of the image to use for the deployment
 
@@ -30,7 +30,31 @@ Type: `string`
 
 Default: `"1.14.2"`
 
-### monitoring_enabled
+### instance\_type\_anti\_affinity\_required
+
+Description: Whether to require CoreDNS replicas to run on different instance types
+
+Type: `bool`
+
+Default: `true`
+
+### max\_surge
+
+Description: Maximum number or percentage of extra CoreDNS pods during a rollout
+
+Type: `string`
+
+Default: `"0%"`
+
+### max\_unavailable
+
+Description: Maximum number of unavailable CoreDNS pods during a rollout
+
+Type: `number`
+
+Default: `1`
+
+### monitoring\_enabled
 
 Description: Whether to add active monitoring to the deployed systems
 
@@ -38,7 +62,7 @@ Type: `bool`
 
 Default: `false`
 
-### panfactum_scheduler_enabled
+### panfactum\_scheduler\_enabled
 
 Description: Whether to use the Panfactum pod scheduler with enhanced bin-packing
 
@@ -46,7 +70,7 @@ Type: `bool`
 
 Default: `false`
 
-### pull_through_cache_enabled
+### pull\_through\_cache\_enabled
 
 Description: Whether to use the ECR pull through cache for the deployed images
 
@@ -54,7 +78,15 @@ Type: `bool`
 
 Default: `true`
 
-### service_ip
+### replicas
+
+Description: CoreDNS replica count. Keep the default of 2 on multi-node clusters; single-node local clusters use 1 because instance-type anti-affinity leaves a second replica unschedulable.
+
+Type: `number`
+
+Default: `2`
+
+### service\_ip
 
 Description: The IP address that the DNS service will be exposed on
 
@@ -62,7 +94,7 @@ Type: `string`
 
 Default: `"172.20.0.10"`
 
-### spot_nodes_enabled
+### spot\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on spot nodes
 
@@ -70,7 +102,7 @@ Type: `bool`
 
 Default: `true`
 
-### vpa_enabled
+### vpa\_enabled
 
 Description: Whether the VPA resources should be enabled
 
@@ -86,12 +118,14 @@ No outputs.
 
 The following providers are needed by this module:
 
-- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
 
-- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/2.35.0/docs) (2.35.0)
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 
-- [random](https://registry.terraform.io/providers/hashicorp/random/3.8.1/docs) (3.8.1)
+- [random](https://registry.terraform.io/providers/hashicorp/random/3.9.1/docs) (3.9.1)
 
-{/* eslint-enable import-x/order */} {/* lint enable no-duplicate-headings */}
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

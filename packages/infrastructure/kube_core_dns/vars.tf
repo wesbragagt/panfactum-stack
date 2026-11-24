@@ -51,6 +51,25 @@ variable "controller_nodes_enabled" {
   type        = bool
   default     = true
 }
+
+variable "instance_type_anti_affinity_required" {
+  description = "Whether to require CoreDNS replicas to run on different instance types"
+  type        = bool
+  default     = true
+}
+
+variable "max_surge" {
+  description = "Maximum number or percentage of extra CoreDNS pods during a rollout"
+  type        = string
+  default     = "0%"
+}
+
+variable "max_unavailable" {
+  description = "Maximum number of unavailable CoreDNS pods during a rollout"
+  type        = number
+  default     = 1
+}
+
 variable "replicas" {
   description = "CoreDNS replica count. Keep the default of 2 on multi-node clusters; single-node local clusters use 1 because instance-type anti-affinity leaves a second replica unschedulable."
   type        = number
