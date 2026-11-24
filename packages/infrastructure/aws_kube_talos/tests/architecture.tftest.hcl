@@ -1,4 +1,8 @@
 mock_provider "aws" {
+  mock_data "aws_iam_policy_document" { defaults = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" } }
+  mock_data "aws_caller_identity" { defaults = { account_id = "123456789012" } }
+  mock_data "aws_partition" { defaults = { partition = "aws", dns_suffix = "amazonaws.com" } }
+  mock_data "aws_region" { defaults = { region = "us-east-2", name = "us-east-2" } }
   mock_data "aws_ec2_instance_type" {
     defaults = { supported_architectures = ["arm64"] }
   }
@@ -710,4 +714,105 @@ run "reject_x86_ssm_jump_host" {
     values = { supported_architectures = ["x86_64"] }
   }
   expect_failures = [data.aws_ec2_instance_type.node]
+}
+
+run "worker_identity_defaults" {
+  command = plan
+  override_resource {
+    target = aws_iam_role.worker
+    values = { arn = "arn:aws:iam::123456789012:role/test-worker" }
+  }
+  override_resource {
+    target = aws_iam_instance_profile.worker
+    values = { name = "test-worker", arn = "arn:aws:iam::123456789012:instance-profile/test-worker" }
+  }
+  assert {
+    condition = aws_iam_role.worker.name_prefix == "test-worker-" && aws_iam_instance_profile.worker.name_prefix == "test-worker-" && aws_iam_role.worker.tags == tomap({
+      "Name" = "test-talos-worker", "panfactum.com/module" = "aws_talos_worker_identity", "panfactum.com/cluster" = "test"
+    }) && aws_iam_instance_profile.worker.tags == aws_iam_role.worker.tags
+    error_message = "Default identity names and tags must match the standalone module."
+  }
+  assert {
+    condition     = output.node_role_arn == "arn:aws:iam::123456789012:role/test-worker" && output.node_instance_profile == "test-worker" && output.node_instance_profile_arn == "arn:aws:iam::123456789012:instance-profile/test-worker"
+    error_message = "The worker role and profile must be published through all three outputs."
+  }
+  assert {
+    condition     = length(aws_iam_instance_profile.controller) == 0 && length(aws_iam_role_policy.cache_import) == 0
+    error_message = "Controller profiles and cache import permissions must be opt-in."
+  }
+  assert {
+    condition     = length(data.aws_iam_policy_document.ecr_read.statement) == 2 && one([for s in data.aws_iam_policy_document.ecr_read.statement : s if s.sid == "RegionalAccountRepositoryReads"]).resources == toset(["arn:aws:ecr:us-east-2:123456789012:repository/*"])
+    error_message = "Worker reads must stay within the account and region."
+  }
+}
+
+run "worker_identity_configured" {
+  command = plan
+  variables {
+    worker_identity = {
+      name_prefix                            = "custom"
+      ecr_cache_prefixes                     = ["github", "docker-hub", "quay", "kubernetes", "ecr-public"]
+      controller_instance_profile_enabled    = true
+      controller_additional_ecr_repositories = ["homelab-migrations/openbao"]
+    }
+  }
+  override_resource {
+    target = aws_iam_instance_profile.controller
+    values = { name = "managed-controller" }
+  }
+  assert {
+    condition     = aws_iam_role.worker.name_prefix == "custom-worker-" && aws_iam_instance_profile.worker.name_prefix == "custom-worker-" && aws_iam_role.controller[0].name_prefix == "custom-ctrl-" && aws_iam_instance_profile.controller[0].name_prefix == "custom-ctrl-" && aws_iam_role.controller[0].tags == aws_iam_role.worker.tags
+    error_message = "The prefix and tags must match the standalone identity for both roles and profiles."
+  }
+  assert {
+    condition     = aws_instance.control_plane[0].iam_instance_profile == "managed-controller" && length(aws_iam_role_policy.controller_read) == 1 && length(aws_iam_role_policy.controller_import) == 1 && length(aws_iam_role_policy.cache_import) == 1
+    error_message = "The enabled controller profile and import policies must be attached."
+  }
+  assert {
+    condition     = one(data.aws_iam_policy_document.cache_import[0].statement).resources == toset([for prefix in ["github", "docker-hub", "quay", "kubernetes", "ecr-public"] : "arn:aws:ecr:us-east-2:123456789012:repository/${prefix}/*"]) && one(data.aws_iam_policy_document.cache_import[0].statement).actions == toset(["ecr:CreateRepository", "ecr:BatchImportUpstreamImage"])
+    error_message = "Import access must be scoped to the specified cache prefixes."
+  }
+  assert {
+    condition     = one([for s in data.aws_iam_policy_document.controller_read.statement : s if s.sid == "AdditionalExactRepositoryReads"]).resources == toset(["arn:aws:ecr:us-east-2:123456789012:repository/homelab-migrations/openbao"]) && one([for s in data.aws_iam_policy_document.controller_read.statement : s if s.sid == "AdditionalExactRepositoryReads"]).actions == toset(["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"])
+    error_message = "Additional controller access must grant only exact repository reads."
+  }
+}
+
+run "worker_identity_external_profile_precedence" {
+  command = plan
+  variables {
+    worker_identity             = { controller_instance_profile_enabled = true }
+    controller_instance_profile = "external-controller"
+  }
+  assert {
+    condition     = aws_instance.control_plane[0].iam_instance_profile == "external-controller" && length(aws_iam_instance_profile.controller) == 1
+    error_message = "An explicit controller profile must take precedence over the managed profile."
+  }
+}
+
+run "worker_identity_invalid_prefix" {
+  command = plan
+  variables { worker_identity = { name_prefix = "not valid!" } }
+  expect_failures = [var.worker_identity]
+}
+
+run "worker_identity_invalid_cache" {
+  command = plan
+  variables { worker_identity = { ecr_cache_prefixes = ["other"] } }
+  expect_failures = [var.worker_identity]
+}
+
+run "worker_identity_invalid_repository" {
+  command = plan
+  variables { worker_identity = { controller_additional_ecr_repositories = ["repo/*"] } }
+  expect_failures = [var.worker_identity]
+}
+
+run "worker_identity_null_settings" {
+  command = plan
+  variables { worker_identity = null }
+  assert {
+    condition     = aws_iam_role.worker.name_prefix == "test-worker-" && length(aws_iam_instance_profile.controller) == 0
+    error_message = "Null identity settings must select the defaults."
+  }
 }

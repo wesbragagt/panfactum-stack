@@ -444,6 +444,23 @@ Type: `number`
 
 Default: `1`
 
+### worker\_identity
+
+Description: IAM naming and ECR access settings for the Talos worker identity and optional controller identity.
+
+Type:
+
+```hcl
+object({
+    name_prefix                            = optional(string)
+    ecr_cache_prefixes                     = optional(set(string), [])
+    controller_instance_profile_enabled    = optional(bool, false)
+    controller_additional_ecr_repositories = optional(set(string), [])
+  })
+```
+
+Default: `{}`
+
 ### worker\_instance\_profile\_arn
 
 Description: Worker IAM instance profile ARN.
@@ -547,6 +564,18 @@ Description: KMS key that encrypts etcd snapshots. Restores need kms:Decrypt on 
 ### kubeconfig
 
 Description: Admin kubeconfig. The context is named admin@<cluster\_name>.
+
+### node\_instance\_profile
+
+Description: Existing instance profile name to pass to the Custom EC2NodeClass
+
+### node\_instance\_profile\_arn
+
+Description: EC2 worker instance profile ARN
+
+### node\_role\_arn
+
+Description: EC2 worker IAM role ARN for Karpenter's scoped PassRole policy
 
 ### node\_security\_group\_id
 

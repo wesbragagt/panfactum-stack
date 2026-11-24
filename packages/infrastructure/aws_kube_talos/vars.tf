@@ -325,3 +325,30 @@ variable "worker_suspended_processes" {
   type        = list(string)
   default     = []
 }
+
+variable "worker_identity" {
+  description = "IAM naming and ECR access settings for the Talos worker identity and optional controller identity."
+  type = object({
+    name_prefix                            = optional(string)
+    ecr_cache_prefixes                     = optional(set(string), [])
+    controller_instance_profile_enabled    = optional(bool, false)
+    controller_additional_ecr_repositories = optional(set(string), [])
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = var.worker_identity.name_prefix == null || can(regex("^[A-Za-z0-9+=,.@_-]{1,24}$", var.worker_identity.name_prefix))
+    error_message = "name_prefix must be 1-24 IAM-compatible characters so generated role and profile names fit AWS limits."
+  }
+  validation {
+    condition     = alltrue([for prefix in var.worker_identity.ecr_cache_prefixes : contains(["github", "docker-hub", "quay", "kubernetes", "ecr-public"], prefix)])
+    error_message = "Only the five established pull-through cache prefixes are allowed."
+  }
+  validation {
+    condition = alltrue([for name in var.worker_identity.controller_additional_ecr_repositories :
+      length(name) >= 2 && length(name) <= 256 && can(regex("^[a-z0-9]+([._/-][a-z0-9]+)*$", name))
+    ])
+    error_message = "Use exact lowercase ECR repository names without wildcards or ARNs."
+  }
+}
