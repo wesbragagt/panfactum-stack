@@ -19,3 +19,21 @@ variable "session_duration_hours" {
     error_message = "Must be less than or equal to 12 hours (AWS limitation)"
   }
 }
+
+variable "talos_operator_access" {
+  description = "Optional account-scoped Talos canary policy for the existing operator permission sets."
+  type = object({
+    partition                = optional(string, "aws")
+    account_id               = string
+    region                   = string
+    cluster_name             = string
+    jump_host_id             = string
+    additional_jump_host_ids = optional(set(string), [])
+    kube_document_name       = optional(string)
+    recovery_document_names  = optional(set(string), [])
+    nat_host_ids             = set(string)
+    audience                 = string
+    state_object_arn         = string
+  })
+  default = null
+}

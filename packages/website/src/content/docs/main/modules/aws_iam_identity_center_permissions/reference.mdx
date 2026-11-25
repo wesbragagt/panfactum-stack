@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### account_access_configuration
+### account\_access\_configuration
 
 Description: Configuration for assigning access to various AWS accounts via Identity Center
 
@@ -25,20 +25,43 @@ map(object({
 
 Default: n/a
 
-### session_duration_hours
+### session\_duration\_hours
 
-Description: The number of hours that AWS sessions will last. This is NOT the time before needing to re-authenticate
-with your IdP, but rather the amount of time that AWS session tokens last before expiring.
+Description: The number of hours that AWS sessions will last. This is NOT the time before needing to re-authenticate with your IdP, but rather the amount of time that AWS session tokens last before expiring.
 
 Type: `number`
 
 Default: `12`
 
+### talos\_operator\_access
+
+Description: Optional account-scoped Talos canary policy for the existing operator permission sets.
+
+Type:
+
+```hcl
+object({
+    partition                = optional(string, "aws")
+    account_id               = string
+    region                   = string
+    cluster_name             = string
+    jump_host_id             = string
+    additional_jump_host_ids = optional(set(string), [])
+    kube_document_name       = optional(string)
+    recovery_document_names  = optional(set(string), [])
+    nat_host_ids             = set(string)
+    audience                 = string
+    state_object_arn         = string
+  })
+```
+
+Default: `null`
+
 ## Outputs
 
 The following outputs are exported:
 
-### cli_config
+### cli\_config
 
 Description: To be used by the 'pf-aws-update --build' script
 

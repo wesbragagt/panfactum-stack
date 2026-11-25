@@ -64,7 +64,7 @@ resource "aws_ssoadmin_permission_set" "admin" {
 resource "aws_ssoadmin_permission_set_inline_policy" "admin" {
   instance_arn       = local.sso_instance_arn
   permission_set_arn = aws_ssoadmin_permission_set.admin.arn
-  inline_policy      = module.aws_core_permissions.admin_policy_json
+  inline_policy      = local.operator_policies.admin
 }
 
 ######################### Reader #######################################
@@ -82,7 +82,7 @@ resource "aws_ssoadmin_permission_set" "reader" {
 resource "aws_ssoadmin_permission_set_inline_policy" "reader" {
   instance_arn       = local.sso_instance_arn
   permission_set_arn = aws_ssoadmin_permission_set.reader.arn
-  inline_policy      = module.aws_core_permissions.reader_policy_json
+  inline_policy      = local.operator_policies.reader
 }
 
 ######################### Restricted Reader #######################################
@@ -100,7 +100,7 @@ resource "aws_ssoadmin_permission_set" "restricted_reader" {
 resource "aws_ssoadmin_permission_set_inline_policy" "restricted_reader" {
   instance_arn       = local.sso_instance_arn
   permission_set_arn = aws_ssoadmin_permission_set.restricted_reader.arn
-  inline_policy      = module.aws_core_permissions.restricted_reader_policy_json
+  inline_policy      = local.operator_policies.restricted_reader
 }
 
 ######################### Billing Admin #######################################
@@ -118,7 +118,7 @@ resource "aws_ssoadmin_permission_set" "billing_admin" {
 resource "aws_ssoadmin_permission_set_inline_policy" "billing_admin" {
   instance_arn       = local.sso_instance_arn
   permission_set_arn = aws_ssoadmin_permission_set.billing_admin.arn
-  inline_policy      = module.aws_core_permissions.billing_admin_policy_json
+  inline_policy      = local.operator_policies.billing
 }
 
 ###########################################################################
