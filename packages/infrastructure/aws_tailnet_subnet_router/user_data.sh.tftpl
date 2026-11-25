@@ -1,0 +1,69 @@
+#!/bin/bash
+set -euo pipefail
+
+cat > /etc/sysctl.d/99-tailscale.conf <<CONF
+net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
+CONF
+sysctl -p /etc/sysctl.d/99-tailscale.conf
+
+# Loading the AL2023 repo metadata gets dnf OOM-killed on a 512 MiB t4g.nano without swap
+dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo '/swapfile none swap defaults 0 0' >> /etc/fstab
+
+curl -fsSL -o /etc/yum.repos.d/tailscale.repo https://pkgs.tailscale.com/stable/amazon-linux/2023/tailscale.repo
+dnf install -y tailscale-1.104.7-1
+systemctl enable --now tailscaled
+
+auth_file="$(mktemp /run/tailscale-auth.XXXXXX)"
+trap 'rm -f "$auth_file"' EXIT
+
+# NOTE: The attached IAM policy can take time to propagate to a new instance.
+for ((attempt = 1; ; attempt++)); do
+  if secret="$(aws ssm get-parameter --region ${region} --name ${parameter} --with-decryption --query Parameter.Value --output text)"; then
+    break
+  fi
+  ((attempt < ${managed ? 180 : 6})) || exit 1
+  sleep 5
+done
+
+%{ if headscale_url == null ~}
+# NOTE: Ephemeral devices disappear from the tailnet after going offline.
+printf '%s?ephemeral=true&preauthorized=true\n' "$secret" > "$auth_file"
+%{ else ~}
+printf '%s\n' "$secret" > "$auth_file"
+%{ endif ~}
+unset secret
+%{ if headscale_url != null ~}
+# NOTE: Route 53 changes can take time to reach the instance resolver.
+for ((attempt = 1; ; attempt++)); do
+  if tailscale up \
+%{ else ~}
+tailscale up \
+%{ endif ~}
+  --auth-key="file:$auth_file" \
+%{ if headscale_url == null ~}
+  --advertise-tags=${tag} \
+%{ else ~}
+  --login-server='${headscale_url}' \
+  --timeout=30s \
+%{ endif ~}
+  --advertise-routes=${routes} \
+  --hostname=${hostname}%{ if headscale_url != null }; then
+    break
+  fi
+  ((attempt < ${managed ? 60 : 12})) || exit 1
+%{ if managed ~}
+  # NOTE: The server may have replaced the key after this host first read it.
+  if secret="$(aws ssm get-parameter --region ${region} --name ${parameter} --with-decryption --query Parameter.Value --output text)"; then
+    printf '%s\n' "$secret" > "$auth_file"
+    unset secret
+  fi
+%{ endif ~}
+  sleep 10
+done
+%{ else }
+%{ endif ~}

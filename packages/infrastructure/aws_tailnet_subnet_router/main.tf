@@ -22,6 +22,17 @@ locals {
   resolver = cidrhost(data.aws_vpc.vpc.cidr_block, 2)
   routes   = distinct(concat(var.advertised_routes, length(var.split_dns_domains) > 0 ? ["${local.resolver}/32"] : []))
 
+  hosted_tailscale = var.backend == "tailscale"
+  headscale_url    = var.headscale == null ? null : "https://${var.headscale.hostname}"
+
+  enrollment = var.headscale == null ? {
+    arn  = aws_ssm_parameter.oauth_secret[0].arn
+    name = aws_ssm_parameter.oauth_secret[0].name
+    } : {
+    arn  = local.managed_enrollment_arn
+    name = local.managed_enrollment_name
+  }
+
   routers = {
     for name in local.subnet_names : name => {
       subnet_id = data.aws_subnet.router[name].id
@@ -58,7 +69,21 @@ data "aws_ssm_parameter" "ami" {
 ##########################################################################
 
 # Routers exchange the OAuth secret for a fresh key at boot, so replacements never hit key expiry
+moved {
+  from = aws_ssm_parameter.oauth_secret
+  to   = aws_ssm_parameter.oauth_secret[0]
+}
+
 resource "aws_ssm_parameter" "oauth_secret" {
+  count = var.headscale == null ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = try(length(trimspace(var.tailscale_oauth_client_secret)) > 0, false)
+      error_message = "Set tailscale_oauth_client_secret when using hosted Tailscale."
+    }
+  }
+
   name  = "/${var.name}/tailscale-oauth-client-secret"
   type  = "SecureString"
   value = var.tailscale_oauth_client_secret
@@ -81,8 +106,16 @@ data "aws_iam_policy_document" "assume" {
 
 data "aws_iam_policy_document" "router" {
   statement {
+    effect    = "Allow"
     actions   = ["ssm:GetParameter"]
-    resources = [aws_ssm_parameter.oauth_secret.arn]
+    resources = [local.enrollment.arn]
+  }
+
+  # NOTE: AmazonSSMManagedInstanceCore grants both parameter reads on all resources.
+  statement {
+    effect        = "Deny"
+    actions       = ["ssm:GetParameter", "ssm:GetParameters"]
+    not_resources = [local.enrollment.arn]
   }
 }
 
@@ -120,6 +153,11 @@ resource "aws_security_group" "router" {
   tags        = merge(data.pf_aws_tags.tags.tags, { Name = var.name })
 
   lifecycle {
+    precondition {
+      condition     = (var.backend == "headscale") == (var.headscale != null)
+      error_message = "Set headscale exactly when backend is headscale."
+    }
+
     create_before_destroy = true
   }
 }
@@ -167,14 +205,24 @@ resource "aws_launch_template" "router" {
     http_put_response_hop_limit = 1
   }
 
+  block_device_mappings {
+    device_name = "/dev/xvda"
+
+    ebs {
+      encrypted = true
+    }
+  }
+
   # SNAT (the Tailscale default) sends return traffic to the router's own address,
   # so neither source/dest check changes nor VPC routes to 100.64.0.0/10 are needed.
   user_data = base64encode(templatefile("${path.module}/user_data.sh.tftpl", {
-    region    = data.aws_region.current.region
-    parameter = aws_ssm_parameter.oauth_secret.name
-    tag       = var.tailscale_tag
-    routes    = join(",", local.routes)
-    hostname  = each.value.hostname
+    region        = data.aws_region.current.region
+    parameter     = local.enrollment.name
+    tag           = var.tailscale_tag
+    routes        = join(",", local.routes)
+    hostname      = each.value.hostname
+    headscale_url = local.headscale_url
+    managed       = var.headscale != null
   }))
 
   tag_specifications {
@@ -206,6 +254,7 @@ resource "aws_autoscaling_group" "router" {
   vpc_zone_identifier = [each.value.subnet_id]
   health_check_type   = "EC2"
 
+
   launch_template {
     id      = aws_launch_template.router[each.key].id
     version = "$Latest"
@@ -219,6 +268,8 @@ resource "aws_autoscaling_group" "router" {
       propagate_at_launch = false
     }
   }
+
+  depends_on = [aws_iam_role_policy.router, aws_iam_role_policy_attachment.ssm, aws_route53_record.managed_headscale]
 }
 
 ##########################################################################
@@ -226,7 +277,7 @@ resource "aws_autoscaling_group" "router" {
 ##########################################################################
 
 resource "tailscale_dns_split_nameservers" "vpc" {
-  for_each    = toset(var.split_dns_domains)
+  for_each    = local.hosted_tailscale ? toset(var.split_dns_domains) : toset([])
   domain      = each.key
   nameservers = [local.resolver]
 }

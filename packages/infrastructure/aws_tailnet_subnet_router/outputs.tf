@@ -12,3 +12,16 @@ output "hostnames" {
   description = "Tailscale hostnames of the routers."
   value       = [for r in local.routers : r.hostname]
 }
+
+output "split_dns_nameservers" {
+  description = "Private domain to VPC resolver mappings. Configure these on the Headscale server when using Headscale."
+  value       = { for domain in var.split_dns_domains : domain => [local.resolver] }
+}
+
+output "managed_headscale" {
+  description = "Managed Headscale login URL and EC2 instance ID for Systems Manager access."
+  value = var.headscale == null ? null : {
+    login_server = local.headscale_url
+    instance_id  = aws_instance.headscale[0].id
+  }
+}
