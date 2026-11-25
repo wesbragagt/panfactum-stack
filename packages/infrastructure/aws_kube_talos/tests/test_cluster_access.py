@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 from types import SimpleNamespace
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/cluster_access.py"
@@ -137,6 +138,15 @@ class ClusterAccessTest(unittest.TestCase):
         finally:
             module.nap, module.time.monotonic = originals
         self.assertEqual(clock[0], 12)
+
+    def test_terragrunt_output_preserves_only_supported_transport_overrides(self):
+        args = SimpleNamespace(profile=None, region=None, module=Path("/module"))
+        for inherited, expected in (("vpn", None), ("ssm", "ssm"), ("auto", "auto")):
+            with self.subTest(inherited=inherited), tempfile.TemporaryDirectory() as directory, \
+                    unittest.mock.patch.dict(os.environ, {"PF_TALOS_TRANSPORT": inherited}), \
+                    unittest.mock.patch.object(module, "command", return_value=b"output") as command:
+                self.assertEqual(module.terragrunt_output(args, Path(directory), "cluster_name"), b"output")
+                self.assertEqual(command.call_args.kwargs["env"].get("PF_TALOS_TRANSPORT"), expected)
 
     def test_three_controllers_are_returned_in_position_order(self):
         helper = access(target=["i-nat"])

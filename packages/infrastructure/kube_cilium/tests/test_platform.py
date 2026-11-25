@@ -52,6 +52,12 @@ locals {
         operator = operator.replace("module.aws_permissions[0].role_arn", '"arn:aws:iam::123456789012:role/cilium"').replace("data.aws_region.region.region", '"us-east-2"')
         platform += "\nlocals { test_operator = merge({" + operator + "}, local.operator_web_identity) }\n"
         counts["operator_replicas"] = re.search(r"\breplicas = ([^\n]+)", source).group(1)
+        for name in ("k8sServiceHost", "k8sServicePort"):
+            expression = re.search(rf"\b{name}\s*=\s*([^\n]+)", source).group(1)
+            counts[name] = expression.replace(
+                'try(trimprefix(data.aws_eks_cluster.cluster[0].endpoint, "https://"), null)',
+                '"eks.example"',
+            )
         platform += "\nlocals {\n" + "\n".join(f"test_{name} = {expr}" for name, expr in counts.items()) + "\n}\n"
         (cls.path / "platform.tf").write_text(platform)
 
@@ -63,7 +69,7 @@ locals {
         args = [shutil.which("tofu") or "tofu", "-chdir=" + str(self.path), "console", "-no-color"]
         (self.path / "case.tfvars.json").write_text(json.dumps(variables))
         args += ["-var-file=case.tfvars.json"]
-        expression = "jsonencode({envoy=local.test_envoy, l7_proxy=local.test_l7_proxy, namespace_labels=local.test_namespace_labels, iam_actions=local.test_iam_actions, operator=local.test_operator, values=local.platform_values, eni=local.eni_enabled, eks=local.test_eks_lookups, iam=local.test_iam_modules, annotations=local.test_iam_annotations, namespaces=local.test_managed_namespaces, tolerations=local.platform_tolerations, identity=local.operator_web_identity, replicas=local.test_operator_replicas, use_cache=local.pull_through_cache_enabled, scoped_eni=local.scoped_eni})"
+        expression = "jsonencode({envoy=local.test_envoy, l7_proxy=local.test_l7_proxy, namespace_labels=local.test_namespace_labels, iam_actions=local.test_iam_actions, operator=local.test_operator, values=local.platform_values, eni=local.eni_enabled, eks=local.test_eks_lookups, iam=local.test_iam_modules, annotations=local.test_iam_annotations, namespaces=local.test_managed_namespaces, tolerations=local.platform_tolerations, identity=local.operator_web_identity, replicas=local.test_operator_replicas, use_cache=local.pull_through_cache_enabled, scoped_eni=local.scoped_eni, api_host=local.test_k8sServiceHost, api_port=local.test_k8sServicePort})"
         result = subprocess.run(args, input=expression + "\n", text=True, capture_output=True, check=True)
         self.assertTrue(result.stdout.strip(), result.stderr)
         return json.loads(json.loads(result.stdout.strip()))
@@ -90,6 +96,7 @@ locals {
         })
         self.assertEqual([value[k] for k in ("eks", "iam", "annotations", "namespaces")], [1, 1, 1, 1])
         self.assertEqual(value["tolerations"], [])
+        self.assertEqual((value["api_host"], value["api_port"]), ("eks.example", 443))
         self.assertEqual(self.evaluate(cluster={"type": "aws_eks", "name": "example-eks"}), value)
         self.assertEqual(self.evaluate(cluster_type="eks"), value)
 
@@ -97,6 +104,7 @@ locals {
         for name, sla_target, replicas in (("example-north", 1, 1), ("example-south", 2, 2)):
             with self.subTest(name=name):
                 value = self.evaluate(cluster={"type": "talos", "name": name}, sla_target=sla_target)
+                self.assertEqual((value["api_host"], value["api_port"]), ("localhost", 7445))
                 self.assertEqual([value[k] for k in ("eks", "iam", "annotations", "namespaces")], [0, 1, 1, 1])
                 eni = value["values"]["eni"]
                 self.assertEqual(eni["eniTags"], {"homelab-cluster": name})

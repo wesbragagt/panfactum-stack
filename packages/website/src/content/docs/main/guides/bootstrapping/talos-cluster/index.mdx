@@ -23,38 +23,25 @@ For direct access, set `talos_api_endpoint` to a reachable private address.
 Use `talos_api_source_security_groups` and `kube_api_source_security_groups`
 to grant each API access from its own set of source security groups.
 
-For Systems Manager, pass the two fixed destinations to
-`aws_ssm_jump_host.port_forwarding_documents`. The caller supplies the same
-bootstrap IPv4 address here and in `aws_kube_talos.control_plane_private_ips`.
-Do not take the address from a cluster output because the documents must
-exist before the cluster apply.
+For Systems Manager, set `aws_ssm_jump_host.talos_bootstrap` to the
+planned private API hostname and fixed controller addresses.
 
 ```hcl
-port_forwarding_documents = {
-  kube = {
-    name        = "${local.cluster_name}-kube-forward"
-    description = "${local.cluster_name} kube API forward"
-    host        = local.bootstrap_ip
-    port        = 6443
-  }
-  talos = {
-    name        = "${local.cluster_name}-talos-forward"
-    description = "${local.cluster_name} talos API forward"
-    host        = local.bootstrap_ip
-    port        = 50000
-  }
+talos_bootstrap = {
+  kubernetes_host = "api.example.internal"
+  controller_ips  = ["10.0.64.10"]
 }
 ```
 
-Apply `aws_ssm_jump_host` first and verify its instance is SSM Online.
-The `document_names` output maps the caller's keys to the AWS document names.
-Each document accepts only the local port as a session parameter.
+Use the same IP in `aws_kube_talos.control_plane_private_ips`. Apply
+`aws_ssm_jump_host` first and wait for its instance to report Online in SSM.
+The module creates fixed documents for Kubernetes on TCP 6443 and Talos on
+TCP 50000. The only runtime document parameter is the local port.
 
-Use the jump host security group in both ingress maps. For optional NAT
-recovery, include the security group of an explicit SSM-managed NAT in both
-maps. Use stable labels such as `jump` and `emergency` as the map keys.
-Set `talos_api_endpoint = "127.0.0.1:55000"` and put `127.0.0.1` in both
-`talos_api_extra_sans` and `kube_api_extra_sans`.
+Pass the jump host's `security_group_id` into both Talos API ingress maps. Set
+`talos_access_transport = "ssm"` to select the Talos loopback port and include
+loopback in both API certificates. Match the local Talos port to the module
+default of 50000, or set an explicit `talos_api_endpoint` for a different port.
 
 ## 3. Plan and apply
 
@@ -67,7 +54,7 @@ ID from its Terragrunt output.
 python3 "$module_dir/scripts/operator_tunnel.py" bootstrap \
   --cluster "$cluster" --profile "$profile" --region "$region" \
   --account-id "$account" --vpc-id "$vpc" --controller-ip "$controller_ip" \
-  --jump-host "$jump_host" --talos-port 55000
+  --jump-host "$jump_host" --talos-port 50000
 ```
 
 The hook discovers the controller as the first apply creates it. On later
@@ -86,14 +73,14 @@ with `--nat-host "$nat_host"` in the command below.
 python3 "$module_dir/scripts/operator_tunnel.py" recovery \
   --cluster "$cluster" --profile "$profile" --region "$region" \
   --account-id "$account" --vpc-id "$vpc" --controller-ip "$controller_ip" \
-  --jump-host "$jump_host" --kube-port 26443 --talos-port 55000
+  --jump-host "$jump_host" --kube-port 26443 --talos-port 50000
 ```
 
 With the tunnel running, verify both APIs from another terminal.
 
 ```sh
 kubectl --kubeconfig "$admin_kubeconfig" --server https://127.0.0.1:26443 get --raw /readyz
-talosctl --talosconfig "$admin_talosconfig" --endpoints 127.0.0.1:55000 \
+talosctl --talosconfig "$admin_talosconfig" --endpoints 127.0.0.1:50000 \
   --nodes "$controller_ip" etcd members
 ```
 
@@ -106,8 +93,8 @@ tunnels. The `operator` helper selects only the Kubernetes document.
 ## 5. Verify node-local API failover
 
 Before installing Cilium, keep the generated `KubePrismConfig` on controllers
-and workers. Set `cluster_type = "talos"` in `kube_cilium` and leave the API
-host and port overrides unset. Confirm `127.0.0.1:7445` is listening with
+and workers. Pass `cluster = { type = "talos", name = dependency.cluster.outputs.cluster_name }`
+to `kube_cilium` and leave the API host and port overrides unset. Confirm `127.0.0.1:7445` is listening with
 `talosctl netstat --tcp --listening` on the controller and on each worker
 after it joins.
 
@@ -127,3 +114,13 @@ Talos v1.14.6 KubePrism checks TCP reachability. A server can continue
 receiving requests while TCP 6443 is open and `/readyz` fails. The private
 A record continues listing every controller IP, so operator access depends
 on client retries and tunnel destination selection.
+
+## 6. Install the network and cloud add-ons
+
+Apply `kube_cilium`, then `kube_aws_ccm` with
+`talos_bootstrap_enabled = true`. Pin `image_version` to the Kubernetes
+minor reported by the Talos `kubernetes_version` output. Confirm Cilium
+is ready and CCM has set AWS provider IDs and cleared the initialization
+taints. Apply `kube_core_dns` with `service_ip` from the Talos
+`dns_service_ip` output. Check the DNS endpoints and resolve both cluster
+and external names from a Pod.

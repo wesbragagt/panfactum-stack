@@ -8,7 +8,8 @@ terraform {
 }
 
 locals {
-  name = "${var.cluster_name}-ssm-tunnel"
+  name          = "${var.cluster_name}-ssm-tunnel"
+  resource_name = coalesce(var.resource_name, local.name)
   tags = {
     Name                    = local.name
     "panfactum.com/module"  = "aws_ssm_jump_host"
@@ -25,6 +26,22 @@ data "aws_subnet" "selected" {
     postcondition {
       condition     = self.vpc_id == var.vpc_id
       error_message = "The SSM jump host subnet must belong to the supplied VPC."
+    }
+  }
+}
+
+data "aws_subnet" "secondary" {
+  count = var.secondary_subnet_id == null ? 0 : 1
+  id    = var.secondary_subnet_id
+
+  lifecycle {
+    postcondition {
+      condition     = self.vpc_id == var.vpc_id
+      error_message = "The secondary SSM jump host subnet must belong to the supplied VPC."
+    }
+    postcondition {
+      condition     = self.availability_zone_id != data.aws_subnet.selected.availability_zone_id
+      error_message = "The SSM jump host subnets must occupy different Availability Zones."
     }
   }
 }
@@ -46,7 +63,7 @@ data "aws_ssm_parameter" "ami" {
 }
 
 resource "aws_iam_role" "host" {
-  name = local.name
+  name = local.resource_name
   tags = local.tags
 
   assume_role_policy = jsonencode({
@@ -65,13 +82,13 @@ resource "aws_iam_role_policy_attachment" "ssm" {
 }
 
 resource "aws_iam_instance_profile" "host" {
-  name = local.name
+  name = local.resource_name
   role = aws_iam_role.host.name
   tags = local.tags
 }
 
 resource "aws_security_group" "host" {
-  name        = local.name
+  name        = local.resource_name
   description = "SSM jump host for ${var.cluster_name}"
   vpc_id      = var.vpc_id
   tags        = local.tags
@@ -109,6 +126,36 @@ resource "aws_instance" "host" {
 
   lifecycle {
     # Replacing the instance would interrupt operator sessions.
+    ignore_changes = [ami]
+  }
+}
+
+resource "aws_instance" "secondary" {
+  count = var.secondary_subnet_id == null ? 0 : 1
+
+  ami                         = data.aws_ssm_parameter.ami.insecure_value
+  instance_type               = data.aws_ec2_instance_type.host.instance_type
+  subnet_id                   = data.aws_subnet.secondary[count.index].id
+  vpc_security_group_ids      = [aws_security_group.host.id]
+  iam_instance_profile        = aws_iam_instance_profile.host.name
+  associate_public_ip_address = false
+  tags                        = local.tags
+
+  depends_on = [aws_iam_role_policy_attachment.ssm, aws_vpc_security_group_egress_rule.host]
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+  }
+
+  root_block_device {
+    volume_type = "gp3"
+    encrypted   = true
+  }
+
+  lifecycle {
+    # NOTE: Replacing the instance would interrupt operator sessions.
     ignore_changes = [ami]
   }
 }

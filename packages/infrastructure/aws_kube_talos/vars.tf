@@ -140,9 +140,21 @@ variable "kube_api_allowed_cidrs" {
 }
 
 variable "talos_api_endpoint" {
-  description = "Reachable Talos API endpoint for the provider and talosconfig, with optional port. Set this explicitly for new callers. The legacy default is 127.0.0.1. Null uses the Elastic IP (requires control_plane_public_ip_enabled)."
+  description = "Override the Talos API endpoint for the provider and talosconfig, with optional port. An empty string derives the endpoint from talos_access_transport. Null uses the Elastic IP and requires control_plane_public_ip_enabled."
   type        = string
-  default     = "127.0.0.1"
+  default     = ""
+}
+
+variable "talos_access_transport" {
+  description = "Talos operator transport. vpn selects the configured bootstrap controller's fixed private IP. ssm selects the module hook's loopback address and enables loopback SANs. The empty default retains legacy loopback behavior."
+  type        = string
+  default     = ""
+  nullable    = false
+
+  validation {
+    condition     = contains(["", "vpn", "ssm"], var.talos_access_transport)
+    error_message = "talos_access_transport must be vpn, ssm, or empty."
+  }
 }
 
 variable "kube_api_extra_sans" {

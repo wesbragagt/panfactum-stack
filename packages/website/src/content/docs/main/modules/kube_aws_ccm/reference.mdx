@@ -1,0 +1,121 @@
+{/* lint disable no-duplicate-headings */}
+
+{/* eslint-disable import-x/order */}
+
+## Inputs
+
+The following input variables are supported:
+
+### availability\_zone
+
+Description: Control-plane availability zone.
+
+Type: `string`
+
+Default: n/a
+
+### cluster\_name
+
+Description: Cluster identifier.
+
+Type: `string`
+
+Default: n/a
+
+### cluster\_subnet\_ids
+
+Description: Explicit subnets for source-IP policy discovery.
+
+Type: `set(string)`
+
+Default: `null`
+
+### image\_version
+
+Description: AWS cloud controller manager image tag.
+
+Type: `string`
+
+Default: `"v1.37.0"`
+
+### ip\_restrictions\_enabled
+
+Description: Enable source-IP deny policies.
+
+Type: `bool`
+
+Default: `true`
+
+### oidc\_issuer\_url
+
+Description: Existing OIDC issuer URL paired with its ARN.
+
+Type: `string`
+
+Default: `null`
+
+### oidc\_provider\_arn
+
+Description: Existing OIDC provider ARN; null retains EKS discovery.
+
+Type: `string`
+
+Default: `null`
+
+### region
+
+Description: AWS region.
+
+Type: `string`
+
+Default: n/a
+
+### subnet\_id
+
+Description: Existing control-plane subnet ID.
+
+Type: `string`
+
+Default: n/a
+
+### talos\_bootstrap\_enabled
+
+Description: Mount an AWS web identity token and tolerate Talos controller taints during bootstrap.
+
+Type: `bool`
+
+Default: `false`
+
+### vpc\_id
+
+Description: Existing cluster VPC ID.
+
+Type: `string`
+
+Default: n/a
+
+## Outputs
+
+The following outputs are exported:
+
+### role\_arn
+
+Description: n/a
+
+## Providers
+
+The following providers are needed by this module:
+
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
+
+- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.3.0/docs) (3.3.0)
+
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
+
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
+
+- [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
+
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

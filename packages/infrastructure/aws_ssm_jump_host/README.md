@@ -11,6 +11,36 @@ Pass `security_group_id` as a source of ingress on each cluster API the host
 should reach. The host has no inbound security group rules or public IP. The
 caller manages user permissions for starting sessions.
 
+## Second jump host
+
+Set `secondary_subnet_id` to add a private host in another AZ of the same
+VPC. Supply independent paths from the two subnets to Systems Manager and
+allow the shared `security_group_id` to reach the intended cluster API ports.
+The two hosts have the same `Name` tag, `<cluster>-ssm-tunnel`, and the same
+`panfactum.com/cluster` and `panfactum.com/module` tags. The module tag is
+`aws_ssm_jump_host`. Use `instance_ids` for the approved instance IDs in
+primary-first order. `instance_id` still identifies the primary.
+
+Set `resource_name` for a new standalone deployment alongside a legacy
+embedded jump host with the same cluster name. It changes the role,
+instance profile and security group names. Both hosts retain their
+cluster-based discovery tags. Choose the override before the first apply.
+
+## Talos access
+
+For a new cluster, set `talos_bootstrap.kubernetes_host` to the planned
+private API DNS name and `talos_bootstrap.controller_ips` to the fixed
+controller addresses. Apply the jump host before Talos. Pass its
+`security_group_id` to the Talos deployment so Talos owns API ingress.
+Use `instance_ids` and `document_destinations` to configure fixed sessions.
+The first controller uses the `talos` document key and later controllers
+use indexed keys.
+
+Existing deployments that manage API ingress in this module continue using
+`talos_access.kubernetes` and `talos_access.talos`. They supply the same
+destinations together with their target security groups. `talos_access`
+takes precedence when both inputs are set.
+
 ## Fixed-destination sessions
 
 Set `port_forwarding_documents` to a map with the AWS document name, remote

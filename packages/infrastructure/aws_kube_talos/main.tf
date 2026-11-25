@@ -38,7 +38,12 @@ locals {
     certExtraSANs = compact(distinct(concat([local.api_host, local.public_ip, var.private_api_dns_name], local.legacy_ssm_sans, var.kube_api_extra_sans)))
   })
 
-  talos_api_endpoint = var.talos_api_endpoint != null ? var.talos_api_endpoint : aws_eip_association.api[0].public_ip
+  configured_talos_api_endpoint = (
+    var.talos_api_endpoint != "" ? var.talos_api_endpoint :
+    var.talos_access_transport == "vpn" ? try(var.control_plane_private_ips[local.bootstrap_index], null) :
+    "127.0.0.1"
+  )
+  talos_api_endpoint = var.talos_api_endpoint == null ? aws_eip_association.api[0].public_ip : local.configured_talos_api_endpoint
 
   talos_api_sans    = distinct(concat(local.legacy_ssm_sans, var.talos_api_extra_sans))
   talos_api_patches = length(local.talos_api_sans) == 0 ? [] : [yamlencode({ machine = { certSANs = local.talos_api_sans } })]
@@ -313,7 +318,7 @@ resource "aws_instance" "control_plane" {
 
   tags = merge(data.pf_aws_tags.tags.tags, {
     Name = "${var.cluster_name}-control-plane-${count.index}"
-  })
+  }, var.aws_node_config_enabled ? { "kubernetes.io/cluster/${var.cluster_name}" = "owned" } : {})
 
   lifecycle {
     ignore_changes = [ami, user_data]
@@ -339,6 +344,10 @@ resource "aws_instance" "control_plane" {
     precondition {
       condition     = length(var.control_plane_private_ips) == 0 || length(var.control_plane_private_ips) == local.control_plane_node_count
       error_message = "control_plane_private_ips needs one address per control plane node, or none."
+    }
+    precondition {
+      condition     = var.talos_access_transport != "vpn" || var.talos_api_endpoint != "" || length(var.control_plane_private_ips) > 0
+      error_message = "VPN access requires control_plane_private_ips or an explicit talos_api_endpoint."
     }
     precondition {
       condition     = var.control_plane_public_ip_enabled || (var.talos_api_endpoint != null && var.api_dns == null && (var.private_api_dns_name != null || length(var.control_plane_private_ips) > 0))

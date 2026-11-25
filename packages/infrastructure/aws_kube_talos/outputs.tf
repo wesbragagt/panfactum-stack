@@ -8,6 +8,17 @@ output "cluster_url" {
   value       = local.cluster_endpoint
 }
 
+output "kubernetes_version" {
+  description = "Configured Kubernetes version for the Talos cluster."
+  value       = var.kube_version
+}
+
+output "dns_service_ip" {
+  description = "CoreDNS service address in the primary service CIDR when AWS node configuration owns the network."
+  # NOTE: Talos computes the kube-dns service address by advancing ten addresses from the CIDR base.
+  value = var.aws_node_config_enabled ? try(cidrhost(var.service_subnets[0], 10), null) : null
+}
+
 output "cluster_ca_data" {
   description = "Base64-encoded Kubernetes cluster CA certificate."
   # The CA certificate is public; only machine_secrets as a whole is sensitive

@@ -46,3 +46,15 @@ variable "cluster_subnet_ids" {
   type        = set(string)
   default     = null
 }
+
+variable "image_version" {
+  description = "AWS cloud controller manager image tag."
+  type        = string
+  default     = "v1.37.0"
+}
+
+variable "talos_bootstrap_enabled" {
+  description = "Mount an AWS web identity token and tolerate Talos controller taints during bootstrap."
+  type        = bool
+  default     = false
+}

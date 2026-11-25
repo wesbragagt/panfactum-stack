@@ -364,6 +364,14 @@ Type: `string`
 
 Default: `null`
 
+### talos\_access\_transport
+
+Description: Talos operator transport. vpn selects the configured bootstrap controller's fixed private IP. ssm selects the module hook's loopback address and enables loopback SANs. The empty default retains legacy loopback behavior.
+
+Type: `string`
+
+Default: `""`
+
 ### talos\_api\_allowed\_cidrs
 
 Description: CIDRs allowed to reach the Talos API (TCP 50000). Empty by default; operators reach the API through the SSM tunnel instead.
@@ -374,11 +382,11 @@ Default: `[]`
 
 ### talos\_api\_endpoint
 
-Description: Reachable Talos API endpoint for the provider and talosconfig, with optional port. Set this explicitly for new callers. The legacy default is 127.0.0.1. Null uses the Elastic IP (requires control\_plane\_public\_ip\_enabled).
+Description: Override the Talos API endpoint for the provider and talosconfig, with optional port. An empty string derives the endpoint from talos\_access\_transport. Null uses the Elastic IP and requires control\_plane\_public\_ip\_enabled.
 
 Type: `string`
 
-Default: `"127.0.0.1"`
+Default: `""`
 
 ### talos\_api\_extra\_sans
 
@@ -537,6 +545,10 @@ Description: Private IPs of the control plane nodes, in control\_plane\_subnets 
 
 Description: Public IP of the control plane node (Talos and Kubernetes API endpoint).
 
+### dns\_service\_ip
+
+Description: CoreDNS service address in the primary service CIDR when AWS node configuration owns the network.
+
 ### etcd\_backup\_bucket
 
 Description: S3 bucket holding SSE-KMS encrypted etcd snapshots.
@@ -552,6 +564,10 @@ Description: KMS key that encrypts etcd snapshots. Restores need kms:Decrypt on 
 ### kubeconfig
 
 Description: Admin kubeconfig. The context is named admin@<cluster\_name>.
+
+### kubernetes\_version
+
+Description: Configured Kubernetes version for the Talos cluster.
 
 ### node\_instance\_profile
 

@@ -31,18 +31,19 @@ flowchart LR
 
 ## Caller-owned bootstrap transport
 
-A direct-connect caller sets `talos_api_endpoint` to a reachable address and
-supplies its own API ingress. Set `kube_api_source_security_groups` and
+A routed caller sets `talos_access_transport = "vpn"` to use the configured
+bootstrap controller's fixed private IP. Use `talos_api_endpoint` to override
+that address. Set `kube_api_source_security_groups` and
 `talos_api_source_security_groups` independently. Use stable map keys and
 supply security group IDs as their values.
 
 For SSM, configure the fixed-destination documents in
-[`aws_ssm_jump_host`](../aws_ssm_jump_host/README.md) using the bootstrap
-controller's caller-configured private IP. Deploy the jump host and its
+[`aws_ssm_jump_host`](../aws_ssm_jump_host/README.md) with `talos_bootstrap` using the planned
+private API hostname and fixed controller IPs. Deploy the jump host and its
 documents first and wait until the instance is SSM Online.
 Pass the jump host security group to both ingress maps and set
-the endpoint to the local Talos forward. Add `127.0.0.1` to each API's extra
-SAN list. The maps also accept the security group of an explicitly selected
+`talos_access_transport = "ssm"` to select the local Talos forward on port
+50000 and include loopback in both API certificates. The maps also accept the security group of an explicitly selected
 emergency NAT.
 
 Run `scripts/operator_tunnel.py bootstrap` directly as a caller Terragrunt

@@ -39,6 +39,22 @@ map(object({
 
 Default: `{}`
 
+### resource\_name
+
+Description: Optional IAM role, instance profile and security group name override. Instance discovery tags still use cluster\_name.
+
+Type: `string`
+
+Default: `null`
+
+### secondary\_subnet\_id
+
+Description: Optional private subnet in a different AZ of the same VPC, with independent outbound connectivity for the second SSM agent.
+
+Type: `string`
+
+Default: `null`
+
 ### subnet\_id
 
 Description: ID of the existing private subnet with outbound connectivity for the SSM agent.
@@ -46,6 +62,42 @@ Description: ID of the existing private subnet with outbound connectivity for th
 Type: `string`
 
 Default: n/a
+
+### talos\_access
+
+Description: Private Kubernetes endpoint, controller addresses, and API security groups.
+
+Type:
+
+```hcl
+object({
+    kubernetes = object({
+      host              = string
+      security_group_id = string
+    })
+    talos = object({
+      controller_ips    = list(string)
+      security_group_id = string
+    })
+  })
+```
+
+Default: `null`
+
+### talos\_bootstrap
+
+Description: Fixed Talos document destinations for a new cluster that manages its own API ingress. Existing talos\_access settings take precedence.
+
+Type:
+
+```hcl
+object({
+    kubernetes_host = string
+    controller_ips  = list(string)
+  })
+```
+
+Default: `null`
 
 ### vpc\_id
 
@@ -59,6 +111,10 @@ Default: n/a
 
 The following outputs are exported:
 
+### document\_destinations
+
+Description: Fixed Session Manager document name, remote host and remote port keyed by the caller-defined key.
+
 ### document\_names
 
 Description: Session Manager port forwarding document names keyed by the caller-defined key.
@@ -66,6 +122,10 @@ Description: Session Manager port forwarding document names keyed by the caller-
 ### instance\_id
 
 Description: EC2 instance ID to target with SSM StartSession.
+
+### instance\_ids
+
+Description: Approved jump host EC2 instance IDs, with the primary first.
 
 ### security\_group\_id
 

@@ -38,7 +38,7 @@ variable "ssm_jump_host_subnet" {
 
 locals {
   # Retain the existing certificates and state addresses during the rollout.
-  legacy_ssm_sans     = var.ssm_jump_host_enabled || length(var.operator_tunnel_security_group_ids) > 0 ? ["127.0.0.1"] : []
+  legacy_ssm_sans     = var.ssm_jump_host_enabled || length(var.operator_tunnel_security_group_ids) > 0 || var.talos_access_transport == "ssm" ? ["127.0.0.1"] : []
   ssm_jump_host_count = var.ssm_jump_host_enabled ? 1 : 0
   ssm_jump_host_name  = "${var.cluster_name}-ssm-tunnel"
 }

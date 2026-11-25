@@ -54,14 +54,14 @@ resource "helm_release" "ccm" {
   wait       = true
   atomic     = true
   timeout    = 300
-  values = [yamlencode({
-    image              = { repository = "registry.k8s.io/provider-aws/cloud-controller-manager", tag = "v1.37.0" }
+  values = [yamlencode(merge({
+    image              = { repository = "registry.k8s.io/provider-aws/cloud-controller-manager", tag = var.image_version }
     serviceAccountName = local.name
     # Restrict Kubernetes access to node metadata, leader election and secure serving.
     # Chart defaults include node deletion and writes to Services/PVs.
     clusterRoleRules = [
       { apiGroups = [""], resources = ["events"], verbs = ["create", "patch", "update"] },
-      { apiGroups = [""], resources = ["nodes"], verbs = ["get", "list", "watch", "patch", "update"] },
+      { apiGroups = [""], resources = ["nodes"], verbs = concat(["get", "list", "watch", "patch", "update"], var.talos_bootstrap_enabled ? ["delete"] : []) },
       { apiGroups = [""], resources = ["nodes/status"], verbs = ["patch", "update"] },
       { apiGroups = ["coordination.k8s.io"], resources = ["leases"], verbs = ["create", "get", "list", "watch", "patch", "update"] },
       { apiGroups = ["authentication.k8s.io"], resources = ["tokenreviews"], verbs = ["create"] },
@@ -69,21 +69,35 @@ resource "helm_release" "ccm" {
     ]
     args = [
       "--v=2", "--cloud-provider=aws", "--cloud-config=/etc/aws/cloud.conf",
-      "--controllers=cloud-node", "--configure-cloud-routes=false",
+      var.talos_bootstrap_enabled ? "--controllers=cloud-node,cloud-node-lifecycle" : "--controllers=cloud-node", "--configure-cloud-routes=false",
       "--use-service-account-credentials=false", "--leader-elect=true",
     ]
-    env = [
+    env = concat([
       { name = "AWS_REGION", value = var.region },
       { name = "AWS_DEFAULT_REGION", value = var.region },
       { name = "AWS_EC2_METADATA_DISABLED", value = "true" },
       { name = "AWS_STS_REGIONAL_ENDPOINTS", value = "regional" }
-    ]
+      ], var.talos_bootstrap_enabled ? [
+      { name = "AWS_ROLE_ARN", value = module.aws_permissions.role_arn },
+      { name = "AWS_WEB_IDENTITY_TOKEN_FILE", value = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token" }
+    ] : [])
     resources = {
       requests = { cpu = "50m", memory = "128Mi" }
       limits   = { memory = "256Mi" }
     }
-    extraVolumes      = [{ name = "cloud-config", configMap = { name = local.name } }]
-    extraVolumeMounts = [{ name = "cloud-config", mountPath = "/etc/aws", readOnly = true }]
-  }), yamlencode({ serviceAccount = { annotations = module.aws_permissions.service_account_annotations } })]
+    extraVolumes = concat([{ name = "cloud-config", configMap = { name = local.name } }], var.talos_bootstrap_enabled ? [
+      { name = "aws-web-identity", projected = { sources = [{ serviceAccountToken = { audience = "sts.amazonaws.com", expirationSeconds = 86400, path = "token" } }] } }
+    ] : [])
+    extraVolumeMounts = concat([{ name = "cloud-config", mountPath = "/etc/aws", readOnly = true }], var.talos_bootstrap_enabled ? [
+      { name = "aws-web-identity", mountPath = "/var/run/secrets/eks.amazonaws.com/serviceaccount", readOnly = true }
+    ] : [])
+    }, var.talos_bootstrap_enabled ? {
+    tolerations = [
+      { key = "node.cloudprovider.kubernetes.io/uninitialized", value = "true", effect = "NoSchedule" },
+      { key = "node-role.kubernetes.io/master", effect = "NoSchedule" },
+      { key = "node-role.kubernetes.io/control-plane", effect = "NoSchedule" },
+      { key = "controller", operator = "Equal", value = "true", effect = "NoSchedule" }
+    ]
+  } : {})), yamlencode({ serviceAccount = { annotations = module.aws_permissions.service_account_annotations } })]
   depends_on = [kubernetes_config_map_v1.cloud]
 }

@@ -159,10 +159,15 @@ run "bootstrap_follows_named_subnet" {
     control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
     private_api_dns_name      = "api.test.internal"
     bootstrap_control_plane   = "PRIVATE_B"
+    talos_access_transport    = "vpn"
   }
   assert {
     condition     = local.bootstrap_index == 1
     error_message = "bootstrap_control_plane must select its subnet's position."
+  }
+  assert {
+    condition     = talos_machine_configuration_apply.control_plane[0].endpoint == "10.0.2.10"
+    error_message = "Routed access must use the configured bootstrap controller, not the first controller."
   }
 }
 
@@ -760,5 +765,34 @@ run "worker_identity_null_settings" {
   assert {
     condition     = aws_iam_role.worker.name_prefix == "test-worker-" && length(aws_iam_instance_profile.controller) == 0
     error_message = "Null identity settings must select the defaults."
+  }
+}
+
+run "fixed_ssm_first_bootstrap" {
+  command = plan
+  variables {
+    private_api_dns_name             = "api.test.internal"
+    talos_access_transport           = "ssm"
+    kube_api_source_security_groups  = { jump = "sg-00000000000000001" }
+    talos_api_source_security_groups = { jump = "sg-00000000000000001" }
+    aws_node_config_enabled          = true
+    service_subnets                  = ["10.113.0.0/16"]
+    kube_version                     = "1.36.5"
+  }
+  assert {
+    condition     = talos_machine_bootstrap.this.endpoint == "127.0.0.1" && length(aws_instance.ssm_jump_host) == 0
+    error_message = "First bootstrap must use the module hook's loopback forward and the standalone SSM host."
+  }
+  assert {
+    condition     = contains(yamldecode(local.api_san_patch).certExtraSANs, "127.0.0.1") && contains(local.talos_api_sans, "127.0.0.1")
+    error_message = "Fixed SSM must verify both APIs through loopback."
+  }
+  assert {
+    condition     = output.dns_service_ip == "10.113.0.10" && output.kubernetes_version == "1.36.5"
+    error_message = "CoreDNS and CCM must receive the Talos service DNS IP and Kubernetes version."
+  }
+  assert {
+    condition     = aws_instance.control_plane[0].tags["kubernetes.io/cluster/test"] == "owned"
+    error_message = "CCM must discover controllers when AWS node configuration is enabled."
   }
 }

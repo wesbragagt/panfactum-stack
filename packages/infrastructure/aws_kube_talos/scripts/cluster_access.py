@@ -324,6 +324,9 @@ def terragrunt_output(args, directory, name):
     # copies make terragrunt fail with duplicate definitions.
     download = directory / "terragrunt-download"
     env = dict(os.environ, TERRAGRUNT_DOWNLOAD=str(download), TG_DOWNLOAD_DIR=str(download))
+    # NOTE: The hook receives resolved VPN, but nested Terragrunt selects it from auto.
+    if env.get("PF_TALOS_TRANSPORT") == "vpn":
+        env.pop("PF_TALOS_TRANSPORT")
     try:
         return command(["terragrunt", "output", "-raw", name], cwd=args.module, env=env)
     finally:
