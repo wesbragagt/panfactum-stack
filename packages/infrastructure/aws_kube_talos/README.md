@@ -57,9 +57,9 @@ determines which principals can use each target and document.
 
 ## Public bootstrap
 
-Set `talos_access_transport = "bootstrap_public"` and set
-`bootstrap_public = { operator_cidr = "198.51.100.10/32" }` using your real
-public IPv4 address. Set `private_api_dns_name` and keep the controllers in
+Set `talos_access_transport = "bootstrap_public"`. The module creates the
+temporary NLB and allows the bootstrap runner's public IPv4 as a `/32`.
+Set `private_api_dns_name` and keep the controllers in
 private subnets. The module needs one Panfactum-tagged public subnet in the
 bootstrap controller's availability zone. Leave `talos_api_endpoint` empty
 and omit any caller SSM hook for the first apply.
@@ -72,10 +72,12 @@ addresses and private Talos target. Use the generated `talosconfig` and
 public URL while keeping its CA and client credentials.
 
 Configure and verify VPN access before switching `talos_access_transport`
-to `vpn`. Retain the `bootstrap_public` object until the VPN apply and a
-fresh plan succeed. If controller IPs were dynamically assigned, set
-`talos_api_endpoint` to the discovered private IP when switching. Review a
-separate plan that removes the public object.
+to `vpn`. The module retains the NLB and its CIDR during the switch. If
+controller IPs were dynamically assigned, set `talos_api_endpoint` to the
+discovered private IP when switching. After a plan succeeds over VPN, set
+`bootstrap_public = { enabled = false }` and review the removal plan. Set
+`bootstrap_public.operator_cidr` before bootstrap if the Talos client uses
+a different source CIDR.
 
 ## Kubernetes API routing
 

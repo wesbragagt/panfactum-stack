@@ -158,17 +158,15 @@ variable "talos_access_transport" {
 }
 
 variable "bootstrap_public" {
-  description = "Optional temporary public NLB for the Talos and Kubernetes APIs. Set operator_cidr to the operator's public IPv4 CIDR. Retain this object until provider state and clients have moved to the VPN."
+  description = "Overrides for the temporary public NLB. Public transport enables it and detects the runner's public IPv4 address by default. Set operator_cidr to override discovery. Set enabled to false after verifying private access to retire the public NLB."
   type = object({
-    operator_cidr = string
+    enabled       = optional(bool, true)
+    operator_cidr = optional(string)
   })
   default = null
 
   validation {
-    condition = var.bootstrap_public == null ? true : (
-      can(cidrnetmask(var.bootstrap_public.operator_cidr)) &&
-      try(cidrnetmask(var.bootstrap_public.operator_cidr) != "0.0.0.0", false)
-    )
+    condition     = try(var.bootstrap_public.operator_cidr, null) == null || try(cidrnetmask(var.bootstrap_public.operator_cidr) != "0.0.0.0", false)
     error_message = "bootstrap_public.operator_cidr must be an IPv4 CIDR narrower than /0."
   }
 }

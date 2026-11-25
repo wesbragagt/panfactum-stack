@@ -1,4 +1,5 @@
 mock_provider "aws" {
+  mock_data "aws_security_groups" { defaults = { ids = [] } }
   mock_resource "aws_lb_target_group" {
     defaults = { arn = "arn:aws:elasticloadbalancing:us-east-2:123456789012:targetgroup/test-api/0123456789abcdef" }
   }
@@ -803,10 +804,13 @@ run "fixed_ssm_first_bootstrap" {
 run "bootstrap_public_first_plan" {
   command = plan
   variables {
-    bootstrap_public          = { operator_cidr = "198.51.100.10/32" }
     talos_access_transport    = "bootstrap_public"
     private_api_dns_name      = "api.test.internal"
     control_plane_private_ips = []
+  }
+  override_data {
+    target = data.external.bootstrap_public_cidr
+    values = { result = { operator_cidr = "198.51.100.10/32" } }
   }
   override_resource {
     target = aws_instance.control_plane
@@ -858,9 +862,27 @@ run "bootstrap_public_first_plan" {
 run "bootstrap_public_vpn_retained" {
   command = plan
   variables {
-    bootstrap_public       = { operator_cidr = "198.51.100.10/32" }
     talos_access_transport = "vpn"
     private_api_dns_name   = "api.test.internal"
+  }
+  override_data {
+    target = data.aws_security_groups.bootstrap_public_existing
+    values = { ids = ["sg-0123456789abcdef0"] }
+  }
+  override_data {
+    target = data.aws_vpc_security_group_rules.bootstrap_public_existing
+    values = { ids = ["sgr-0123456789abcdef0"] }
+  }
+  override_data {
+    target = data.aws_vpc_security_group_rule.bootstrap_public_existing
+    values = {
+      cidr_ipv4   = "198.51.100.10/32"
+      description = "Public bootstrap operator"
+      from_port   = 50000
+      to_port     = 50000
+      ip_protocol = "tcp"
+      is_egress   = false
+    }
   }
   override_data {
     target = data.aws_subnets.bootstrap_public
@@ -877,6 +899,8 @@ run "bootstrap_public_vpn_retained" {
     condition = (
       talos_machine_configuration_apply.control_plane[0].endpoint == "10.0.1.10" &&
       length(aws_lb_listener.bootstrap_public) == 2 &&
+      length(data.external.bootstrap_public_cidr) == 0 &&
+      alltrue([for rule in aws_vpc_security_group_ingress_rule.bootstrap_public_operator : rule.cidr_ipv4 == "198.51.100.10/32"]) &&
       contains(yamldecode(local.talos_api_patches[0]).machine.certSANs, "test.elb.amazonaws.com") &&
       contains(yamldecode(local.api_san_patch).certExtraSANs, "test.elb.amazonaws.com")
     )
@@ -887,6 +911,7 @@ run "bootstrap_public_vpn_retained" {
 run "bootstrap_public_vpn_removed" {
   command = plan
   variables {
+    bootstrap_public       = { enabled = false }
     talos_access_transport = "vpn"
     private_api_dns_name   = "api.test.internal"
   }
@@ -895,18 +920,75 @@ run "bootstrap_public_vpn_removed" {
       talos_machine_configuration_apply.control_plane[0].endpoint == "10.0.1.10" &&
       length(aws_lb.bootstrap_public) == 0 &&
       length(aws_vpc_security_group_ingress_rule.bootstrap_public_nodes) == 0 &&
+      length(data.aws_security_groups.bootstrap_public_existing) == 0 &&
       output.bootstrap_public_host == null &&
       output.bootstrap_public_talos_endpoint == null &&
       output.bootstrap_public_kube_url == null
     )
-    error_message = "Removing the bootstrap object must remove the load balancer and temporary ingress."
+    error_message = "Disabling public bootstrap must remove the load balancer and temporary ingress."
   }
 }
 
-run "bootstrap_public_requires_object" {
+run "bootstrap_public_without_private_dns" {
   command = plan
-  variables { talos_access_transport = "bootstrap_public" }
+  variables {
+    bootstrap_public       = { operator_cidr = "198.51.100.10/32" }
+    talos_access_transport = "bootstrap_public"
+  }
+  override_resource {
+    target = aws_lb.bootstrap_public
+    values = { arn = "arn:aws:elasticloadbalancing:us-east-2:123456789012:loadbalancer/net/bootstrap/0123456789abcdef" }
+  }
+  override_data {
+    target = data.aws_subnets.bootstrap_public
+    values = { ids = ["subnet-0123456789abcdef0"] }
+  }
   expect_failures = [aws_instance.control_plane]
+}
+
+run "bootstrap_public_legacy_cidr" {
+  command = plan
+  variables {
+    bootstrap_public     = { operator_cidr = "198.51.100.0/24" }
+    private_api_dns_name = "api.test.internal"
+  }
+  override_resource {
+    target = aws_lb.bootstrap_public
+    values = { arn = "arn:aws:elasticloadbalancing:us-east-2:123456789012:loadbalancer/net/bootstrap/0123456789abcdef" }
+  }
+  override_data {
+    target = data.aws_subnets.bootstrap_public
+    values = { ids = ["subnet-0123456789abcdef0"] }
+  }
+  assert {
+    condition = (
+      length(aws_lb_listener.bootstrap_public) == 2 &&
+      length(data.external.bootstrap_public_cidr) == 0 &&
+      alltrue([for rule in aws_vpc_security_group_ingress_rule.bootstrap_public_operator : rule.cidr_ipv4 == "198.51.100.0/24"])
+    )
+    error_message = "An explicit CIDR must preserve existing callers and skip public address discovery."
+  }
+}
+
+run "bootstrap_public_rejects_bad_detection" {
+  command = plan
+  variables {
+    talos_access_transport = "bootstrap_public"
+    private_api_dns_name   = "api.test.internal"
+  }
+  override_resource {
+    target = aws_lb.bootstrap_public
+    values = { arn = "arn:aws:elasticloadbalancing:us-east-2:123456789012:loadbalancer/net/bootstrap/0123456789abcdef" }
+  }
+  override_data {
+    target = data.aws_subnets.bootstrap_public
+    values = { ids = ["subnet-0123456789abcdef0"] }
+  }
+  override_data {
+    target = data.external.bootstrap_public_cidr
+    values = { result = { operator_cidr = "0.0.0.0/0" } }
+  }
+  expect_failures = [data.external.bootstrap_public_cidr]
 }
 
 run "bootstrap_public_rejects_unrestricted_cidr" {

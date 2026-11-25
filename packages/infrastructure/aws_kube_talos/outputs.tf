@@ -130,5 +130,5 @@ output "bootstrap_public_kube_url" {
 
 output "bootstrap_public_node" {
   description = "Private IP of the controller targeted by the temporary public load balancer."
-  value       = var.bootstrap_public == null ? null : local.bootstrap_node
+  value       = local.bootstrap_public_enabled ? local.bootstrap_node : null
 }

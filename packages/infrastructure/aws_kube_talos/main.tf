@@ -47,7 +47,7 @@ locals {
   talos_api_endpoint = var.talos_api_endpoint == null ? aws_eip_association.api[0].public_ip : local.configured_talos_api_endpoint
 
   talos_api_sans    = distinct(concat(compact([local.bootstrap_public_host]), local.legacy_ssm_sans, var.talos_api_extra_sans))
-  talos_api_patches = var.bootstrap_public != null || length(local.talos_api_sans) > 0 ? [yamlencode({ machine = { certSANs = local.talos_api_sans } })] : []
+  talos_api_patches = local.bootstrap_public_enabled || length(local.talos_api_sans) > 0 ? [yamlencode({ machine = { certSANs = local.talos_api_sans } })] : []
 
   cilium_config_patches = var.cilium_enabled ? [
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeFlannelCNIConfig", "$patch" = "delete" }),
@@ -347,11 +347,11 @@ resource "aws_instance" "control_plane" {
       error_message = "control_plane_private_ips needs one address per control plane node, or none."
     }
     precondition {
-      condition     = var.talos_access_transport != "bootstrap_public" || (var.bootstrap_public != null && var.talos_api_endpoint == "")
-      error_message = "bootstrap_public transport requires the bootstrap_public object and an empty talos_api_endpoint."
+      condition     = var.talos_access_transport != "bootstrap_public" || (local.bootstrap_public_enabled && var.talos_api_endpoint == "")
+      error_message = "bootstrap_public transport requires an enabled public load balancer and an empty talos_api_endpoint."
     }
     precondition {
-      condition     = var.bootstrap_public == null || (!var.control_plane_public_ip_enabled && var.private_api_dns_name != null)
+      condition     = !local.bootstrap_public_enabled || (!var.control_plane_public_ip_enabled && var.private_api_dns_name != null)
       error_message = "bootstrap_public requires private controllers and private_api_dns_name."
     }
     precondition {

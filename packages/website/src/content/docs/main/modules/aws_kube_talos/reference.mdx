@@ -47,13 +47,14 @@ Default: `null`
 
 ### bootstrap\_public
 
-Description: Optional temporary public NLB for the Talos and Kubernetes APIs. Set operator\_cidr to the operator's public IPv4 CIDR. Retain this object until provider state and clients have moved to the VPN.
+Description: Overrides for the temporary public NLB. Public transport enables it and detects the runner's public IPv4 address by default. Set operator\_cidr to override discovery. Set enabled to false after verifying private access to retire the public NLB.
 
 Type:
 
 ```hcl
 object({
-    operator_cidr = string
+    enabled       = optional(bool, true)
+    operator_cidr = optional(string)
   })
 ```
 
