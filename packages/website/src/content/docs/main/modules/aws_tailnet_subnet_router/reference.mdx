@@ -1,0 +1,155 @@
+{/* lint disable no-duplicate-headings */}
+
+{/* eslint-disable import-x/order */}
+
+## Inputs
+
+The following input variables are supported:
+
+### advertised\_routes
+
+Description: CIDRs the routers advertise to the tailnet. The VPC resolver /32 is added when split\_dns\_domains is set.
+
+Type: `list(string)`
+
+Default: n/a
+
+### backend
+
+Description: Control server backend, either tailscale or headscale.
+
+Type: `string`
+
+Default: n/a
+
+### ha\_enabled
+
+Description: Run two routers advertising the same routes. The first two subnets must be in distinct availability zones.
+
+Type: `bool`
+
+Default: `false`
+
+### headscale
+
+Description: Headscale server configuration. Required when backend is headscale.
+
+Type:
+
+```hcl
+object({
+    hostname = string
+    zone_id  = string
+  })
+```
+
+Default: `null`
+
+### instance\_type
+
+Description: arm64 EC2 instance type for the routers.
+
+Type: `string`
+
+Default: `"t4g.nano"`
+
+### name
+
+Description: Prefix for AWS resources and Tailscale hostnames.
+
+Type: `string`
+
+Default: `"tailscale-subnet-router"`
+
+### public\_ip\_enabled
+
+Description: Give routers a public IPv4 so peers connect directly over UDP 41641 instead of relaying through DERP.
+
+Type: `bool`
+
+Default: `true`
+
+### split\_dns\_domains
+
+Description: Domains (such as Route53 private zones) that tailnet clients resolve through the VPC resolver.
+
+Type: `list(string)`
+
+Default: `[]`
+
+### subnets
+
+Description: Names (tag Name) of subnets for routers, each in a different AZ. The first is used alone; HA uses the first two. Subnets must assign routable public IPs or have a NAT route.
+
+Type: `list(string)`
+
+Default:
+
+```json
+[
+  "PUBLIC_A",
+  "PUBLIC_B"
+]
+```
+
+### tailscale\_oauth\_client\_secret
+
+Description: OAuth client secret (tskey-client-...) with the auth\_keys scope. Routers read it from SSM at boot to mint their own ephemeral keys.
+
+Type: `string`
+
+Default: `null`
+
+### tailscale\_tag
+
+Description: Tag the routers advertise. The OAuth client must own it, and tailnet autoApprovers should approve the routes for it.
+
+Type: `string`
+
+Default: `"tag:aws-subnet-router"`
+
+### vpc\_id
+
+Description: VPC the routers run in.
+
+Type: `string`
+
+Default: n/a
+
+## Outputs
+
+The following outputs are exported:
+
+### advertised\_routes
+
+Description: Routes the routers advertise, including the VPC resolver when split DNS is on.
+
+### hostnames
+
+Description: Tailscale hostnames of the routers.
+
+### managed\_headscale
+
+Description: Managed Headscale login URL and EC2 instance ID for Systems Manager access.
+
+### security\_group\_id
+
+Description: Router security group. Allow it on targets whose security groups restrict sources, such as the Kubernetes and Talos APIs.
+
+### split\_dns\_nameservers
+
+Description: Private domain to VPC resolver mappings. Configure these on the Headscale server when using Headscale.
+
+## Providers
+
+The following providers are needed by this module:
+
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
+
+- [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
+
+- tailscale (0.30.0)
+
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}
