@@ -122,9 +122,9 @@ variable "talos_version" {
 }
 
 variable "kube_version" {
-  description = "Kubernetes version (e.g., 1.37.0). Pinned so a talos provider upgrade does not change it; upgrade with `talosctl upgrade-k8s`."
+  description = "Kubernetes version (e.g., 1.36.5). Pinned so a talos provider upgrade does not change it; upgrade with `talosctl upgrade-k8s`."
   type        = string
-  default     = "1.37.0"
+  default     = "1.36.5"
 }
 
 variable "talos_api_allowed_cidrs" {
