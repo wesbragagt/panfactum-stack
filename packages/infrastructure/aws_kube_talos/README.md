@@ -55,6 +55,28 @@ the full arguments. Use `operator` for the Kubernetes-only forward and
 Each session uses a document with a fixed remote destination. AWS IAM
 determines which principals can use each target and document.
 
+## Public bootstrap
+
+Set `talos_access_transport = "bootstrap_public"` and set
+`bootstrap_public = { operator_cidr = "198.51.100.10/32" }` using your real
+public IPv4 address. Set `private_api_dns_name` and keep the controllers in
+private subnets. The module needs one Panfactum-tagged public subnet in the
+bootstrap controller's availability zone. Leave `talos_api_endpoint` empty
+and omit any caller SSM hook for the first apply.
+
+The NLB forwards TCP to the private bootstrap controller. Each API verifies
+its own client certificate. The outputs `bootstrap_public_talos_endpoint`,
+`bootstrap_public_kube_url` and `bootstrap_public_node` identify the public
+addresses and private Talos target. Use the generated `talosconfig` and
+`kubeconfig` credentials. For Kubernetes, override the server with the
+public URL while keeping its CA and client credentials.
+
+Configure and verify VPN access before switching `talos_access_transport`
+to `vpn`. Retain the `bootstrap_public` object until the VPN apply and a
+fresh plan succeed. If controller IPs were dynamically assigned, set
+`talos_api_endpoint` to the discovered private IP when switching. Review a
+separate plan that removes the public object.
+
 ## Kubernetes API routing
 
 Talos v1.14.6 generates `KubePrismConfig` for controllers and workers. Keep

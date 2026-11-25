@@ -112,3 +112,23 @@ output "node_instance_profile_arn" {
   description = "EC2 worker instance profile ARN"
   value       = aws_iam_instance_profile.worker.arn
 }
+
+output "bootstrap_public_host" {
+  description = "Temporary public hostname for the Talos and Kubernetes operator APIs. Null when the public load balancer is disabled."
+  value       = local.bootstrap_public_host
+}
+
+output "bootstrap_public_talos_endpoint" {
+  description = "Temporary public Talos API address for talosctl, including the port."
+  value       = local.bootstrap_public_host == null ? null : "${local.bootstrap_public_host}:50000"
+}
+
+output "bootstrap_public_kube_url" {
+  description = "Temporary public Kubernetes API URL for kubectl and Helm."
+  value       = local.bootstrap_public_host == null ? null : "https://${local.bootstrap_public_host}:6443"
+}
+
+output "bootstrap_public_node" {
+  description = "Private IP of the controller targeted by the temporary public load balancer."
+  value       = var.bootstrap_public == null ? null : local.bootstrap_node
+}

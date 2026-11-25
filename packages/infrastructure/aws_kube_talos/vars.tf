@@ -146,14 +146,30 @@ variable "talos_api_endpoint" {
 }
 
 variable "talos_access_transport" {
-  description = "Talos operator transport. vpn selects the configured bootstrap controller's fixed private IP. ssm selects the module hook's loopback address and enables loopback SANs. The empty default retains legacy loopback behavior."
+  description = "Talos operator transport. bootstrap_public selects the temporary public load balancer. vpn selects the configured bootstrap controller's fixed private IP. ssm selects the module hook's loopback address and enables loopback SANs. The empty default retains legacy loopback behavior."
   type        = string
   default     = ""
   nullable    = false
 
   validation {
-    condition     = contains(["", "vpn", "ssm"], var.talos_access_transport)
-    error_message = "talos_access_transport must be vpn, ssm, or empty."
+    condition     = contains(["", "vpn", "ssm", "bootstrap_public"], var.talos_access_transport)
+    error_message = "talos_access_transport must be vpn, ssm, bootstrap_public, or empty."
+  }
+}
+
+variable "bootstrap_public" {
+  description = "Optional temporary public NLB for the Talos and Kubernetes APIs. Set operator_cidr to the operator's public IPv4 CIDR. Retain this object until provider state and clients have moved to the VPN."
+  type = object({
+    operator_cidr = string
+  })
+  default = null
+
+  validation {
+    condition = var.bootstrap_public == null ? true : (
+      can(cidrnetmask(var.bootstrap_public.operator_cidr)) &&
+      try(cidrnetmask(var.bootstrap_public.operator_cidr) != "0.0.0.0", false)
+    )
+    error_message = "bootstrap_public.operator_cidr must be an IPv4 CIDR narrower than /0."
   }
 }
 

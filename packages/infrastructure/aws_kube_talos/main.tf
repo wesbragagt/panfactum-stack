@@ -35,18 +35,19 @@ locals {
   # Keep the Elastic IP valid in the API server cert so clients pinned to it survive a switch to the DNS name
   api_san_patch = yamlencode({
     apiVersion    = "v1alpha1", kind = "KubeAPIServerConfig"
-    certExtraSANs = compact(distinct(concat([local.api_host, local.public_ip, var.private_api_dns_name], local.legacy_ssm_sans, var.kube_api_extra_sans)))
+    certExtraSANs = compact(distinct(concat([local.api_host, local.public_ip, var.private_api_dns_name, local.bootstrap_public_host], local.legacy_ssm_sans, var.kube_api_extra_sans)))
   })
 
   configured_talos_api_endpoint = (
+    var.talos_access_transport == "bootstrap_public" ? local.bootstrap_public_host :
     var.talos_api_endpoint != "" ? var.talos_api_endpoint :
     var.talos_access_transport == "vpn" ? try(var.control_plane_private_ips[local.bootstrap_index], null) :
     "127.0.0.1"
   )
   talos_api_endpoint = var.talos_api_endpoint == null ? aws_eip_association.api[0].public_ip : local.configured_talos_api_endpoint
 
-  talos_api_sans    = distinct(concat(local.legacy_ssm_sans, var.talos_api_extra_sans))
-  talos_api_patches = length(local.talos_api_sans) == 0 ? [] : [yamlencode({ machine = { certSANs = local.talos_api_sans } })]
+  talos_api_sans    = distinct(concat(compact([local.bootstrap_public_host]), local.legacy_ssm_sans, var.talos_api_extra_sans))
+  talos_api_patches = var.bootstrap_public != null || length(local.talos_api_sans) > 0 ? [yamlencode({ machine = { certSANs = local.talos_api_sans } })] : []
 
   cilium_config_patches = var.cilium_enabled ? [
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeFlannelCNIConfig", "$patch" = "delete" }),
@@ -346,6 +347,14 @@ resource "aws_instance" "control_plane" {
       error_message = "control_plane_private_ips needs one address per control plane node, or none."
     }
     precondition {
+      condition     = var.talos_access_transport != "bootstrap_public" || (var.bootstrap_public != null && var.talos_api_endpoint == "")
+      error_message = "bootstrap_public transport requires the bootstrap_public object and an empty talos_api_endpoint."
+    }
+    precondition {
+      condition     = var.bootstrap_public == null || (!var.control_plane_public_ip_enabled && var.private_api_dns_name != null)
+      error_message = "bootstrap_public requires private controllers and private_api_dns_name."
+    }
+    precondition {
       condition     = var.talos_access_transport != "vpn" || var.talos_api_endpoint != "" || length(var.control_plane_private_ips) > 0
       error_message = "VPN access requires control_plane_private_ips or an explicit talos_api_endpoint."
     }
@@ -537,6 +546,11 @@ resource "talos_machine_configuration_apply" "control_plane" {
     aws_vpc_security_group_ingress_rule.operator_tunnel,
     aws_instance.ssm_jump_host,
     aws_vpc_security_group_ingress_rule.ssm_jump_host_talos,
+    aws_lb_listener.bootstrap_public,
+    aws_lb_target_group_attachment.bootstrap_public,
+    aws_vpc_security_group_ingress_rule.bootstrap_public_operator,
+    aws_vpc_security_group_ingress_rule.bootstrap_public_nodes,
+    aws_vpc_security_group_egress_rule.bootstrap_public_nodes,
   ]
 
   # A replacement reuses the fixed IP, so node never changes; without this the new instance keeps

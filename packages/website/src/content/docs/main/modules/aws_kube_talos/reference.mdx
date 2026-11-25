@@ -45,6 +45,20 @@ Type: `string`
 
 Default: `null`
 
+### bootstrap\_public
+
+Description: Optional temporary public NLB for the Talos and Kubernetes APIs. Set operator\_cidr to the operator's public IPv4 CIDR. Retain this object until provider state and clients have moved to the VPN.
+
+Type:
+
+```hcl
+object({
+    operator_cidr = string
+  })
+```
+
+Default: `null`
+
 ### cilium\_enabled
 
 Description: Disable Talos-managed Flannel and kube-proxy on every node before installing Cilium with kube-proxy replacement.
@@ -366,7 +380,7 @@ Default: `null`
 
 ### talos\_access\_transport
 
-Description: Talos operator transport. vpn selects the configured bootstrap controller's fixed private IP. ssm selects the module hook's loopback address and enables loopback SANs. The empty default retains legacy loopback behavior.
+Description: Talos operator transport. bootstrap\_public selects the temporary public load balancer. vpn selects the configured bootstrap controller's fixed private IP. ssm selects the module hook's loopback address and enables loopback SANs. The empty default retains legacy loopback behavior.
 
 Type: `string`
 
@@ -520,6 +534,22 @@ Default: `[]`
 ## Outputs
 
 The following outputs are exported:
+
+### bootstrap\_public\_host
+
+Description: Temporary public hostname for the Talos and Kubernetes operator APIs. Null when the public load balancer is disabled.
+
+### bootstrap\_public\_kube\_url
+
+Description: Temporary public Kubernetes API URL for kubectl and Helm.
+
+### bootstrap\_public\_node
+
+Description: Private IP of the controller targeted by the temporary public load balancer.
+
+### bootstrap\_public\_talos\_endpoint
+
+Description: Temporary public Talos API address for talosctl, including the port.
 
 ### cluster\_ca\_data
 

@@ -13,6 +13,12 @@ locals {
   removed_control_plane_ips = try(data.aws_instances.removed_control_plane[0].private_ips, [])
 }
 
+# NOTE: Look up the running NLB so the shrink check can read etcd during plan even when the NLB has pending changes.
+data "aws_lb" "bootstrap_public_shrink" {
+  count = length(local.removed_control_plane_ips) > 0 && var.talos_access_transport == "bootstrap_public" ? 1 : 0
+  tags  = { Name = "${var.cluster_name}-bootstrap-public" }
+}
+
 # Destroying a voting etcd member loses quorum, so the plan fails (also when talosctl cannot
 # list members) instead of relying on the operator remembering `etcd leave`.
 data "external" "etcd_members" {
@@ -21,11 +27,14 @@ data "external" "etcd_members" {
   # Inputs come from variables and data sources, not aws_instance, so the read happens at plan
   # time even when the same plan changes a controller.
   query = {
-    endpoint = var.talos_api_endpoint == null ? aws_eip.api[0].public_ip : local.configured_talos_api_endpoint
-    node     = data.aws_instances.existing_control_plane.private_ips[0]
-    ca       = local.client_configuration.ca_certificate
-    crt      = local.client_configuration.client_certificate
-    key      = local.client_configuration.client_key
+    endpoint = (
+      var.talos_access_transport == "bootstrap_public" ? data.aws_lb.bootstrap_public_shrink[0].dns_name :
+      var.talos_api_endpoint == null ? aws_eip.api[0].public_ip : local.configured_talos_api_endpoint
+    )
+    node = data.aws_instances.existing_control_plane.private_ips[0]
+    ca   = local.client_configuration.ca_certificate
+    crt  = local.client_configuration.client_certificate
+    key  = local.client_configuration.client_key
   }
 
   lifecycle {

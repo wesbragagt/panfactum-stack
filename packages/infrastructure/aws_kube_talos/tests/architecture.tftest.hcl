@@ -1,4 +1,7 @@
 mock_provider "aws" {
+  mock_resource "aws_lb_target_group" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-east-2:123456789012:targetgroup/test-api/0123456789abcdef" }
+  }
   mock_data "aws_iam_policy_document" { defaults = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" } }
   mock_data "aws_caller_identity" { defaults = { account_id = "123456789012" } }
   mock_data "aws_partition" { defaults = { partition = "aws", dns_suffix = "amazonaws.com" } }
@@ -795,4 +798,125 @@ run "fixed_ssm_first_bootstrap" {
     condition     = aws_instance.control_plane[0].tags["kubernetes.io/cluster/test"] == "owned"
     error_message = "CCM must discover controllers when AWS node configuration is enabled."
   }
+}
+
+run "bootstrap_public_first_plan" {
+  command = plan
+  variables {
+    bootstrap_public          = { operator_cidr = "198.51.100.10/32" }
+    talos_access_transport    = "bootstrap_public"
+    private_api_dns_name      = "api.test.internal"
+    control_plane_private_ips = []
+  }
+  override_resource {
+    target = aws_instance.control_plane
+    values = { private_ip = "10.0.1.10" }
+  }
+  override_data {
+    target = data.aws_subnets.bootstrap_public
+    values = { ids = ["subnet-0123456789abcdef0"] }
+  }
+  override_resource {
+    target = aws_lb.bootstrap_public
+    values = {
+      arn      = "arn:aws:elasticloadbalancing:us-east-2:123456789012:loadbalancer/net/bootstrap/0123456789abcdef"
+      dns_name = "test.elb.amazonaws.com"
+    }
+  }
+  assert {
+    condition = (
+      !aws_lb.bootstrap_public[0].internal &&
+      aws_lb.bootstrap_public[0].subnets == toset(["subnet-0123456789abcdef0"]) &&
+      toset([for listener in aws_lb_listener.bootstrap_public : listener.port if listener.protocol == "TCP"]) == toset([50000, 6443])
+    )
+    error_message = "Public bootstrap needs a public NLB with two TCP passthrough listeners."
+  }
+  assert {
+    condition = (
+      length(aws_vpc_security_group_ingress_rule.bootstrap_public_operator) == 2 &&
+      alltrue([for rule in aws_vpc_security_group_ingress_rule.bootstrap_public_operator : rule.cidr_ipv4 == "198.51.100.10/32"]) &&
+      toset([for rule in aws_vpc_security_group_ingress_rule.bootstrap_public_nodes : rule.from_port]) == toset([50000, 6443]) &&
+      alltrue([for target in aws_lb_target_group_attachment.bootstrap_public : target.target_id == "10.0.1.10"])
+    )
+    error_message = "The operator CIDR and NLB security group must gate access to the private bootstrap controller."
+  }
+  assert {
+    condition = (
+      talos_machine_configuration_apply.control_plane[0].endpoint == "test.elb.amazonaws.com" &&
+      talos_machine_configuration_apply.control_plane[0].node == "10.0.1.10" &&
+      contains(yamldecode(local.talos_api_patches[0]).machine.certSANs, "test.elb.amazonaws.com") &&
+      contains(yamldecode(local.api_san_patch).certExtraSANs, "test.elb.amazonaws.com") &&
+      local.cluster_endpoint == "https://api.test.internal:6443" &&
+      output.bootstrap_public_host == "test.elb.amazonaws.com" &&
+      output.bootstrap_public_talos_endpoint == "test.elb.amazonaws.com:50000" &&
+      output.bootstrap_public_kube_url == "https://test.elb.amazonaws.com:6443"
+    )
+    error_message = "Both API certificates must cover the public hostname while cluster traffic stays private."
+  }
+}
+
+run "bootstrap_public_vpn_retained" {
+  command = plan
+  variables {
+    bootstrap_public       = { operator_cidr = "198.51.100.10/32" }
+    talos_access_transport = "vpn"
+    private_api_dns_name   = "api.test.internal"
+  }
+  override_data {
+    target = data.aws_subnets.bootstrap_public
+    values = { ids = ["subnet-0123456789abcdef0"] }
+  }
+  override_resource {
+    target = aws_lb.bootstrap_public
+    values = {
+      arn      = "arn:aws:elasticloadbalancing:us-east-2:123456789012:loadbalancer/net/bootstrap/0123456789abcdef"
+      dns_name = "test.elb.amazonaws.com"
+    }
+  }
+  assert {
+    condition = (
+      talos_machine_configuration_apply.control_plane[0].endpoint == "10.0.1.10" &&
+      length(aws_lb_listener.bootstrap_public) == 2 &&
+      contains(yamldecode(local.talos_api_patches[0]).machine.certSANs, "test.elb.amazonaws.com") &&
+      contains(yamldecode(local.api_san_patch).certExtraSANs, "test.elb.amazonaws.com")
+    )
+    error_message = "The VPN handoff must retain public access and its certificate names while changing the provider endpoint."
+  }
+}
+
+run "bootstrap_public_vpn_removed" {
+  command = plan
+  variables {
+    talos_access_transport = "vpn"
+    private_api_dns_name   = "api.test.internal"
+  }
+  assert {
+    condition = (
+      talos_machine_configuration_apply.control_plane[0].endpoint == "10.0.1.10" &&
+      length(aws_lb.bootstrap_public) == 0 &&
+      length(aws_vpc_security_group_ingress_rule.bootstrap_public_nodes) == 0 &&
+      output.bootstrap_public_host == null &&
+      output.bootstrap_public_talos_endpoint == null &&
+      output.bootstrap_public_kube_url == null
+    )
+    error_message = "Removing the bootstrap object must remove the load balancer and temporary ingress."
+  }
+}
+
+run "bootstrap_public_requires_object" {
+  command = plan
+  variables { talos_access_transport = "bootstrap_public" }
+  expect_failures = [aws_instance.control_plane]
+}
+
+run "bootstrap_public_rejects_unrestricted_cidr" {
+  command = plan
+  variables { bootstrap_public = { operator_cidr = "0.0.0.0/0" } }
+  expect_failures = [var.bootstrap_public]
+}
+
+run "bootstrap_public_rejects_invalid_cidr" {
+  command = plan
+  variables { bootstrap_public = { operator_cidr = "invalid" } }
+  expect_failures = [var.bootstrap_public]
 }
