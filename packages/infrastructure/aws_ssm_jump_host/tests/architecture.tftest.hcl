@@ -52,6 +52,52 @@ run "private_ssm_host_has_its_own_identity_and_security_group" {
     condition     = output.instance_id == "i-00000000000000001" && output.security_group_id == "sg-00000000000000001"
     error_message = "Export both IDs without creating a cluster."
   }
+  assert {
+    condition     = length(aws_ssm_document.api) == 0 && length(output.document_names) == 0
+    error_message = "Port forwarding documents must be opt-in."
+  }
+}
+
+run "port_forwarding_documents_fix_remote_destination" {
+  command = plan
+  variables {
+    port_forwarding_documents = {
+      kube = {
+        name        = "operator-canary-kube-forward"
+        host        = "10.0.128.20"
+        port        = 6443
+        description = "operator-canary kube API forward"
+      }
+      talos = {
+        name        = "operator-canary-talos-forward"
+        host        = "10.0.128.20"
+        port        = 50000
+        description = "operator-canary talos API forward"
+      }
+    }
+  }
+  assert {
+    condition = alltrue([
+      for api, port in { kube = "6443", talos = "50000" } :
+      aws_ssm_document.api[api].name == "operator-canary-${api}-forward"
+      && output.document_names[api] == "operator-canary-${api}-forward"
+      && aws_ssm_document.api[api].document_type == "Session"
+      && aws_ssm_document.api[api].document_format == "JSON"
+      && jsondecode(aws_ssm_document.api[api].content).description == "operator-canary ${api} API forward"
+      && jsondecode(aws_ssm_document.api[api].content).sessionType == "Port"
+      && jsondecode(aws_ssm_document.api[api].content).properties.host == "10.0.128.20"
+      && jsondecode(aws_ssm_document.api[api].content).properties.portNumber == port
+      && jsondecode(aws_ssm_document.api[api].content).properties.localPortNumber == "{{ localPortNumber }}"
+      && jsondecode(aws_ssm_document.api[api].content).parameters == {
+        localPortNumber = {
+          type           = "String"
+          default        = "0"
+          allowedPattern = "^([0-9]|[1-9][0-9]{1,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$"
+        }
+      }
+    ])
+    error_message = "Each document must pin its destination and expose only the validated local port."
+  }
 }
 
 run "reject_subnet_in_another_vpc" {

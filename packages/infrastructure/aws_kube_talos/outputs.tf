@@ -87,11 +87,6 @@ output "ssm_jump_host_security_group_id" {
   value       = one(aws_security_group.ssm_jump_host[*].id)
 }
 
-output "document_names" {
-  description = "Session Manager document names keyed by API, or null when ssm_session_documents_enabled is false."
-  value       = var.ssm_session_documents_enabled ? { for api, document in aws_ssm_document.api : api => document.name } : null
-}
-
 output "node_role_arn" {
   description = "EC2 worker IAM role ARN for Karpenter's scoped PassRole policy"
   value       = aws_iam_role.worker.arn

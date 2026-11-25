@@ -22,6 +22,23 @@ Type: `string`
 
 Default: `"t4g.nano"`
 
+### port\_forwarding\_documents
+
+Description: Session Manager port forwarding documents keyed by a caller-defined name.
+
+Type:
+
+```hcl
+map(object({
+    name        = string
+    host        = string
+    port        = number
+    description = optional(string, "")
+  }))
+```
+
+Default: `{}`
+
 ### subnet\_id
 
 Description: ID of the existing private subnet with outbound connectivity for the SSM agent.
@@ -41,6 +58,10 @@ Default: n/a
 ## Outputs
 
 The following outputs are exported:
+
+### document\_names
+
+Description: Session Manager port forwarding document names keyed by the caller-defined key.
 
 ### instance\_id
 

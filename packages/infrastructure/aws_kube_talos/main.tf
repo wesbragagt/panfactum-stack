@@ -296,8 +296,7 @@ resource "aws_instance" "control_plane" {
   user_data                   = data.talos_machine_configuration.control_plane.machine_configuration
   iam_instance_profile        = var.controller_instance_profile != null ? var.controller_instance_profile : try(aws_iam_instance_profile.controller[0].name, null)
 
-  # The bootstrap hook opens the SSM forward as soon as it discovers the controller.
-  depends_on = [aws_ssm_document.api, terraform_data.pre_membership_snapshot]
+  depends_on = [terraform_data.pre_membership_snapshot]
 
   # Hop limit 1 keeps pods (and the machine config in user data) away from IMDS
   metadata_options {

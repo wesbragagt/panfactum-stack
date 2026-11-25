@@ -18,3 +18,14 @@ variable "instance_type" {
   type        = string
   default     = "t4g.nano"
 }
+
+variable "port_forwarding_documents" {
+  description = "Session Manager port forwarding documents keyed by a caller-defined name."
+  type = map(object({
+    name        = string
+    host        = string
+    port        = number
+    description = optional(string, "")
+  }))
+  default = {}
+}

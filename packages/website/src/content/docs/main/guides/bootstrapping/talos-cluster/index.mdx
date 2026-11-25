@@ -23,11 +23,32 @@ For direct access, set `talos_api_endpoint` to a reachable private address.
 Use `talos_api_source_security_groups` and `kube_api_source_security_groups`
 to grant each API access from its own set of source security groups.
 
-For Systems Manager, apply `aws_ssm_jump_host` and verify its instance is
-SSM Online. Set `ssm_session_documents_enabled = true` on `aws_kube_talos`
-and supply the controller's fixed private IPv4 address through
-`control_plane_private_ips`. The two documents forward to
-TCP 6443 and TCP 50000. Only the local port is a session parameter.
+For Systems Manager, pass the two fixed destinations to
+`aws_ssm_jump_host.port_forwarding_documents`. The caller supplies the same
+bootstrap IPv4 address here and in `aws_kube_talos.control_plane_private_ips`.
+Do not take the address from a cluster output because the documents must
+exist before the cluster apply.
+
+```hcl
+port_forwarding_documents = {
+  kube = {
+    name        = "${local.cluster_name}-kube-forward"
+    description = "${local.cluster_name} kube API forward"
+    host        = local.bootstrap_ip
+    port        = 6443
+  }
+  talos = {
+    name        = "${local.cluster_name}-talos-forward"
+    description = "${local.cluster_name} talos API forward"
+    host        = local.bootstrap_ip
+    port        = 50000
+  }
+}
+```
+
+Apply `aws_ssm_jump_host` first and verify its instance is SSM Online.
+The `document_names` output maps the caller's keys to the AWS document names.
+Each document accepts only the local port as a session parameter.
 
 Use the jump host security group in both ingress maps. For optional NAT
 recovery, include the security group of an explicit SSM-managed NAT in both

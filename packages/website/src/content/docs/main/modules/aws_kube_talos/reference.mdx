@@ -364,14 +364,6 @@ Type: `string`
 
 Default: `null`
 
-### ssm\_session\_documents\_enabled
-
-Description: Create Session Manager documents that forward each API to the bootstrap controller's fixed private IPv4 address.
-
-Type: `bool`
-
-Default: `false`
-
 ### talos\_api\_allowed\_cidrs
 
 Description: CIDRs allowed to reach the Talos API (TCP 50000). Empty by default; operators reach the API through the SSM tunnel instead.
@@ -544,10 +536,6 @@ Description: Private IPs of the control plane nodes, in control\_plane\_subnets 
 ### control\_plane\_public\_ips
 
 Description: Public IP of the control plane node (Talos and Kubernetes API endpoint).
-
-### document\_names
-
-Description: Session Manager document names keyed by API, or null when ssm\_session\_documents\_enabled is false.
 
 ### etcd\_backup\_bucket
 
