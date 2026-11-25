@@ -16,7 +16,7 @@ Default: `[]`
 
 ### aws\_iam\_ip\_restrictions\_enabled
 
-Description: Enable source-IP restrictions. Disable explicitly for self-managed controllers with changing public egress; OIDC subject and audience remain restricted.
+Description: Enable source-IP restrictions for legacy deployments. The scoped Talos ENI path uses ENI policy and OIDC restrictions.
 
 Type: `bool`
 
@@ -37,6 +37,21 @@ Description: The version of the cilium helm chart to deploy
 Type: `string`
 
 Default: `"1.20.4"`
+
+### cluster
+
+Description: Cluster identity. The aws\_eks type uses EKS ENI and IRSA defaults. The talos type discovers ENI networking and OIDC from the named cluster.
+
+Type:
+
+```hcl
+object({
+    type = string
+    name = string
+  })
+```
+
+Default: `null`
 
 ### cluster\_name
 
@@ -62,11 +77,11 @@ Default:
 
 ### cluster\_type
 
-Description: Cluster platform. EKS preserves the existing ENI/IRSA defaults; Talos uses KubePrism and does not query EKS. Local (kind) queries neither and needs an explicit API host and port.
+Description: Legacy platform input. EKS is the default. Local (kind) requires an explicit API host and port.
 
 Type: `string`
 
-Default: `"eks"`
+Default: `null`
 
 ### controller\_nodes\_enabled
 
@@ -102,7 +117,7 @@ Default: `[]`
 
 ### envoy\_enabled
 
-Description: Enable the standalone Envoy DaemonSet. Null preserves the platform default.
+Description: Enable the standalone Envoy DaemonSet. Defaults to false for scoped Talos ENI and non-Talos deployments.
 
 Type: `bool`
 
@@ -118,7 +133,7 @@ Default: `false`
 
 ### ipam\_mode
 
-Description: Optional IPAM override. Defaults to eni on EKS and cluster-pool on Talos and local. ENI is not supported in local mode.
+Description: Optional IPAM override. Defaults to eni on EKS and on Talos when using the cluster object. Legacy Talos and local default to cluster-pool.
 
 Type: `string`
 
@@ -150,11 +165,11 @@ Default: `null`
 
 ### l7\_proxy\_enabled
 
-Description: Enable Cilium application-layer policies and visibility. Disable with Envoy when these features are unused.
+Description: Enable Cilium application-layer policies and visibility. Defaults to false on scoped Talos ENI clusters and true otherwise.
 
 Type: `bool`
 
-Default: `true`
+Default: `null`
 
 ### log\_level
 
@@ -214,7 +229,7 @@ Default: `null`
 
 ### operator\_replicas
 
-Description: Operator replica override. Defaults to two on EKS and one on Talos and local.
+Description: Operator replica override. Defaults to two on EKS and on discovered Talos ENI clusters with SLA target 2 or higher, one otherwise.
 
 Type: `number`
 
@@ -226,7 +241,7 @@ Description: Whether to use the ECR pull through cache for the deployed images
 
 Type: `bool`
 
-Default: `true`
+Default: `null`
 
 ### routing\_mode
 

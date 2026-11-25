@@ -19,6 +19,20 @@ class PlatformTests(unittest.TestCase):
         (cls.path / "vars.tf").write_text((ROOT / "vars.tf").read_text())
         platform = (ROOT / "platform.tf").read_text().split("# Keep EKS state addresses", 1)[0]
         source = (ROOT / "main.tf").read_text()
+        platform = platform.replace("local.private_subnets_by_name", "var.mock_private_subnets")
+        platform += '''
+variable "mock_cluster_name" {
+  type    = string
+  default = "example-cluster"
+}
+variable "mock_private_subnets" {
+  type    = map(string)
+  default = { PRIVATE_B = "subnet-b", PRIVATE_A = "subnet-a" }
+}
+locals {
+  cluster_name = var.cluster != null ? var.cluster.name : var.mock_cluster_name
+}
+'''
         counts = {}
         counts["envoy"] = source.split("      envoy = {", 1)[1].split("enabled =", 1)[1].split("\n", 1)[0].strip()
         counts["l7_proxy"] = source.split("      l7Proxy =", 1)[1].split("\n", 1)[0].strip()
@@ -37,6 +51,7 @@ class PlatformTests(unittest.TestCase):
         operator = "extraEnv =" + operator
         operator = operator.replace("module.aws_permissions[0].role_arn", '"arn:aws:iam::123456789012:role/cilium"').replace("data.aws_region.region.region", '"us-east-2"')
         platform += "\nlocals { test_operator = merge({" + operator + "}, local.operator_web_identity) }\n"
+        counts["operator_replicas"] = re.search(r"\breplicas = ([^\n]+)", source).group(1)
         platform += "\nlocals {\n" + "\n".join(f"test_{name} = {expr}" for name, expr in counts.items()) + "\n}\n"
         (cls.path / "platform.tf").write_text(platform)
 
@@ -48,7 +63,7 @@ class PlatformTests(unittest.TestCase):
         args = [shutil.which("tofu") or "tofu", "-chdir=" + str(self.path), "console", "-no-color"]
         (self.path / "case.tfvars.json").write_text(json.dumps(variables))
         args += ["-var-file=case.tfvars.json"]
-        expression = "jsonencode({envoy=local.test_envoy, l7_proxy=local.test_l7_proxy, namespace_labels=local.test_namespace_labels, iam_actions=local.test_iam_actions, operator=local.test_operator, values=local.platform_values, eni=local.eni_enabled, eks=local.test_eks_lookups, iam=local.test_iam_modules, annotations=local.test_iam_annotations, namespaces=local.test_managed_namespaces, tolerations=local.platform_tolerations, identity=local.operator_web_identity})"
+        expression = "jsonencode({envoy=local.test_envoy, l7_proxy=local.test_l7_proxy, namespace_labels=local.test_namespace_labels, iam_actions=local.test_iam_actions, operator=local.test_operator, values=local.platform_values, eni=local.eni_enabled, eks=local.test_eks_lookups, iam=local.test_iam_modules, annotations=local.test_iam_annotations, namespaces=local.test_managed_namespaces, tolerations=local.platform_tolerations, identity=local.operator_web_identity, replicas=local.test_operator_replicas, use_cache=local.pull_through_cache_enabled, scoped_eni=local.scoped_eni})"
         result = subprocess.run(args, input=expression + "\n", text=True, capture_output=True, check=True)
         self.assertTrue(result.stdout.strip(), result.stderr)
         return json.loads(json.loads(result.stdout.strip()))
@@ -75,6 +90,31 @@ class PlatformTests(unittest.TestCase):
         })
         self.assertEqual([value[k] for k in ("eks", "iam", "annotations", "namespaces")], [1, 1, 1, 1])
         self.assertEqual(value["tolerations"], [])
+        self.assertEqual(self.evaluate(cluster={"type": "aws_eks", "name": "example-eks"}), value)
+        self.assertEqual(self.evaluate(cluster_type="eks"), value)
+
+    def test_standard_talos_eni_defaults_follow_cluster_and_sla(self):
+        for name, sla_target, replicas in (("example-north", 1, 1), ("example-south", 2, 2)):
+            with self.subTest(name=name):
+                value = self.evaluate(cluster={"type": "talos", "name": name}, sla_target=sla_target)
+                self.assertEqual([value[k] for k in ("eks", "iam", "annotations", "namespaces")], [0, 1, 1, 1])
+                eni = value["values"]["eni"]
+                self.assertEqual(eni["eniTags"], {"homelab-cluster": name})
+                self.assertEqual(eni["gcTags"], eni["eniTags"])
+                self.assertEqual(eni["nodeSpec"], {"firstInterfaceIndex": 1, "subnetIDs": ["subnet-a", "subnet-b"]})
+                self.assertEqual(value["namespace_labels"], {"pod-security.kubernetes.io/enforce": "privileged"})
+                self.assertEqual(value["replicas"], replicas)
+                self.assertFalse(value["use_cache"])
+                self.assertTrue(value["scoped_eni"])
+                self.assertEqual([t["key"] for t in value["tolerations"]], [
+                    "node-role.kubernetes.io/control-plane",
+                    "node.cloudprovider.kubernetes.io/uninitialized",
+                    "ebs.csi.aws.com/agent-not-ready",
+                ])
+
+    def test_talos_object_respects_explicit_ipam_mode(self):
+        value = self.evaluate(cluster={"type": "talos", "name": "example-cluster"}, ipam_mode="cluster-pool")
+        self.assertEqual(value, self.evaluate(cluster_type="talos"))
 
     def test_route_table_permission_is_talos_eni_only(self):
         baseline = set(self.evaluate()["iam_actions"])

@@ -5,15 +5,15 @@ variable "namespace_labels" {
 }
 
 variable "envoy_enabled" {
-  description = "Enable the standalone Envoy DaemonSet. Null preserves the platform default."
+  description = "Enable the standalone Envoy DaemonSet. Defaults to false for scoped Talos ENI and non-Talos deployments."
   type        = bool
   default     = null
 }
 
 variable "l7_proxy_enabled" {
-  description = "Enable Cilium application-layer policies and visibility. Disable with Envoy when these features are unused."
+  description = "Enable Cilium application-layer policies and visibility. Defaults to false on scoped Talos ENI clusters and true otherwise."
   type        = bool
-  default     = true
+  default     = null
 }
 
 variable "cilium_helm_version" {
@@ -47,7 +47,7 @@ variable "aws_iam_ip_allow_list" {
 variable "pull_through_cache_enabled" {
   description = "Whether to use the ECR pull through cache for the deployed images"
   type        = bool
-  default     = true
+  default     = null
 }
 
 variable "monitoring_enabled" {
@@ -96,18 +96,33 @@ variable "controller_nodes_enabled" {
   type        = bool
   default     = true
 }
-variable "cluster_type" {
-  description = "Cluster platform. EKS preserves the existing ENI/IRSA defaults; Talos uses KubePrism and does not query EKS. Local (kind) queries neither and needs an explicit API host and port."
-  type        = string
-  default     = "eks"
+variable "cluster" {
+  description = "Cluster identity. The aws_eks type uses EKS ENI and IRSA defaults. The talos type discovers ENI networking and OIDC from the named cluster."
+  type = object({
+    type = string
+    name = string
+  })
+  default = null
+
   validation {
-    condition     = contains(["eks", "talos", "local"], var.cluster_type)
+    condition     = var.cluster == null ? true : try(contains(["aws_eks", "talos"], var.cluster.type) && trimspace(var.cluster.name) != "", false)
+    error_message = "cluster requires an aws_eks or talos type and a nonempty name."
+  }
+
+}
+
+variable "cluster_type" {
+  description = "Legacy platform input. EKS is the default. Local (kind) requires an explicit API host and port."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.cluster_type == null ? true : contains(["eks", "talos", "local"], var.cluster_type)
     error_message = "cluster_type must be eks, talos or local."
   }
 }
 
 variable "ipam_mode" {
-  description = "Optional IPAM override. Defaults to eni on EKS and cluster-pool on Talos and local. ENI is not supported in local mode."
+  description = "Optional IPAM override. Defaults to eni on EKS and on Talos when using the cluster object. Legacy Talos and local default to cluster-pool."
   type        = string
   default     = null
   validation {
@@ -163,7 +178,7 @@ variable "namespace_create" {
 }
 
 variable "operator_replicas" {
-  description = "Operator replica override. Defaults to two on EKS and one on Talos and local."
+  description = "Operator replica override. Defaults to two on EKS and on discovered Talos ENI clusters with SLA target 2 or higher, one otherwise."
   type        = number
   default     = null
   validation {
@@ -217,7 +232,7 @@ variable "eni_cluster_tag" {
 }
 
 variable "aws_iam_ip_restrictions_enabled" {
-  description = "Enable source-IP restrictions. Disable explicitly for self-managed controllers with changing public egress; OIDC subject and audience remain restricted."
+  description = "Enable source-IP restrictions for legacy deployments. The scoped Talos ENI path uses ENI policy and OIDC restrictions."
   type        = bool
   default     = true
 }

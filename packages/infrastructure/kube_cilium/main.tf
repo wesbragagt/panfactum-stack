@@ -26,7 +26,7 @@ terraform {
 locals {
   name         = "cilium"
   namespace    = var.namespace_create ? module.namespace[0].namespace : var.namespace
-  cluster_name = var.cluster_name != null ? var.cluster_name : data.pf_metadata.metadata.kube_cluster_name
+  cluster_name = var.cluster != null ? var.cluster.name : (var.cluster_name != null ? var.cluster_name : data.pf_metadata.metadata.kube_cluster_name)
   cluster_url  = data.pf_metadata.metadata.kube_api_server
 }
 
@@ -39,7 +39,7 @@ data "pf_metadata" "metadata" {}
 
 data "aws_eks_cluster" "cluster" {
   count = local.eks_enabled ? 1 : 0
-  name  = data.pf_metadata.metadata.kube_cluster_name // We must do this lookup since we set `data.pf_metadata.kube_api_server` is set to a VIP in the CI / CD pipeline (which doesn't work with the Cilium install)
+  name  = var.cluster != null ? var.cluster.name : data.pf_metadata.metadata.kube_cluster_name
 }
 
 module "util_controller" {
@@ -49,7 +49,7 @@ module "util_controller" {
   instance_type_anti_affinity_required = var.sla_target >= 2 // We are a little more aggressive than typical here, b/c if the operator goes down, there is a significant delay in new node initialization
   az_spread_preferred                  = var.sla_target >= 2
   host_anti_affinity_required          = var.sla_target >= 2
-  pull_through_cache_enabled           = var.pull_through_cache_enabled
+  pull_through_cache_enabled           = local.pull_through_cache_enabled
   burstable_nodes_enabled              = var.burstable_nodes_enabled
   controller_nodes_enabled             = var.controller_nodes_enabled
   spot_nodes_enabled                   = var.spot_nodes_enabled
@@ -60,6 +60,7 @@ module "util_controller" {
   panfactum_scheduler_enabled = false
 
   extra_labels = data.pf_kube_labels.labels.labels
+  match_labels = local.scoped_eni ? { "io.cilium/app" = "operator", name = "cilium-operator" } : null
 }
 
 module "util_agent" {
@@ -70,8 +71,9 @@ module "util_agent" {
   controller_nodes_enabled    = true  // must be capable of running on all nodes
   spot_nodes_enabled          = true  // must be capable of running on all nodes
   panfactum_scheduler_enabled = false // daemon-set
-  pull_through_cache_enabled  = var.pull_through_cache_enabled
+  pull_through_cache_enabled  = local.pull_through_cache_enabled
   extra_labels                = data.pf_kube_labels.labels.labels
+  match_labels                = local.scoped_eni ? { "k8s-app" = "cilium" } : null
 }
 
 module "constants" {
@@ -87,7 +89,7 @@ module "namespace" {
   source = "../kube_namespace"
 
   namespace    = var.namespace
-  extra_labels = var.namespace_labels
+  extra_labels = merge(local.scoped_eni ? { "pod-security.kubernetes.io/enforce" = "privileged" } : {}, var.namespace_labels)
 }
 
 /***************************************
@@ -124,9 +126,9 @@ module "aws_permissions" {
   source = "../kube_sa_auth_aws"
 
 
-  oidc_provider_arn         = var.oidc_provider_arn
-  oidc_issuer_url           = var.oidc_issuer_url
-  ip_restrictions_enabled   = var.aws_iam_ip_restrictions_enabled
+  oidc_provider_arn         = local.oidc_provider_arn
+  oidc_issuer_url           = local.oidc_issuer_url
+  ip_restrictions_enabled   = !local.scoped_eni && var.aws_iam_ip_restrictions_enabled
   annotate_service_account  = false // The helm chart creates the service account
   service_account           = "cilium-operator"
   service_account_namespace = local.namespace
@@ -166,13 +168,26 @@ resource "helm_release" "cilium" {
   wait_for_jobs   = true
   max_history     = 5
 
+  depends_on = [aws_iam_role_policy.eni_scope]
+
   lifecycle {
     precondition {
       condition     = local.eni_enabled || local.routing_mode != "native" || var.ipv4_native_routing_cidr != null
       error_message = "Native routing outside ENI IPAM requires ipv4_native_routing_cidr."
     }
     precondition {
-      condition     = !local.talos_enabled || !local.eni_enabled || (var.oidc_provider_arn != null && var.oidc_issuer_url != null && var.eni_cluster_tag != null)
+      condition = var.cluster == null ? true : (
+        (var.cluster_type == null || var.cluster_type == (var.cluster.type == "aws_eks" ? "eks" : var.cluster.type)) &&
+        (var.cluster_name == null || var.cluster_name == var.cluster.name)
+      )
+      error_message = "cluster must agree with any legacy cluster_type and cluster_name inputs."
+    }
+    precondition {
+      condition     = var.cluster == null ? true : var.cluster.name == data.pf_metadata.metadata.kube_cluster_name
+      error_message = "The cluster name must match the Kubernetes cluster selected by the Panfactum provider metadata."
+    }
+    precondition {
+      condition     = !local.talos_enabled || !local.eni_enabled || local.scoped_eni || (var.oidc_provider_arn != null && var.oidc_issuer_url != null && var.eni_cluster_tag != null)
       error_message = "Talos ENI requires oidc_provider_arn, oidc_issuer_url and a unique eni_cluster_tag."
     }
     precondition {
@@ -361,7 +376,7 @@ resource "helm_release" "cilium" {
       }
 
       operator = merge({
-        replicas = var.operator_replicas != null ? var.operator_replicas : (local.eks_enabled ? 2 : 1)
+        replicas = coalesce(var.operator_replicas, local.eks_enabled || (local.scoped_eni && var.sla_target >= 2) ? 2 : 1)
         tolerations = concat([
           // These are needed b/c the cilium agents on each node need the operator
           // to be running in order for them to remove this taint
@@ -423,13 +438,17 @@ resource "helm_release" "cilium" {
       envoy = {
         enabled = var.envoy_enabled == null ? local.talos_enabled : var.envoy_enabled
       }
-      l7Proxy = var.l7_proxy_enabled
 
       gatewayAPI = {
         enabled = false
       }
+      }, local.scoped_eni ? {} : {
+      l7Proxy = coalesce(var.l7_proxy_enabled, true)
     }))
-  ], var.values_overrides)
+    ], local.scoped_eni ? [yamlencode({
+      envoy   = { enabled = coalesce(var.envoy_enabled, false) }
+      l7Proxy = coalesce(var.l7_proxy_enabled, false)
+  })] : [], var.values_overrides)
 }
 
 resource "kubectl_manifest" "vpa_operator" {
