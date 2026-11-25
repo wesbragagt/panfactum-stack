@@ -90,7 +90,7 @@ let
       ####################################
       # Infrastructure-as-Code
       ####################################
-      tfUtilsPkgs.opentofu # declarative iac tool (open alternative to terraform)
+      (pkgs.callPackage ./opentofu.nix { }) # declarative iac tool (open alternative to terraform)
       customTerragrunt # opentofu-runner
       tfUtilsPkgs.terraform-ls # language server for editors
 

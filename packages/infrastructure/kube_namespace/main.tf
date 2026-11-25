@@ -1,4 +1,6 @@
 terraform {
+  required_version = ">= 1.13.0"
+
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
@@ -16,7 +18,7 @@ terraform {
 }
 
 locals {
-  namespace = kubernetes_namespace.main.metadata[0].name // shorthand for forcing the dependency graph
+  namespace = kubernetes_namespace_v1.main.metadata[0].name // shorthand for forcing the dependency graph
 
   extra_labels = merge(var.extra_labels, {
     // https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.4/deploy/pod_readiness_gate/
@@ -33,7 +35,7 @@ data "pf_kube_labels" "labels" {
 
 ######################### Namespace #######################################
 
-resource "kubernetes_namespace" "main" {
+resource "kubernetes_namespace_v1" "main" {
   metadata {
     name   = var.namespace
     labels = merge(data.pf_kube_labels.labels.labels, local.extra_labels)
@@ -50,7 +52,7 @@ resource "kubernetes_namespace" "main" {
 ######################### Admin #######################################
 // Can do everything in the namespace
 
-resource "kubernetes_role" "admins" {
+resource "kubernetes_role_v1" "admins" {
   metadata {
     name      = "namespace:admin"
     namespace = local.namespace
@@ -64,7 +66,7 @@ resource "kubernetes_role" "admins" {
 }
 
 
-resource "kubernetes_role_binding" "admins" {
+resource "kubernetes_role_binding_v1" "admins" {
   count = min(length(var.admin_groups), 1)
   metadata {
     name      = "namespace:admins"
@@ -74,7 +76,7 @@ resource "kubernetes_role_binding" "admins" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "Role"
-    name      = kubernetes_role.admins.metadata[0].name
+    name      = kubernetes_role_v1.admins.metadata[0].name
   }
   dynamic "subject" {
     for_each = toset(var.admin_groups)
@@ -88,7 +90,7 @@ resource "kubernetes_role_binding" "admins" {
 
 ######################### Reader #######################################
 
-resource "kubernetes_role" "readers" {
+resource "kubernetes_role_v1" "readers" {
   metadata {
     name      = "namespace:reader"
     namespace = local.namespace
@@ -194,7 +196,7 @@ resource "kubernetes_role" "readers" {
 }
 
 
-resource "kubernetes_role_binding" "readers" {
+resource "kubernetes_role_binding_v1" "readers" {
   count = min(length(var.reader_groups), 1)
   metadata {
     name      = "namespace:readers"
@@ -204,7 +206,7 @@ resource "kubernetes_role_binding" "readers" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "Role"
-    name      = kubernetes_role.readers.metadata[0].name
+    name      = kubernetes_role_v1.readers.metadata[0].name
   }
   dynamic "subject" {
     for_each = toset(var.reader_groups)
