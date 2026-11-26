@@ -42,18 +42,18 @@ resource because upstream profile inventory/cleanup uses that list API. The matc
 profile **name** must be supplied to the separate EC2NodeClass. Disabling profile
 management removes Create/Tag/Add/Remove/Delete profile permissions.
 
-`additional_controller_policy_json` supports reviewed version-specific IAM
-supplements without silently broadening default permissions. Compare the actual
-version's [CloudFormation policy](https://raw.githubusercontent.com/aws/karpenter-provider-aws/v1.15.1/website/content/en/preview/getting-started/getting-started-with-karpenter/cloudformation.yaml).
-The legacy module lacks 1.15.1 read actions DescribeCapacityReservations,
-DescribeInstanceStatus and DescribePlacementGroups. A supplemental region-scoped
-EC2 read statement is needed before deploying 1.15.1; assess optional node-repair
-(RebootInstances), capacity-reservation/placement-group resource permissions and
-Zonal Shift only if those features are enabled. Supplemental statement SIDs must
-not collide with module-owned SIDs. Preserve Spot-only/on-demand-controller
-constraints in NodePool integration; controller support alone does not bootstrap
-Talos workers, grant cluster join access, constrain worker cost, or prove node
-identity/networking/storage. Review total generated IAM policy size as well.
+For a Talos cluster, set `cluster = dependency.cluster.outputs.cluster`.
+The module creates a fixed worker profile and scopes controller permissions
+to it. Pass the `node_instance_profile` output to the node pools. For an
+existing Talos identity, transfer the IAM resources before applying.
+
+Talos defaults to chart 1.15.1 and includes its three region-scoped EC2 reads.
+EKS retains the 1.10.0 default. Use `karpenter_helm_version` to select
+another chart. Check the selected version's
+[CloudFormation policy](https://raw.githubusercontent.com/aws/karpenter-provider-aws/v1.15.1/website/content/en/preview/getting-started/getting-started-with-karpenter/cloudformation.yaml)
+before an upgrade. Use `additional_controller_policy_json` for extra
+permissions. A caller-supplied `AllowKarpenter115RegionalReads` statement
+takes precedence over the Talos default.
 
 The controller explicitly disables Linkerd injection in all existing/default
 profiles; namespace injection is now separately configurable (default true).
@@ -68,7 +68,7 @@ python packages/infrastructure/kube_karpenter/tests/check_chart_contract.py
 ```
 
 Both1.10.0 and1.15.1 fixture renders verify explicit endpoint/name/region, no IMDS,
-one unmeshed controller, no init container and400Mi request. These fixtures do
+one outside the service mesh controller, no init container and400Mi request. These fixtures do
 not evaluate the complete Terraform IAM policy or prove runtime permissions.
 Backend-disabled init and OpenTofu validation passed with an isolated cache.
 Direct inspection of public.ecr.aws/karpenter/controller:1.15.1's manifest index

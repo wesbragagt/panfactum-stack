@@ -30,10 +30,12 @@ terraform {
 }
 
 locals {
-  name         = "karpenter"
-  namespace    = module.namespace.namespace
-  cluster_name = coalesce(var.cluster_name, data.pf_metadata.metadata.kube_cluster_name)
-  region       = coalesce(var.aws_region, data.aws_region.main.region)
+  name                   = "karpenter"
+  namespace              = module.namespace.namespace
+  cluster_name           = coalesce(try(var.cluster.name, null), var.cluster_name, data.pf_metadata.metadata.kube_cluster_name)
+  cluster_endpoint       = var.cluster == null ? var.cluster_endpoint : var.cluster.endpoint
+  region                 = coalesce(var.aws_region, data.aws_region.main.region)
+  karpenter_helm_version = coalesce(var.karpenter_helm_version, var.cluster == null ? "1.10.0" : "1.15.1")
 }
 
 data "aws_region" "main" {}
@@ -70,14 +72,20 @@ module "util" {
   source = "../kube_workload_utility"
 
   workload_name                        = "karpenter"
-  az_spread_preferred                  = var.sla_target == 3
+  az_spread_preferred                  = var.sla_target == 3 || var.worker_nodes_preferred
   instance_type_anti_affinity_required = false // Cannot be true b/c runs on controller nodes
-  host_anti_affinity_required          = var.sla_target == 3
-  controller_nodes_required            = true
-  burstable_nodes_enabled              = true
-  extra_labels                         = data.pf_kube_labels.labels.labels
-  pull_through_cache_enabled           = var.pull_through_cache_enabled
-  panfactum_scheduler_enabled          = false
+  host_anti_affinity_required          = var.sla_target == 3 || var.worker_nodes_preferred
+  controller_nodes_required            = !var.worker_nodes_preferred
+  controller_nodes_enabled             = var.worker_nodes_preferred
+  node_requirements                    = var.worker_nodes_preferred ? { "panfactum.com/class" = ["worker", "spot", "controller"] } : {}
+  node_preferences = var.worker_nodes_preferred ? {
+    "panfactum.com/class"        = { weight = 100, operator = "In", values = ["worker"] }
+    "karpenter.sh/capacity-type" = { weight = 50, operator = "In", values = ["spot"] }
+  } : {}
+  burstable_nodes_enabled     = true
+  extra_labels                = data.pf_kube_labels.labels.labels
+  pull_through_cache_enabled  = var.pull_through_cache_enabled
+  panfactum_scheduler_enabled = false
 }
 
 module "constants" {
@@ -191,6 +199,24 @@ resource "aws_cloudwatch_event_target" "instance_state_change" {
 // See https://github.com/aws/karpenter/blob/main/website/content/en/v0.31/getting-started/getting-started-with-karpenter/cloudformation.yaml
 data "aws_iam_policy_document" "karpenter" {
   source_policy_documents = var.additional_controller_policy_json == null ? [] : [var.additional_controller_policy_json]
+
+  dynamic "statement" {
+    for_each = var.cluster != null && startswith(local.karpenter_helm_version, "1.15.") && !contains(
+      try([for statement in flatten([jsondecode(var.additional_controller_policy_json).Statement]) : try(statement.Sid, "")], []),
+      "AllowKarpenter115RegionalReads"
+    ) ? [1] : []
+    content {
+      sid       = "AllowKarpenter115RegionalReads"
+      effect    = "Allow"
+      actions   = ["ec2:DescribeCapacityReservations", "ec2:DescribeInstanceStatus", "ec2:DescribePlacementGroups"]
+      resources = ["*"]
+      condition {
+        test     = "StringEquals"
+        values   = [local.region]
+        variable = "aws:RequestedRegion"
+      }
+    }
+  }
   statement {
     sid    = "AllowScopedEC2InstanceAccessActions"
     effect = "Allow"
@@ -419,7 +445,7 @@ data "aws_iam_policy_document" "karpenter" {
     actions = [
       "iam:PassRole",
     ]
-    resources = [var.node_role_arn]
+    resources = [local.talos_worker_identity_enabled ? aws_iam_role.talos_worker[0].arn : var.node_role_arn]
     condition {
       test     = "StringEquals"
       values   = ["ec2.amazonaws.com", "ec2.amazonaws.com.cn"]
@@ -428,7 +454,7 @@ data "aws_iam_policy_document" "karpenter" {
   }
 
   dynamic "statement" {
-    for_each = var.manage_instance_profiles_enabled ? [1] : []
+    for_each = local.manage_instance_profiles_enabled ? [1] : []
     content {
       sid    = "AllowScopedInstanceProfileCreationActions"
       effect = "Allow"
@@ -461,7 +487,7 @@ data "aws_iam_policy_document" "karpenter" {
   }
 
   dynamic "statement" {
-    for_each = var.manage_instance_profiles_enabled ? [1] : []
+    for_each = local.manage_instance_profiles_enabled ? [1] : []
     content {
       sid    = "AllowScopedInstanceProfileTagActions"
       effect = "Allow"
@@ -509,7 +535,7 @@ data "aws_iam_policy_document" "karpenter" {
   }
 
   dynamic "statement" {
-    for_each = var.manage_instance_profiles_enabled ? [1] : []
+    for_each = local.manage_instance_profiles_enabled ? [1] : []
     content {
       sid    = "AllowScopedInstanceProfileActions"
       effect = "Allow"
@@ -547,9 +573,9 @@ data "aws_iam_policy_document" "karpenter" {
     ]
     // NodeClass finalization reads the generated <cluster>_<hash> profile even when an
     // existing profile is used; AccessDenied instead of NoSuchEntity blocks the finalizer.
-    resources = var.existing_instance_profile_arn == null ? ["*"] : [
-      var.existing_instance_profile_arn,
-      "arn:aws:iam::${data.aws_caller_identity.main.account_id}:instance-profile/${local.cluster_name}_*"
+    resources = !local.talos_worker_identity_enabled && var.existing_instance_profile_arn == null ? ["*"] : [
+      local.worker_instance_profile_arn,
+      "arn:${local.talos_worker_identity_enabled ? data.aws_partition.talos_worker[0].partition : "aws"}:iam::${data.aws_caller_identity.main.account_id}:instance-profile/${local.cluster_name}_*"
     ]
   }
 
@@ -563,7 +589,7 @@ data "aws_iam_policy_document" "karpenter" {
   }
 
   dynamic "statement" {
-    for_each = var.cluster_endpoint == null ? [1] : []
+    for_each = local.cluster_endpoint == null ? [1] : []
     content {
       sid    = "AllowAPIServerEndpointDiscovery"
       effect = "Allow"
@@ -591,8 +617,8 @@ module "aws_permissions" {
   service_account_namespace = local.namespace
   iam_policy_json           = data.aws_iam_policy_document.karpenter.json
   ip_allow_list             = var.aws_iam_ip_allow_list
-  oidc_provider_arn         = var.oidc_provider_arn
-  oidc_issuer_url           = var.oidc_issuer_url
+  oidc_provider_arn         = var.cluster == null ? var.oidc_provider_arn : var.cluster.oidc_provider_arn
+  oidc_issuer_url           = var.cluster == null ? var.oidc_issuer_url : var.cluster.oidc_issuer_url
   cluster_subnet_ids        = var.cluster_subnet_ids
   ip_restrictions_enabled   = var.ip_restrictions_enabled
 }
@@ -602,7 +628,7 @@ resource "helm_release" "karpenter_crds" {
   name            = "karpenter-crd"
   repository      = "oci://public.ecr.aws/karpenter"
   chart           = "karpenter-crd"
-  version         = var.karpenter_helm_version
+  version         = local.karpenter_helm_version
   recreate_pods   = false
   atomic          = var.wait
   cleanup_on_fail = var.wait
@@ -623,7 +649,7 @@ resource "helm_release" "karpenter" {
   name            = "karpenter"
   repository      = "oci://public.ecr.aws/karpenter"
   chart           = "karpenter"
-  version         = var.karpenter_helm_version
+  version         = local.karpenter_helm_version
   recreate_pods   = false
   atomic          = var.wait
   cleanup_on_fail = var.wait
@@ -635,7 +661,7 @@ resource "helm_release" "karpenter" {
 
   lifecycle {
     precondition {
-      condition     = var.manage_instance_profiles_enabled || var.existing_instance_profile_arn != null
+      condition     = local.manage_instance_profiles_enabled || local.worker_instance_profile_arn != null
       error_message = "Provide existing_instance_profile_arn when disabling instance profile management, and use the matching EC2NodeClass instanceProfile."
     }
     precondition {
@@ -693,10 +719,10 @@ resource "helm_release" "karpenter" {
       topologySpreadConstraints = module.util.topology_spread_constraints
       tolerations               = module.util.tolerations
       affinity                  = module.util.affinity
-      nodeSelector = {
-        "kubernetes.io/os"    = "linux",
-        "panfactum.com/class" = "controller" # MUST be scheduled on controller nodes (controller by EKS)
-      }
+      nodeSelector = merge(
+        { "kubernetes.io/os" = "linux" },
+        var.worker_nodes_preferred ? {} : { "panfactum.com/class" = "controller" }
+      )
       settings = merge({
         clusterName       = local.cluster_name
         interruptionQueue = aws_sqs_queue.karpenter.name
@@ -714,7 +740,7 @@ resource "helm_release" "karpenter" {
         // This ensures that new nodes can run the dynamically sized daemonsets
         // as well as the other pods.
         vmMemoryOverheadPercent = "0.2"
-      }, var.cluster_endpoint == null ? {} : { clusterEndpoint = var.cluster_endpoint, eksControlPlane = false })
+      }, local.cluster_endpoint == null ? {} : { clusterEndpoint = local.cluster_endpoint, eksControlPlane = false })
 
       strategy = {
         rollingUpdate = {

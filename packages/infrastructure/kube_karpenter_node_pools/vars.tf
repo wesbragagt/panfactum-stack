@@ -1,11 +1,41 @@
+variable "worker_spot_only" {
+  description = "Restrict worker provisioning to Spot capacity and disable on-demand worker pools."
+  type        = bool
+  default     = false
+}
+
+variable "ebs_csi_startup_taint_enabled" {
+  description = "Wait for the EBS CSI node driver before scheduling workloads on new nodes."
+  type        = bool
+  default     = false
+}
+
+variable "linkerd_startup_taint_enabled" {
+  description = "Wait for the Linkerd CNI before scheduling workloads on new nodes."
+  type        = bool
+  default     = true
+}
+
 variable "cluster_endpoint" {
-  description = "The URL of the API server of the eks cluster"
+  description = "The Kubernetes API endpoint for EKS workers."
   type        = string
+  default     = null
+
+  validation {
+    condition     = local.cluster_type != "eks" || var.cluster_endpoint != null
+    error_message = "cluster_endpoint is required for EKS workers."
+  }
 }
 
 variable "cluster_ca_data" {
-  description = "The B64 encoded CA data of the API server of the eks cluster"
+  description = "The base64-encoded Kubernetes API CA data for EKS workers."
   type        = string
+  default     = null
+
+  validation {
+    condition     = local.cluster_type != "eks" || var.cluster_ca_data != null
+    error_message = "cluster_ca_data is required for EKS workers."
+  }
 }
 
 variable "node_instance_profile" {
@@ -20,8 +50,14 @@ variable "node_ebs_volume_size_gb" {
 }
 
 variable "cluster_dns_service_ip" {
-  description = "The IP address of the cluster's DNS service."
+  description = "The DNS service IP for EKS workers."
   type        = string
+  default     = null
+
+  validation {
+    condition     = local.cluster_type != "eks" || var.cluster_dns_service_ip != null
+    error_message = "cluster_dns_service_ip is required for EKS workers."
+  }
 }
 
 variable "monitoring_enabled" {
@@ -37,24 +73,59 @@ variable "node_labels" {
 }
 
 variable "node_vpc_id" {
-  description = "The ID of the VPC to deploy Karpenter nodes into."
+  description = "The VPC for worker subnet lookup when talos_launch is omitted."
   type        = string
+  default     = null
+
+  validation {
+    condition     = var.talos_launch == null ? var.node_vpc_id != null : var.node_vpc_id == null
+    error_message = "Set node_vpc_id only when talos_launch is omitted."
+  }
 }
 
 variable "node_subnets" {
-  description = "List of subnet names to deploy Karpenter nodes into."
+  description = "The worker subnet names when talos_launch is omitted."
   type        = set(string)
+  default     = null
+
+  validation {
+    condition     = var.talos_launch == null ? var.node_subnets != null : var.node_subnets == null
+    error_message = "Set node_subnets only when talos_launch is omitted."
+  }
 }
 
 variable "node_security_group_id" {
-  description = "The id of the security group for nodes running in the EKS cluster"
+  description = "The worker security group ID when talos_launch is omitted."
   type        = string
+  default     = null
+
+  validation {
+    condition     = var.talos_launch == null ? var.node_security_group_id != null : var.node_security_group_id == null
+    error_message = "Set node_security_group_id only when talos_launch is omitted."
+  }
 }
 
 variable "min_node_memory_mb" {
   description = "The minimum memory for any single provisioned node (in MB)"
   type        = number
   default     = 2500
+}
+
+variable "consolidate_after" {
+  description = "How long Karpenter waits after a pod change before consolidating a node"
+  type        = string
+  default     = "10s"
+}
+
+variable "disruption_budgets" {
+  description = "Karpenter disruption budgets applied to every NodePool. An empty list keeps Karpenter's default of 10% of nodes."
+  type = list(object({
+    nodes    = string
+    reasons  = optional(list(string))
+    schedule = optional(string)
+    duration = optional(string)
+  }))
+  default = []
 }
 
 variable "max_node_memory_mb" {
@@ -73,6 +144,17 @@ variable "max_node_cpu" {
   description = "The maximum number of vCPUs for any single provisioned node"
   type        = number
   default     = 32
+}
+
+variable "spot_arm_max_node_cpu" {
+  description = "Optional maximum vCPUs for the general-purpose ARM Spot pool."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.spot_arm_max_node_cpu == null ? true : var.spot_arm_max_node_cpu >= 1 && floor(var.spot_arm_max_node_cpu) == var.spot_arm_max_node_cpu
+    error_message = "spot_arm_max_node_cpu must be a positive whole number."
+  }
 }
 
 variable "arm64_node_ami_name" {
@@ -94,22 +176,95 @@ variable "default_termination_grace_period" {
 }
 
 variable "cluster_type" {
-  description = "Existing EKS/Bottlerocket path or opt-in Talos Custom AMI path."
+  description = "Platform override. The default is Talos when talos_launch is set and EKS otherwise."
   type        = string
-  default     = "eks"
+  default     = null
+
   validation {
-    condition     = contains(["eks", "talos"], var.cluster_type)
+    condition     = var.cluster_type == null ? true : contains(["eks", "talos"], var.cluster_type)
     error_message = "cluster_type must be eks or talos."
   }
 }
+
+variable "talos_launch" {
+  description = "AWS AMI and network settings for Talos workers. Omit the individual AMI and network inputs when you set this object."
+  type = object({
+    ami_id            = string
+    vpc_id            = string
+    security_group_id = string
+    subnets           = set(string)
+  })
+  default = null
+
+  validation {
+    condition = var.talos_launch == null ? true : (
+      var.cluster_type != "eks" &&
+      var.talos_launch.ami_id != null && var.talos_launch.vpc_id != null &&
+      var.talos_launch.security_group_id != null && var.talos_launch.subnets != null
+    )
+    error_message = "Provide the AMI and network settings in talos_launch for Talos workers."
+  }
+}
+
 variable "talos_ami_id" {
-  description = "Immutable Talos AMI matching the worker config version and architecture."
+  description = "Immutable Talos AMI ID when talos_launch is omitted."
   type        = string
   default     = null
+
+  validation {
+    condition     = var.talos_launch == null || var.talos_ami_id == null
+    error_message = "Set talos_ami_id only when talos_launch is omitted."
+  }
 }
 variable "talos_worker_config" {
-  description = "Complete worker-only Talos YAML. Never supply control-plane CA/private keys. Stored in EC2 user data and the NodeClass."
+  description = "Optional worker-only Talos YAML override for talos_worker_bootstrap. Never supply control-plane private keys. Stored in EC2 user data and the NodeClass."
   type        = string
   sensitive   = true
   default     = null
+}
+
+variable "talos_worker_bootstrap" {
+  description = "Generate Talos worker user data from cluster settings and the worker-only fields of the SOPS secrets bundle."
+  type = object({
+    cluster_name       = string
+    cluster_endpoint   = string
+    talos_version      = string
+    kubernetes_version = string
+    installer_image    = optional(string)
+    pod_subnets        = list(string)
+    service_subnets    = list(string)
+    secrets_bundle = object({
+      certs = object({
+        os  = object({ crt = string })
+        k8s = object({ crt = string })
+      })
+      cluster    = object({ id = string, secret = string })
+      secrets    = object({ bootstraptoken = string })
+      trustdinfo = object({ token = string })
+    })
+  })
+  sensitive = true
+  default   = null
+
+  validation {
+    condition = local.cluster_type != "talos" || var.talos_worker_bootstrap == null || var.talos_worker_config != null ? true : try(
+      endswith(var.talos_worker_bootstrap.installer_image, ":v${trimprefix(var.talos_worker_bootstrap.talos_version, "v")}") ||
+      endswith(var.talos_worker_bootstrap.installer_image, ":${trimprefix(var.talos_worker_bootstrap.talos_version, "v")}"),
+      false,
+    )
+    error_message = "Set talos_worker_bootstrap.installer_image to an installer tagged with the Talos worker version."
+  }
+}
+variable "talos_kubelet_reservations" {
+  description = "Explicit Talos worker kubelet reservations for worker userData and EC2NodeClass spec.kubelet. Null keeps Talos defaults and the current output. node_class_system_ephemeral_storage replaces systemReserved ephemeral-storage in spec.kubelet only, to model filesystem loss Karpenter cannot see; it is valid only for the root volume size in modeled_volume_size_gb."
+  type = object({
+    system_reserved                     = map(string)
+    kube_reserved                       = map(string)
+    eviction_hard                       = map(string)
+    image_gc_high_threshold_percent     = number
+    image_gc_low_threshold_percent      = number
+    node_class_system_ephemeral_storage = string
+    modeled_volume_size_gb              = number
+  })
+  default = null
 }

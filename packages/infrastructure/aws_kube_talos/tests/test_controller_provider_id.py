@@ -32,6 +32,36 @@ def node_list(*nodes):
 
 
 class ControllerProviderIDTest(unittest.TestCase):
+    def test_uses_shared_kubernetes_server_and_tls_name(self):
+        routes = (
+            ("https://127.0.0.1:26443", "api.test.internal"),
+            ("https://test.elb.amazonaws.com:6443", ""),
+            ("https://api.test.internal:6443", ""),
+        )
+        for server, tls_name in routes:
+            environment = {
+                "CONTROLLER_IDENTITY": json.dumps({"private_ip": IP, "provider_id": PROVIDER_ID}),
+                "KUBECONFIG_RAW": "fixture-kubeconfig",
+                "KUBE_API_SERVER": server,
+                "KUBE_TLS_SERVER_NAME": tls_name,
+            }
+            with self.subTest(server=server), patch.dict(os.environ, environment, clear=True), \
+                    patch("controller_provider_id.subprocess.run") as run:
+                run.return_value.stdout = node_list(node("short", provider_id=PROVIDER_ID))
+
+                self.assertEqual(main(), 0)
+
+                command = [
+                    "kubectl", "--kubeconfig=/dev/stdin", "--request-timeout=10s",
+                    f"--server={server}",
+                ]
+                if tls_name:
+                    command.append(f"--tls-server-name={tls_name}")
+                run.assert_called_once_with(
+                    [*command, "get", "nodes", "-o", "json"],
+                    input="fixture-kubeconfig", text=True, capture_output=True, timeout=12, check=True,
+                )
+
     def test_patches_blank_id_on_existing_short_name_node(self):
         kubectl = Mock(side_effect=[node_list(node("ip-10-0-1-10")), ""])
 
@@ -97,25 +127,3 @@ class ControllerProviderIDTest(unittest.TestCase):
             reconcile(kubectl, IP, PROVIDER_ID, attempts=1)
 
         kubectl.assert_called_once_with("get", "nodes", "-o", "json")
-
-
-    @patch("controller_provider_id.subprocess.run")
-    def test_reads_admin_config_from_stdin_and_uses_explicit_server(self, run):
-        kubeconfig = "generated admin kubeconfig"
-        server = "https://127.0.0.1:16444"
-        run.return_value = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout=node_list(node("short", provider_id=PROVIDER_ID)),
-        )
-        with patch.dict(os.environ, {
-            "CONTROLLER_IDENTITY": json.dumps({"private_ip": IP, "provider_id": PROVIDER_ID}),
-            "KUBECONFIG_RAW": kubeconfig,
-            "KUBE_API_SERVER": server,
-        }):
-            self.assertEqual(main(), 0)
-            self.assertNotIn("KUBECONFIG_RAW", os.environ)
-
-        run.assert_called_once_with(
-            ["kubectl", "--kubeconfig=/dev/stdin", "--request-timeout=10s", f"--server={server}",
-             "get", "nodes", "-o", "json"],
-            input=kubeconfig, text=True, capture_output=True, timeout=12, check=True,
-        )

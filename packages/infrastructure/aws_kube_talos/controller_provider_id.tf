@@ -1,5 +1,5 @@
 resource "terraform_data" "controller_provider_id" {
-  count = var.aws_node_config_enabled && (
+  count = (
     var.controller_provider_id_kube_api_server != null ||
     (local.ccm_host_networking && local.ccm_ssm) ||
     contains(["vpn", "bootstrap_public"], var.talos_access_transport) ||
@@ -16,17 +16,10 @@ resource "terraform_data" "controller_provider_id" {
 
   provisioner "local-exec" {
     command = "python3 '${path.module}/scripts/controller_provider_id.py'"
-    environment = {
-      CONTROLLER_IDENTITY = jsonencode(self.triggers_replace)
-      KUBECONFIG_RAW      = talos_cluster_kubeconfig.this.kubeconfig_raw
-      KUBE_API_SERVER = coalesce(
-        var.controller_provider_id_kube_api_server,
-        local.ccm_host_networking && local.ccm_ssm ? local.ccm_api_server : null,
-        var.talos_access_transport == "bootstrap_public" ? "https://${local.bootstrap_public_host}:6443" :
-        var.talos_api_endpoint == null ? "https://${local.public_ip}:6443" :
-        local.cluster_endpoint,
-      )
-      KUBE_TLS_SERVER_NAME = var.controller_provider_id_kube_api_server == null && local.ccm_host_networking && local.ccm_ssm ? local.ccm_tls_server_name : ""
-    }
+    environment = merge(local.ccm_kubectl_environment, {
+      CONTROLLER_IDENTITY  = jsonencode(self.triggers_replace)
+      KUBE_API_SERVER      = coalesce(var.controller_provider_id_kube_api_server, local.ccm_api_server)
+      KUBE_TLS_SERVER_NAME = var.controller_provider_id_kube_api_server == null ? local.ccm_tls_server_name : ""
+    })
   }
 }

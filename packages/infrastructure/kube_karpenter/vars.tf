@@ -1,12 +1,68 @@
 variable "karpenter_helm_version" {
-  description = "The version of the karpenter helm chart to deploy"
+  description = "The Karpenter chart version. Null uses the platform default."
   type        = string
-  default     = "1.10.0"
+  default     = null
 }
 
 variable "node_role_arn" {
   description = "Worker EC2 IAM role ARN permitted by iam:PassRole, including the role attached to an existing worker instance profile."
   type        = string
+  default     = null
+  validation {
+    condition = var.talos_worker_identity == null && var.cluster == null ? (
+      var.node_role_arn == null ? false : trimspace(var.node_role_arn) != ""
+      ) : (
+      var.node_role_arn == null && var.existing_instance_profile_arn == null
+    )
+    error_message = "Provide node_role_arn for an external worker identity. Omit node_role_arn and existing_instance_profile_arn for a managed Talos identity."
+  }
+}
+
+variable "cluster" {
+  description = "Talos cluster connection and OIDC settings. Talos clusters use a managed worker identity."
+  type = object({
+    type              = string
+    name              = string
+    endpoint          = string
+    oidc_provider_arn = string
+    oidc_issuer_url   = string
+  })
+  default = null
+
+  validation {
+    condition = var.cluster == null ? true : (
+      var.cluster.type == "talos" &&
+      alltrue([for value in [var.cluster.name, var.cluster.endpoint, var.cluster.oidc_provider_arn, var.cluster.oidc_issuer_url] : try(length(trimspace(value)) > 0, false)]) &&
+      var.cluster_name == null && var.cluster_endpoint == null &&
+      var.oidc_provider_arn == null && var.oidc_issuer_url == null
+    )
+    error_message = "Set cluster.type to talos and provide its name, endpoint, and OIDC settings. Omit the corresponding individual inputs."
+  }
+}
+
+variable "talos_worker_identity" {
+  description = "Optional Talos worker IAM name and ECR cache overrides. Setting this also enables managed identity for legacy callers."
+  type = object({
+    name_prefix        = optional(string)
+    ecr_cache_prefixes = optional(set(string), [])
+  })
+  default = null
+
+  validation {
+    condition = var.talos_worker_identity == null ? true : (
+      var.talos_worker_identity.name_prefix == null ? true :
+      can(regex("^[A-Za-z0-9+=,.@_-]{1,24}$", var.talos_worker_identity.name_prefix))
+    )
+    error_message = "talos_worker_identity.name_prefix must be 1-24 IAM-compatible characters."
+  }
+
+  validation {
+    condition = var.talos_worker_identity == null ? true : alltrue([
+      for prefix in var.talos_worker_identity.ecr_cache_prefixes :
+      contains(["github", "docker-hub", "quay", "kubernetes", "ecr-public"], prefix)
+    ])
+    error_message = "Use only established ECR cache prefixes for Talos workers."
+  }
 }
 
 variable "vpa_enabled" {
@@ -85,15 +141,21 @@ variable "vpc_id" {
 }
 
 variable "existing_instance_profile_arn" {
-  description = "Existing worker instance profile ARN for scoped read permission; configure its name on EC2NodeClass separately. node_role_arn remains required for PassRole."
+  description = "Existing external worker instance profile ARN for scoped read permission. Configure its name on EC2NodeClass separately."
   type        = string
   default     = null
 }
 
 variable "manage_instance_profiles_enabled" {
-  description = "Allow creating/tagging/updating instance profiles. Disable when EC2NodeClass uses an existing instanceProfile."
+  description = "Allow Karpenter to create and update instance profiles for callers with an external node role. The Talos-managed identity uses a fixed profile."
   type        = bool
   default     = true
+}
+
+variable "worker_nodes_preferred" {
+  description = "Prefer on-demand and Spot workers, with controller nodes eligible as fallback."
+  type        = bool
+  default     = false
 }
 
 variable "replicas" {

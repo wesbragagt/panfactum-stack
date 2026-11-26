@@ -323,7 +323,7 @@ variable "service_subnets" {
 }
 
 variable "aws_node_config_enabled" {
-  description = "Configure primary-interface DHCP, ECR credentials, external CCM and worker lifecycle labels for AWS."
+  description = "Preserve the AWS launch configuration of explicitly managed legacy worker groups. Karpenter workers and controllers use AWS configuration automatically."
   type        = bool
   default     = false
 }
@@ -364,7 +364,7 @@ variable "worker_suspended_processes" {
 }
 
 variable "worker_identity" {
-  description = "IAM naming and ECR access settings for the Talos worker identity and optional controller identity."
+  description = "Deprecated alias for the Talos controller identity settings. Worker IAM is managed by Karpenter."
   type = object({
     name_prefix                            = optional(string)
     ecr_cache_prefixes                     = optional(set(string), [])
@@ -384,6 +384,32 @@ variable "worker_identity" {
   }
   validation {
     condition = alltrue([for name in var.worker_identity.controller_additional_ecr_repositories :
+      length(name) >= 2 && length(name) <= 256 && can(regex("^[a-z0-9]+([._/-][a-z0-9]+)*$", name))
+    ])
+    error_message = "Use exact lowercase ECR repository names without wildcards or ARNs."
+  }
+}
+
+variable "controller_identity" {
+  description = "IAM naming and ECR access settings for the optional Talos controller identity."
+  type = object({
+    name_prefix                            = optional(string)
+    ecr_cache_prefixes                     = optional(set(string), [])
+    controller_instance_profile_enabled    = optional(bool, false)
+    controller_additional_ecr_repositories = optional(set(string), [])
+  })
+  default = null
+
+  validation {
+    condition     = var.controller_identity == null ? true : (var.controller_identity.name_prefix == null || can(regex("^[A-Za-z0-9+=,.@_-]{1,24}$", var.controller_identity.name_prefix)))
+    error_message = "name_prefix must be 1-24 IAM-compatible characters so generated role and profile names fit AWS limits."
+  }
+  validation {
+    condition     = var.controller_identity == null ? true : alltrue([for prefix in var.controller_identity.ecr_cache_prefixes : contains(["github", "docker-hub", "quay", "kubernetes", "ecr-public"], prefix)])
+    error_message = "Only the five established pull-through cache prefixes are allowed."
+  }
+  validation {
+    condition = var.controller_identity == null ? true : alltrue([for name in var.controller_identity.controller_additional_ecr_repositories :
       length(name) >= 2 && length(name) <= 256 && can(regex("^[a-z0-9]+([._/-][a-z0-9]+)*$", name))
     ])
     error_message = "Use exact lowercase ECR repository names without wildcards or ARNs."

@@ -238,10 +238,10 @@ resource "aws_route53_record" "api" {
 
 locals {
   # SANs live in user data so the first boot's certs already validate through an SSM tunnel at 127.0.0.1
-  control_plane_base_patches = concat([local.api_san_patch], local.talos_api_patches, local.cilium_config_patches, local.core_dns_config_patches, var.aws_node_config_enabled ? local.aws_control_plane_patches : [], var.control_plane_config_patches)
+  control_plane_base_patches = concat([local.api_san_patch], local.talos_api_patches, local.cilium_config_patches, local.core_dns_config_patches, local.aws_control_plane_patches, var.control_plane_config_patches)
   control_plane_node_config = {
     apiVersion = "v1alpha1", kind = "KubeNodeConfig", labels = { "panfactum.com/class" = "controller" }
-    taints     = { "node-role.kubernetes.io/control-plane" = var.aws_node_config_enabled ? { "$patch" = "delete" } : null, "controller" = "true:NoSchedule" }
+    taints     = { "node-role.kubernetes.io/control-plane" = { "$patch" = "delete" }, "controller" = "true:NoSchedule" }
   }
   oidc_config_patches = [
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeServiceAccountConfig", issuer = { issuerURL = local.service_account_oidc_issuer_url } }),
@@ -320,8 +320,9 @@ resource "aws_instance" "control_plane" {
   }
 
   tags = merge(data.pf_aws_tags.tags.tags, {
-    Name = "${var.cluster_name}-control-plane-${count.index}"
-  }, var.aws_node_config_enabled ? { "kubernetes.io/cluster/${var.cluster_name}" = "owned" } : {})
+    Name                                        = "${var.cluster_name}-control-plane-${count.index}"
+    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
+  })
 
   lifecycle {
     ignore_changes = [ami, user_data]

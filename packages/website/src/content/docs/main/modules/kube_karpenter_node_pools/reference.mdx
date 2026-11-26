@@ -24,35 +24,43 @@ Default: `"bottlerocket-aws-k8s-1.33-aarch64-v1.57.0-beaadc52"`
 
 ### cluster\_ca\_data
 
-Description: The B64 encoded CA data of the API server of the eks cluster
+Description: The base64-encoded Kubernetes API CA data for EKS workers.
 
 Type: `string`
 
-Default: n/a
+Default: `null`
 
 ### cluster\_dns\_service\_ip
 
-Description: The IP address of the cluster's DNS service.
+Description: The DNS service IP for EKS workers.
 
 Type: `string`
 
-Default: n/a
+Default: `null`
 
 ### cluster\_endpoint
 
-Description: The URL of the API server of the eks cluster
+Description: The Kubernetes API endpoint for EKS workers.
 
 Type: `string`
 
-Default: n/a
+Default: `null`
 
 ### cluster\_type
 
-Description: Existing EKS/Bottlerocket path or opt-in Talos Custom AMI path.
+Description: Platform override. The default is Talos when talos\_launch is set and EKS otherwise.
 
 Type: `string`
 
-Default: `"eks"`
+Default: `null`
+
+### consolidate\_after
+
+Description: How long Karpenter waits after a pod change before consolidating a node
+
+Type: `string`
+
+Default: `"10s"`
 
 ### default\_termination\_grace\_period
 
@@ -61,6 +69,39 @@ Description: The default termination grace period for on-demand nodes.
 Type: `string`
 
 Default: `"1h0m0s"`
+
+### disruption\_budgets
+
+Description: Karpenter disruption budgets applied to every NodePool. An empty list keeps Karpenter's default of 10% of nodes.
+
+Type:
+
+```hcl
+list(object({
+    nodes    = string
+    reasons  = optional(list(string))
+    schedule = optional(string)
+    duration = optional(string)
+  }))
+```
+
+Default: `[]`
+
+### ebs\_csi\_startup\_taint\_enabled
+
+Description: Wait for the EBS CSI node driver before scheduling workloads on new nodes.
+
+Type: `bool`
+
+Default: `false`
+
+### linkerd\_startup\_taint\_enabled
+
+Description: Wait for the Linkerd CNI before scheduling workloads on new nodes.
+
+Type: `bool`
+
+Default: `true`
 
 ### max\_node\_cpu
 
@@ -128,43 +169,125 @@ Default: `{}`
 
 ### node\_security\_group\_id
 
-Description: The id of the security group for nodes running in the EKS cluster
+Description: The worker security group ID when talos\_launch is omitted.
 
 Type: `string`
 
-Default: n/a
+Default: `null`
 
 ### node\_subnets
 
-Description: List of subnet names to deploy Karpenter nodes into.
+Description: The worker subnet names when talos\_launch is omitted.
 
 Type: `set(string)`
 
-Default: n/a
+Default: `null`
 
 ### node\_vpc\_id
 
-Description: The ID of the VPC to deploy Karpenter nodes into.
+Description: The VPC for worker subnet lookup when talos\_launch is omitted.
 
 Type: `string`
 
-Default: n/a
+Default: `null`
+
+### spot\_arm\_max\_node\_cpu
+
+Description: Optional maximum vCPUs for the general-purpose ARM Spot pool.
+
+Type: `number`
+
+Default: `null`
 
 ### talos\_ami\_id
 
-Description: Immutable Talos AMI matching the worker config version and architecture.
+Description: Immutable Talos AMI ID when talos\_launch is omitted.
 
 Type: `string`
+
+Default: `null`
+
+### talos\_kubelet\_reservations
+
+Description: Explicit Talos worker kubelet reservations for worker userData and EC2NodeClass spec.kubelet. Null keeps Talos defaults and the current output. node\_class\_system\_ephemeral\_storage replaces systemReserved ephemeral-storage in spec.kubelet only, to model filesystem loss Karpenter cannot see; it is valid only for the root volume size in modeled\_volume\_size\_gb.
+
+Type:
+
+```hcl
+object({
+    system_reserved                     = map(string)
+    kube_reserved                       = map(string)
+    eviction_hard                       = map(string)
+    image_gc_high_threshold_percent     = number
+    image_gc_low_threshold_percent      = number
+    node_class_system_ephemeral_storage = string
+    modeled_volume_size_gb              = number
+  })
+```
+
+Default: `null`
+
+### talos\_launch
+
+Description: AWS AMI and network settings for Talos workers. Omit the individual AMI and network inputs when you set this object.
+
+Type:
+
+```hcl
+object({
+    ami_id            = string
+    vpc_id            = string
+    security_group_id = string
+    subnets           = set(string)
+  })
+```
+
+Default: `null`
+
+### talos\_worker\_bootstrap
+
+Description: Generate Talos worker user data from cluster settings and the worker-only fields of the SOPS secrets bundle.
+
+Type:
+
+```hcl
+object({
+    cluster_name       = string
+    cluster_endpoint   = string
+    talos_version      = string
+    kubernetes_version = string
+    installer_image    = optional(string)
+    pod_subnets        = list(string)
+    service_subnets    = list(string)
+    secrets_bundle = object({
+      certs = object({
+        os  = object({ crt = string })
+        k8s = object({ crt = string })
+      })
+      cluster    = object({ id = string, secret = string })
+      secrets    = object({ bootstraptoken = string })
+      trustdinfo = object({ token = string })
+    })
+  })
+```
 
 Default: `null`
 
 ### talos\_worker\_config
 
-Description: Complete worker-only Talos YAML. Never supply control-plane CA/private keys. Stored in EC2 user data and the NodeClass.
+Description: Optional worker-only Talos YAML override for talos\_worker\_bootstrap. Never supply control-plane private keys. Stored in EC2 user data and the NodeClass.
 
 Type: `string`
 
 Default: `null`
+
+### worker\_spot\_only
+
+Description: Restrict worker provisioning to Spot capacity and disable on-demand worker pools.
+
+Type: `bool`
+
+Default: `false`
 
 ## Outputs
 

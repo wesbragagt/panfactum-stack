@@ -1,8 +1,7 @@
 # Move an existing AWS CCM release into Talos state
 
 Use this procedure for a Talos cluster with an active standalone
-`kube_aws_ccm` caller. New clusters can enable `aws_ccm` before the first
-`aws_kube_talos` apply.
+`kube_aws_ccm` caller. New clusters install CCM with the first `aws_kube_talos` apply. Complete this state transfer before applying the updated module to an existing cluster.
 
 1. Pause applies to both Terragrunt units. Pull their states into a
    mode-0700 directory and keep immutable copies. Record the state lineages

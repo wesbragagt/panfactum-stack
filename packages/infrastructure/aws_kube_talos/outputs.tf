@@ -8,6 +8,17 @@ output "cluster_url" {
   value       = local.cluster_endpoint
 }
 
+output "cluster" {
+  description = "Talos cluster connection metadata for Karpenter."
+  value = {
+    type              = "talos"
+    name              = var.cluster_name
+    endpoint          = local.cluster_endpoint
+    oidc_provider_arn = aws_iam_openid_connect_provider.service_account_oidc[0].arn
+    oidc_issuer_url   = local.service_account_oidc_issuer_url
+  }
+}
+
 output "kubernetes_version" {
   description = "Configured Kubernetes version for the Talos cluster."
   value       = var.kube_version
@@ -16,7 +27,7 @@ output "kubernetes_version" {
 output "dns_service_ip" {
   description = "CoreDNS service address in the primary service CIDR when AWS node configuration owns the network."
   # NOTE: Talos computes the kube-dns service address by advancing ten addresses from the CIDR base.
-  value = var.aws_node_config_enabled ? try(cidrhost(var.service_subnets[0], 10), null) : null
+  value = try(cidrhost(var.service_subnets[0], 10), null)
 }
 
 output "cluster_ca_data" {
@@ -78,9 +89,22 @@ output "etcd_backup_cronjob_manifest" {
 }
 
 output "worker_machine_configuration" {
-  description = "Worker Talos machine config (with caller patches) for Karpenter EC2NodeClass userData. Contains join credentials."
+  description = "Legacy worker-only machine configuration with caller patches. Contains join credentials. New Karpenter deployments use node_bootstrap."
   value       = data.talos_machine_configuration.worker.machine_configuration
   sensitive   = true
+}
+
+output "node_bootstrap" {
+  description = "Cluster metadata for generating a Talos worker configuration outside this module."
+  value = {
+    cluster_name       = var.cluster_name
+    cluster_endpoint   = local.worker_cluster_endpoint
+    talos_version      = var.talos_version
+    kubernetes_version = var.kube_version
+    installer_image    = coalesce(var.installer_image, "factory.talos.dev/aws-installer/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba:${var.talos_version}")
+    pod_subnets        = var.pod_subnets
+    service_subnets    = var.service_subnets
+  }
 }
 
 output "talos_ami_id" {
@@ -96,21 +120,6 @@ output "ssm_jump_host_instance_id" {
 output "ssm_jump_host_security_group_id" {
   description = "Security group of the SSM jump host, or null when ssm_jump_host_enabled is false."
   value       = one(aws_security_group.ssm_jump_host[*].id)
-}
-
-output "node_role_arn" {
-  description = "EC2 worker IAM role ARN for Karpenter's scoped PassRole policy"
-  value       = aws_iam_role.worker.arn
-}
-
-output "node_instance_profile" {
-  description = "Existing instance profile name to pass to the Custom EC2NodeClass"
-  value       = aws_iam_instance_profile.worker.name
-}
-
-output "node_instance_profile_arn" {
-  description = "EC2 worker instance profile ARN"
-  value       = aws_iam_instance_profile.worker.arn
 }
 
 output "bootstrap_public_host" {

@@ -1,7 +1,7 @@
 variable "aws_ccm" {
-  description = "Own the AWS cloud controller manager. Set host_networking to false while adopting an existing pod-network release."
+  description = "AWS cloud controller manager settings. Set host_networking to false while adopting an existing pod-network release."
   type = object({
-    image_version           = string
+    image_version           = optional(string)
     host_networking         = optional(bool, true)
     subnet_id               = optional(string)
     availability_zone       = optional(string)
@@ -11,11 +11,12 @@ variable "aws_ccm" {
     helm_values             = optional(string, "{}")
     operator_kube_port      = optional(number, 16443)
   })
-  default = null
+  default  = {}
+  nullable = false
 
   validation {
-    condition = var.aws_ccm == null ? true : (
-      can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+$", var.aws_ccm.image_version)) &&
+    condition = (
+      (var.aws_ccm.image_version == null ? true : can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+$", var.aws_ccm.image_version))) &&
       var.aws_ccm.operator_kube_port >= 1 && var.aws_ccm.operator_kube_port <= 65535 &&
       floor(var.aws_ccm.operator_kube_port) == var.aws_ccm.operator_kube_port
     )
@@ -23,21 +24,41 @@ variable "aws_ccm" {
   }
 
   validation {
-    condition = var.aws_ccm == null ? true : (
-      var.aws_node_config_enabled &&
-      try(slice(split(".", trimprefix(var.aws_ccm.image_version, "v")), 0, 2) == slice(split(".", trimprefix(var.kube_version, "v")), 0, 2), false)
+    condition = (
+      var.aws_ccm.image_version == null ? (
+        contains(keys(local.ccm_default_images), local.ccm_kube_minor)
+        ) : (
+        try(
+          split(".", trimprefix(var.aws_ccm.image_version, "v"))[0] == split(".", trimprefix(var.kube_version, "v"))[0] &&
+          contains([0, 1], tonumber(split(".", trimprefix(var.kube_version, "v"))[1]) - tonumber(split(".", trimprefix(var.aws_ccm.image_version, "v"))[1])),
+          false
+        )
+      )
     )
-    error_message = "AWS CCM requires aws_node_config_enabled and an image matching the Kubernetes major and minor."
+    error_message = "AWS CCM requires an image matching the Kubernetes major and at most one minor behind. Set image_version explicitly when no default exists for that minor."
+  }
+
+  validation {
+    condition = try(contains(keys(merge(yamldecode(var.aws_ccm.helm_values))), "image") ? try(
+      yamldecode(var.aws_ccm.helm_values).image.tag == (
+        var.aws_ccm.image_version != null ? var.aws_ccm.image_version : lookup(local.ccm_default_images, local.ccm_kube_minor, null)
+      ),
+      can(keys(yamldecode(var.aws_ccm.helm_values).image))
+    ) : true, false)
+    error_message = "AWS CCM helm_values must be a mapping. If it sets image.tag, the tag must match the selected CCM image_version."
   }
 }
 
 locals {
+  ccm_default_images = { "1.36" = "v1.36.1" }
+  ccm_kube_minor     = try(join(".", slice(split(".", trimprefix(var.kube_version, "v")), 0, 2)), "")
+  ccm_image_version  = var.aws_ccm.image_version != null ? var.aws_ccm.image_version : lookup(local.ccm_default_images, local.ccm_kube_minor, null)
   ccm_ssm = var.talos_access_transport == "ssm" || (
     var.talos_access_transport == "" &&
     (var.talos_api_endpoint == "" || try(startswith(var.talos_api_endpoint, "127.0.0.1:"), false))
   )
   ccm_api_server = (
-    local.ccm_ssm ? "https://127.0.0.1:${try(var.aws_ccm.operator_kube_port, 16443)}" :
+    local.ccm_ssm ? "https://127.0.0.1:${var.aws_ccm.operator_kube_port}" :
     var.talos_access_transport == "bootstrap_public" ? "https://${local.bootstrap_public_host}:6443" :
     var.talos_api_endpoint == null ? "https://${local.public_ip}:6443" :
     local.cluster_endpoint
@@ -51,7 +72,7 @@ locals {
     KUBE_API_SERVER      = local.ccm_api_server
     KUBE_TLS_SERVER_NAME = local.ccm_tls_server_name
   }
-  ccm_host_networking = try(var.aws_ccm.host_networking, false)
+  ccm_host_networking = var.aws_ccm.host_networking
 }
 
 provider "helm" {
@@ -93,7 +114,8 @@ resource "terraform_data" "aws_ccm_api" {
 
 module "aws_ccm" {
   source = "../kube_aws_ccm"
-  count  = var.aws_ccm == null ? 0 : 1
+  # NOTE: Keep the existing module address for clusters that already manage CCM.
+  count = 1
 
   providers = {
     helm       = helm.ccm
@@ -104,7 +126,7 @@ module "aws_ccm" {
   vpc_id                  = var.vpc_id
   subnet_id               = coalesce(var.aws_ccm.subnet_id, data.aws_subnet.control_plane[local.bootstrap_index].id)
   availability_zone       = coalesce(var.aws_ccm.availability_zone, data.aws_subnet.control_plane[local.bootstrap_index].availability_zone)
-  image_version           = var.aws_ccm.image_version
+  image_version           = local.ccm_image_version
   talos_bootstrap_enabled = true
   talos_host_networking   = local.ccm_host_networking
   custom_oidc_enabled     = true
@@ -113,14 +135,17 @@ module "aws_ccm" {
   ip_restrictions_enabled = var.aws_ccm.ip_restrictions_enabled
   cluster_subnet_ids      = var.aws_ccm.cluster_subnet_ids
   iam_tags                = var.aws_ccm.iam_tags
-  helm_values             = var.aws_ccm.helm_values
-  api_ready               = local.ccm_host_networking ? terraform_data.aws_ccm_api[0].id != "" : true
+  # NOTE: The child replaces the entire image object when Helm overrides include image.
+  helm_values = try(yamlencode(merge(yamldecode(var.aws_ccm.helm_values), {
+    image = merge(yamldecode(var.aws_ccm.helm_values).image, { tag = local.ccm_image_version })
+  })), var.aws_ccm.helm_values)
+  api_ready = local.ccm_host_networking ? terraform_data.aws_ccm_api[0].id != "" : true
 }
 
 resource "terraform_data" "aws_ccm_ready" {
   count = local.ccm_host_networking ? 1 : 0
 
-  triggers_replace = [aws_instance.control_plane[local.bootstrap_index].id, var.aws_ccm.image_version]
+  triggers_replace = [aws_instance.control_plane[local.bootstrap_index].id, local.ccm_image_version]
   depends_on       = [module.aws_ccm, terraform_data.controller_provider_id]
 
   provisioner "local-exec" {
@@ -136,7 +161,7 @@ resource "terraform_data" "aws_ccm_ready" {
 }
 
 output "aws_ccm_role_arn" {
-  description = "Integrated CCM IAM role ARN. Null if the module does not own CCM."
+  description = "IAM role ARN for the integrated AWS cloud controller manager."
   value       = one(module.aws_ccm[*].role_arn)
 }
 

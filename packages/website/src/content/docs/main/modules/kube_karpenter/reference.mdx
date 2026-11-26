@@ -30,6 +30,24 @@ Type: `string`
 
 Default: `null`
 
+### cluster
+
+Description: Talos cluster connection and OIDC settings. Talos clusters use a managed worker identity.
+
+Type:
+
+```hcl
+object({
+    type              = string
+    name              = string
+    endpoint          = string
+    oidc_provider_arn = string
+    oidc_issuer_url   = string
+  })
+```
+
+Default: `null`
+
 ### cluster\_endpoint
 
 Description: Explicit reachable Kubernetes API endpoint for self-managed clusters; disables EKS endpoint-discovery permission.
@@ -56,7 +74,7 @@ Default: `null`
 
 ### existing\_instance\_profile\_arn
 
-Description: Existing worker instance profile ARN for scoped read permission; configure its name on EC2NodeClass separately. node\_role\_arn remains required for PassRole.
+Description: Existing external worker instance profile ARN for scoped read permission. Configure its name on EC2NodeClass separately.
 
 Type: `string`
 
@@ -80,11 +98,11 @@ Default: `true`
 
 ### karpenter\_helm\_version
 
-Description: The version of the karpenter helm chart to deploy
+Description: The Karpenter chart version. Null uses the platform default.
 
 Type: `string`
 
-Default: `"1.10.0"`
+Default: `null`
 
 ### log\_level
 
@@ -96,7 +114,7 @@ Default: `"warn"`
 
 ### manage\_instance\_profiles\_enabled
 
-Description: Allow creating/tagging/updating instance profiles. Disable when EC2NodeClass uses an existing instanceProfile.
+Description: Allow Karpenter to create and update instance profiles for callers with an external node role. The Talos-managed identity uses a fixed profile.
 
 Type: `bool`
 
@@ -124,7 +142,7 @@ Description: Worker EC2 IAM role ARN permitted by iam:PassRole, including the ro
 
 Type: `string`
 
-Default: n/a
+Default: `null`
 
 ### oidc\_issuer\_url
 
@@ -166,6 +184,21 @@ Type: `number`
 
 Default: `3`
 
+### talos\_worker\_identity
+
+Description: Optional Talos worker IAM name and ECR cache overrides. Setting this also enables managed identity for legacy callers.
+
+Type:
+
+```hcl
+object({
+    name_prefix        = optional(string)
+    ecr_cache_prefixes = optional(set(string), [])
+  })
+```
+
+Default: `null`
+
 ### vpa\_enabled
 
 Description: Whether the VPA resources should be enabled
@@ -190,9 +223,21 @@ Type: `bool`
 
 Default: `true`
 
+### worker\_nodes\_preferred
+
+Description: Prefer on-demand and Spot workers, with controller nodes eligible as fallback.
+
+Type: `bool`
+
+Default: `false`
+
 ## Outputs
 
-No outputs.
+The following outputs are exported:
+
+### node\_instance\_profile
+
+Description: Name of the managed Talos worker instance profile for EC2NodeClass, or null for an external identity.
 
 ## Providers
 

@@ -1,0 +1,6 @@
+provider "helm" {
+  kubernetes = {
+    host           = ${jsonencode(kube_api_server)}
+    config_context = ${jsonencode(kube_config_context)}
+  }
+}

@@ -29,9 +29,31 @@ object({
 
 Default: `null`
 
+### aws\_ccm
+
+Description: AWS cloud controller manager settings. Set host\_networking to false while adopting an existing pod-network release.
+
+Type:
+
+```hcl
+object({
+    image_version           = optional(string)
+    host_networking         = optional(bool, true)
+    subnet_id               = optional(string)
+    availability_zone       = optional(string)
+    ip_restrictions_enabled = optional(bool, false)
+    cluster_subnet_ids      = optional(set(string))
+    iam_tags                = optional(map(string))
+    helm_values             = optional(string, "{}")
+    operator_kube_port      = optional(number, 16443)
+  })
+```
+
+Default: `{}`
+
 ### aws\_node\_config\_enabled
 
-Description: Configure primary-interface DHCP, ECR credentials, external CCM and worker lifecycle labels for AWS.
+Description: Preserve the AWS launch configuration of explicitly managed legacy worker groups. Karpenter workers and controllers use AWS configuration automatically.
 
 Type: `bool`
 
@@ -163,6 +185,23 @@ Description: Whether controllers join the Panfactum controller class: they get t
 Type: `bool`
 
 Default: `true`
+
+### controller\_identity
+
+Description: IAM naming and ECR access settings for the optional Talos controller identity.
+
+Type:
+
+```hcl
+object({
+    name_prefix                            = optional(string)
+    ecr_cache_prefixes                     = optional(set(string), [])
+    controller_instance_profile_enabled    = optional(bool, false)
+    controller_additional_ecr_repositories = optional(set(string), [])
+  })
+```
+
+Default: `null`
 
 ### controller\_instance\_profile
 
@@ -469,7 +508,7 @@ Default: `0`
 
 ### worker\_identity
 
-Description: IAM naming and ECR access settings for the Talos worker identity and optional controller identity.
+Description: Deprecated alias for the Talos controller identity settings. Worker IAM is managed by Karpenter.
 
 Type:
 
@@ -544,6 +583,14 @@ Default: `[]`
 
 The following outputs are exported:
 
+### aws\_ccm\_bootstrap\_controller
+
+Description: Identity to check before deploying Cilium. Null when the host-network bootstrap check is disabled.
+
+### aws\_ccm\_role\_arn
+
+Description: IAM role ARN for the integrated AWS cloud controller manager.
+
 ### bootstrap\_public\_host
 
 Description: Temporary public hostname for the Talos and Kubernetes operator APIs. Null when the public load balancer is disabled.
@@ -559,6 +606,10 @@ Description: Private IP of the controller targeted by the temporary public load 
 ### bootstrap\_public\_talos\_endpoint
 
 Description: Temporary public Talos API address for talosctl, including the port.
+
+### cluster
+
+Description: Talos cluster connection metadata for Karpenter.
 
 ### cluster\_ca\_data
 
@@ -608,17 +659,9 @@ Description: Admin kubeconfig. The context is named admin@<cluster\_name>.
 
 Description: Configured Kubernetes version for the Talos cluster.
 
-### node\_instance\_profile
+### node\_bootstrap
 
-Description: Existing instance profile name to pass to the Custom EC2NodeClass
-
-### node\_instance\_profile\_arn
-
-Description: EC2 worker instance profile ARN
-
-### node\_role\_arn
-
-Description: EC2 worker IAM role ARN for Karpenter's scoped PassRole policy
+Description: Cluster metadata for generating a Talos worker configuration outside this module.
 
 ### node\_security\_group\_id
 
@@ -654,7 +697,7 @@ Description: Auto Scaling group maintaining the desired Spot worker count, or nu
 
 ### worker\_machine\_configuration
 
-Description: Worker Talos machine config (with caller patches) for Karpenter EC2NodeClass userData. Contains join credentials.
+Description: Legacy worker-only machine configuration with caller patches. Contains join credentials. New Karpenter deployments use node\_bootstrap.
 
 ## Providers
 
@@ -663,6 +706,10 @@ The following providers are needed by this module:
 - [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
 
 - external (2.3.5)
+
+- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.3.0/docs) (3.3.0)
+
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 

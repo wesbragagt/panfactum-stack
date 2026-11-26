@@ -183,18 +183,11 @@ This module replaces `aws_eks`. It needs Talos-only setup before the apply.
 
    Fix every `FAIL` line before you continue. The preflight finds existing SSM hosts by `Name = nat-*`. Pass `--tunnel-name-pattern` if yours is named differently. It skips the host check before the first apply, because the controller does not exist yet and the module's jump host does not either.
 
-4. Run `pf-tf-init` and `terragrunt apply` in `<caller>`. The module launches the controllers, bootstraps etcd and starts the workers. The Talos provider keeps retrying until the forward connects.
+4. Run `pf-tf-init` and `terragrunt apply` in `<caller>`. The module launches the controllers and bootstraps etcd. Use Karpenter to launch workers. The Talos provider keeps retrying until the forward connects.
 
 #### AWS cloud controller manager
 
-Set `aws_node_config_enabled = true` and `aws_ccm = { image_version = "v1.36.1" }`
-for Kubernetes 1.36. Pin an image with the same Kubernetes major and minor.
-Omit `aws_ccm` to retain standalone CCM ownership. In a Terragrunt source,
-keep `//` between the checkout root and module path so Terragrunt can load
-sibling modules. The cluster derives the CCM
-region, VPC, bootstrap subnet and availability zone. It uses the same OIDC
-issuer and a projected STS token. The CCM pod uses host DNS and KubePrism on
-`127.0.0.1:7445` before Cilium is installed.
+Talos installs the AWS cloud controller manager (CCM) during bootstrap. Kubernetes `1.36` defaults to CCM `v1.36.1`. Set `aws_ccm.image_version` to override the default or to select an image for a different Kubernetes minor. Use the Kubernetes major and the target or preceding minor. See [CCM adoption](CCM-ADOPTION.md) before you apply to a cluster with a standalone release.
 
 For SSM, add `--bootstrap-kubernetes` to the `before_hook` above. Set
 `--control-plane-name` to the bootstrap controller if it is not position
@@ -217,7 +210,7 @@ CCM removal.
 Include this module's `terragrunt.providers.hcl` when your caller inherits
 the shared provider templates. OpenTofu adds Helm to the lockfile during
 init and the shared template can generate Helm 2-style `helm.tf` on later
-runs, including when `aws_ccm` is omitted. The include updates the generated
+runs. The include updates the generated
 file for Helm 3. Use the same module revision for the source and this include.
 
 See [adopting an existing CCM release](CCM-ADOPTION.md) before enabling the
@@ -394,7 +387,7 @@ A replacement keeps the fixed IP, so it gets the same hostname, etcd name and No
 
 ### Set AWS controller provider IDs
 
-With `aws_node_config_enabled = true`, the module uses `kubectl` and the generated admin kubeconfig to fill empty controller provider IDs after registration. It matches Nodes to EC2 private IPs and runs on the first supported apply and when an EC2 controller identity changes. The apply fails if a matching Node already has a different ID.
+The module uses `kubectl` and the generated admin kubeconfig to fill empty controller provider IDs after registration. It matches Nodes to EC2 private IPs and runs on the first supported apply and when an EC2 controller identity changes. The apply fails if a matching Node already has a different ID.
 
 VPN and public bootstrap configure the Kubernetes API endpoint automatically. The legacy Elastic IP configuration also uses its public endpoint. For SSM, the Talos bootstrap tunnel forwards port 50000. Keep a separate Kubernetes forward running on port 16443 using the `operator` command in [Caller-owned bootstrap transport](#caller-owned-bootstrap-transport), set `controller_provider_id_kube_api_server = "https://127.0.0.1:16443"`, and apply with both forwards available. Use your chosen local Kubernetes port if it differs. For a fresh SSM cluster, bootstrap first and enable this input once the Kubernetes forward is available. The API certificate needs to cover the chosen endpoint.
 
@@ -442,12 +435,12 @@ If the first apply cannot reach Talos, target what the first call needs, then ru
 ## Configuration notes
 
 - Networking: `cilium_enabled = true` (default) disables Flannel and kube-proxy. Set `cilium_enabled = false` and `core_dns_enabled = true` only to use the Talos-managed networking and DNS.
-- AWS integration: `aws_node_config_enabled = true` sets kubelet `cloud-provider=external` and applies `pod_subnets` and `service_subnets`. It requires the AWS cloud controller manager and a worker identity through `worker_instance_profile_arn`. Use it for Cilium ENI IPAM.
+- AWS integration: Talos configures the controller kubelet for the integrated AWS CCM and applies `pod_subnets` and `service_subnets`. Existing callers can keep `aws_node_config_enabled` for the legacy worker Auto Scaling configuration.
 - Controllers: `control_plane_count` is 1, 3 or 5; above 1 needs `private_api_dns_name`. State is keyed by position in `control_plane_subnets`, so names must be unique and the list is append-only. Growing from 1 to 3 controllers appends two subnets; see "Controller runbook". Reordering or removing an entry replaces nodes. `bootstrap_control_plane`, a subnet name that defaults to the first entry, selects the controller that runs `talos_machine_bootstrap` and serves the kubeconfig.
 - Controller class: controllers get the label `panfactum.com/class=controller` and the taint `controller=true:NoSchedule`, the same as `aws_eks`. Only pods that tolerate that taint run there: Panfactum cluster services such as Karpenter, Cilium, CoreDNS, cert-manager, Kyverno and Vault. Karpenter also selects `panfactum.com/class=controller`, so it needs at least one controller in this class. `control_plane_workloads_enabled` defaults to `true`. Setting it to `false` keeps the default Talos control-plane taint and drops the label.
-- Worker identity: the module creates a role and instance profile and publishes `node_role_arn`, `node_instance_profile`, and `node_instance_profile_arn` for Karpenter. Existing deployments will plan these IAM resources when they adopt this module revision.
-- Identity settings: `worker_identity` accepts `name_prefix`, `ecr_cache_prefixes`, `controller_instance_profile_enabled`, and `controller_additional_ecr_repositories`. Cache prefixes and exact controller repository reads are opt-in.
-- Controller identity: `worker_identity.controller_instance_profile_enabled` creates and attaches a controller profile. An explicit `controller_instance_profile` takes precedence.
+- Worker identity: Karpenter manages the role and profile. Transfer the existing worker role, instance profile, and inline policies into Karpenter state before you apply. Use the Talos `cluster` and `node_bootstrap` outputs for new Karpenter callers. The legacy worker YAML output and explicit ASGs remain available for existing callers.
+- Controller identity settings: `controller_identity` accepts `name_prefix`, `ecr_cache_prefixes`, `controller_instance_profile_enabled`, and `controller_additional_ecr_repositories`. Cache prefixes and exact controller repository reads are opt-in.
+- Controller identity: `controller_identity.controller_instance_profile_enabled` creates and attaches a controller profile. An explicit `controller_instance_profile` takes precedence. `worker_identity` remains a compatibility alias for controller settings.
 - Images: pass `ami_id` and the matching `installer_image` for a custom Talos factory image.
 - OIDC: the module creates the `<cluster_name>-oidc-<account_id>` bucket and configures the API server issuer. Planning needs Python 3 and OpenSSL. Rotating the service-account signing key needs a separate procedure that keeps old keys until their tokens expire.
 - Public controllers: set `control_plane_public_ip_enabled = true`, choose PUBLIC subnets, and set `talos_api_allowed_cidrs` and `kube_api_allowed_cidrs`. Set `talos_api_endpoint = null` to reach Talos through the Elastic IP.

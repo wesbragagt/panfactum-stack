@@ -1,126 +1,84 @@
-# Bootstrap a private Talos cluster on AWS
+# Bootstrap Talos and Karpenter on AWS
 
-Use `aws_kube_talos` with a private Talos endpoint reachable by the machine that
-runs Terragrunt. A runner inside the VPC can connect directly. A runner outside
-the VPC can use a caller-owned Systems Manager tunnel.
+Use `aws_kube_talos` for the control plane and AWS cloud controller manager (CCM). Use Karpenter for workers. Start with a temporary public load balancer. Remove it after you verify private access.
 
-## 1. Prepare the network and controller
+## 1. Prepare the control plane
 
-Choose an existing VPC and private subnet with outbound access to the image
-registries. Reserve a private controller IP and a private Kubernetes API DNS
-name. Use a dedicated controller instance profile, a new SOPS-encrypted Talos
-secrets bundle, and a separate state key for this cluster.
+1. Choose a private subnet and a fixed controller IP. Reserve a private API DNS name.
+2. Verify that the VPC has a tagged public subnet in the bootstrap controller's Availability Zone.
+3. Generate a new Talos secrets bundle. Encrypt the file with SOPS. Use a separate state key for the cluster.
+4. Pass the VPC, subnet, IP, API DNS name, and encrypted secrets to `aws_kube_talos`. Keep controller public IPs disabled.
 
-For a one-controller bootstrap, set `control_plane_count = 1`,
-`worker_count = 0`, and `on_demand_worker_subnets = []`. Keep
-`control_plane_public_ip_enabled = false`. Install the networking add-ons
-required by your chosen cluster configuration before expecting the node to
-be Ready.
+## 2. Apply Talos with temporary public access
 
-## 2. Prepare access
+Set `talos_access_transport = "bootstrap_public"`. The module detects the runner's public IPv4 address and opens the two API ports to its `/32`. Set `bootstrap_public.operator_cidr` if the runner uses a different egress address.
 
-For direct access, set `talos_api_endpoint` to a reachable private address.
-Use `talos_api_source_security_groups` and `kube_api_source_security_groups`
-to grant each API access from its own set of source security groups.
+1. Review and apply the Talos plan. Save `kubeconfig` and `talosconfig` in private files.
+2. Use `bootstrap_public_kube_url` and `bootstrap_public_talos_endpoint` to check `/readyz` and the etcd members.
+3. Check that CCM has set the controller provider IDs. Use `aws_ccm_bootstrap_controller` to identify the bootstrap controller.
 
-For Systems Manager, set `aws_ssm_jump_host.talos_bootstrap` to the
-planned private API hostname and fixed controller addresses.
+CCM starts with Talos. Kubernetes `1.36` defaults to CCM `v1.36.1`. Set `aws_ccm.image_version` to override it. Set an explicit image if the Kubernetes minor has no default. Use the same Kubernetes major and the target minor or the previous minor. During an upgrade, keep CCM at or below the oldest API server minor that it can reach. [AWS CCM compatibility](https://cloud-provider-aws.sigs.k8s.io/#compatibility-with-kubernetes) · [Kubernetes version skew](https://kubernetes.io/releases/version-skew-policy/#kube-controller-manager-kube-scheduler-and-cloud-controller-manager)
 
-```hcl
-talos_bootstrap = {
-  kubernetes_host = "api.example.internal"
-  controller_ips  = ["10.0.64.10"]
-}
-```
+If a separate caller owns CCM, complete the state transfer in `aws_kube_talos/CCM-ADOPTION.md` before you apply the updated Talos module.
 
-Use the same IP in `aws_kube_talos.control_plane_private_ips`. Apply
-`aws_ssm_jump_host` first and wait for its instance to report Online in SSM.
-The module creates fixed documents for Kubernetes on TCP 6443 and Talos on
-TCP 50000. The only runtime document parameter is the local port.
+## 3. Install networking and switch to private access
 
-Pass the jump host's `security_group_id` into both Talos API ingress maps. Set
-`talos_access_transport = "ssm"` to select the Talos loopback port and include
-loopback in both API certificates. Match the local Talos port to the module
-default of 50000, or set an explicit `talos_api_endpoint` for a different port.
+1. Apply `kube_cilium`. Pass `cluster = { type = "talos", name = dependency.cluster.outputs.cluster_name }`. Use its default Talos KubePrism endpoint.
+2. Apply `kube_core_dns`. Set `service_ip` from the Talos `dns_service_ip` output. Check DNS from a Pod.
+3. Configure Headscale or Tailscale. Route the private controller subnets and make the private API name resolvable from the runner.
+4. Verify authenticated Kubernetes and Talos API requests over the private path. Set `talos_access_transport = "vpn"`. Plan and apply with the public load balancer still available.
+5. Repeat those checks. Set `bootstrap_public = { enabled = false }`. Review the removal plan and apply it. Verify that the private APIs still work.
 
-## 3. Plan and apply
+Use separate plans for the transport change and the load balancer removal.
 
-In the SSM caller, configure a Terragrunt `before_hook` for `plan` and
-`apply` that directly executes the following command as an argument list.
-Use the same AWS profile as the AWS provider and the jump host's instance
-ID from its Terragrunt output.
+## 4. Install Karpenter
+
+Apply cert-manager and the AWS Pod Identity webhook. Verify AWS STS access with a Pod that uses an annotated service account.
+
+For a first install, render the CRDs with the same chart version as the controller. Add the Helm ownership labels before you apply them. The Talos controller defaults to version `1.15.1`. [Karpenter compatibility](https://karpenter.sh/docs/upgrading/compatibility/)
 
 ```sh
-python3 "$module_dir/scripts/operator_tunnel.py" bootstrap \
-  --cluster "$cluster" --profile "$profile" --region "$region" \
-  --account-id "$account" --vpc-id "$vpc" --controller-ip "$controller_ip" \
-  --jump-host "$jump_host" --talos-port 50000
+karpenter_crds=$(mktemp)
+helm template karpenter-crd oci://public.ecr.aws/karpenter/karpenter-crd \
+  --version 1.15.1 --namespace karpenter --include-crds |
+  kubectl annotate --local -f - -o json \
+    meta.helm.sh/release-name=karpenter-crd \
+    meta.helm.sh/release-namespace=karpenter |
+  jq -s '{apiVersion: "v1", kind: "List",
+    items: map(.metadata.labels."app.kubernetes.io/managed-by" = "Helm")}' > "$karpenter_crds"
+kubectl apply --server-side --dry-run=server -f "$karpenter_crds"
+kubectl apply --server-side -f "$karpenter_crds"
 ```
 
-The hook discovers the controller as the first apply creates it. On later
-plans it opens the tunnel before provider refresh. Apply a reviewed plan and
-retrieve the sensitive `kubeconfig` and `talosconfig` outputs into private
-files. Run a follow-up plan to check convergence.
+In `kube_karpenter`, pass `cluster = dependency.cluster.outputs.cluster`. This selects Talos and creates worker IAM. Pass the VPC ID to scope launch permissions. Use `talos_worker_identity` for optional IAM naming and ECR cache settings.
 
-## 4. Verify access and recovery
+If the cluster uses EC2 or STS VPC endpoints, set `ip_restrictions_enabled = false` for Karpenter. AWS omits `aws:SourceIp` on requests through these endpoints. [AWS IAM condition keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_condition-keys.html#condition-keys-sourceip)
 
-Use the existing AWS profile with permission to start the selected SSM
-sessions. Open both forwards through the dedicated host to check bootstrap.
-For recovery, close that local tunnel and replace `--jump-host "$jump_host"`
-with `--nat-host "$nat_host"` in the command below.
+## 5. Apply worker pools
 
-```sh
-python3 "$module_dir/scripts/operator_tunnel.py" recovery \
-  --cluster "$cluster" --profile "$profile" --region "$region" \
-  --account-id "$account" --vpc-id "$vpc" --controller-ip "$controller_ip" \
-  --jump-host "$jump_host" --kube-port 26443 --talos-port 50000
-```
+Set these three inputs in `kube_karpenter_node_pools`.
 
-With the tunnel running, verify both APIs from another terminal.
+| Input | Value |
+| --- | --- |
+| `talos_launch` | Talos AMI and node security group, VPC ID, and selected private subnets. |
+| `talos_worker_bootstrap` | Talos `node_bootstrap` output plus `secrets_bundle` with only the public CAs and worker join credentials. |
+| `node_instance_profile` | Output of the Karpenter caller. |
 
-```sh
-kubectl --kubeconfig "$admin_kubeconfig" --server https://127.0.0.1:26443 get --raw /readyz
-talosctl --talosconfig "$admin_talosconfig" --endpoints 127.0.0.1:50000 \
-  --nodes "$controller_ip" etcd members
-```
+Use the encrypted Talos secrets file for the join credentials. Keep control-plane signing keys out of worker inputs. The worker installer tag must match `talos_version`.
 
-The Talos admin certificate authenticates Kubernetes operations through
-either route. Restrict the state, EC2 user data, and encrypted secrets to
-the operators trusted with cluster administration. IAM permissions on the
-SSM targets and documents determine which AWS principals can open the
-tunnels. The `operator` helper selects only the Kubernetes document.
+Install EBS CSI before you enable its startup taint. Make sure Cilium tolerates the taint. Schedule a Pod that tolerates the worker taints. Check that Karpenter launches a worker, its provider ID matches the EC2 instance, and both the node and Pod become `Ready`.
 
-## 5. Verify node-local API failover
+## Upgrade older callers
 
-Before installing Cilium, keep the generated `KubePrismConfig` on controllers
-and workers. Pass `cluster = { type = "talos", name = dependency.cluster.outputs.cluster_name }`
-to `kube_cilium` and leave the API host and port overrides unset. Confirm `127.0.0.1:7445` is listening with
-`talosctl netstat --tcp --listening` on the controller and on each worker
-after it joins.
+Move the worker role, instance profile, ECR read policy, and optional cache import policy from Talos state to Karpenter state. Keep their AWS identities. Take versioned state backups and pause applies until both states are verified.
 
-Keep `private_api_dns_name` as the Kubernetes API endpoint for off-node
-clients. Verify it with the cluster kubeconfig and
-`kubectl --server="https://$api_hostname:6443" get --raw /readyz` from a
-runner with access to the private VPC.
+| Legacy Talos address | Karpenter address |
+| --- | --- |
+| `aws_iam_role.worker` | `aws_iam_role.talos_worker[0]` |
+| `aws_iam_instance_profile.worker` | `aws_iam_instance_profile.talos_worker[0]` |
+| `aws_iam_role_policy.ecr_read` | `aws_iam_role_policy.talos_worker_ecr_read[0]` |
+| `aws_iam_role_policy.cache_import[0]` | `aws_iam_role_policy.talos_worker_cache_import[0]` |
 
-To qualify high availability, grow to three controllers across three
-Availability Zones and verify three etcd voters before invoking an approved
-controller-loss drill. While one controller is down, verify an authenticated
-read and persisted write through KubePrism on a surviving node. Repeat
-through the private hostname using a reachable VPC path. Record transient
-failures and restore all three voters before testing another failure.
+Transfer the bindings before you apply either module. Check that the plan retains the original profile and policies. Existing controller identities stay in Talos. Use `controller_identity` for controller settings.
 
-Talos v1.14.6 KubePrism checks TCP reachability. A server can continue
-receiving requests while TCP 6443 is open and `/readyz` fails. The private
-A record continues listing every controller IP, so operator access depends
-on client retries and tunnel destination selection.
-
-## 6. Install the network and cloud add-ons
-
-Apply `kube_cilium`, then `kube_aws_ccm` with
-`talos_bootstrap_enabled = true`. Pin `image_version` to the Kubernetes
-minor reported by the Talos `kubernetes_version` output. Confirm Cilium
-is ready and CCM has set AWS provider IDs and cleared the initialization
-taints. Apply `kube_core_dns` with `service_ip` from the Talos
-`dns_service_ip` output. Check the DNS endpoints and resolve both cluster
-and external names from a Pod.
+Explicit legacy ASGs remain available with a caller-provided `worker_instance_profile_arn`. Keep them at zero for new Karpenter clusters.

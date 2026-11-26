@@ -72,12 +72,15 @@ variables {
   client_configuration = { ca_certificate = "x", client_certificate = "x", client_key = "x" }
 }
 
-run "ccm_omitted_preserves_original_plan" {
+run "ccm_default_enabled" {
   command = plan
-
   assert {
-    condition     = length(module.aws_ccm) == 0 && length(terraform_data.aws_ccm_api) == 0 && length(terraform_data.aws_ccm_ready) == 0
-    error_message = "Omitting aws_ccm must leave ownership and API checks disabled."
+    condition     = length(module.aws_ccm) == 1 && length(terraform_data.aws_ccm_api) == 1 && length(terraform_data.aws_ccm_ready) == 1 && local.ccm_image_version == "v1.36.1"
+    error_message = "AWS node configuration must default to host-network CCM with the pinned matching image."
+  }
+  assert {
+    condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"cloud-provider\": \"external\"")
+    error_message = "Controllers must use the external AWS cloud provider by default."
   }
 }
 
@@ -139,12 +142,91 @@ run "ccm_adoption_uses_existing_pod_network" {
   }
 }
 
-run "ccm_rejects_unmatched_image_minor" {
+run "ccm_explicit_null" {
   command = plan
   variables {
-    aws_node_config_enabled = true
-    aws_ccm                 = { image_version = "v1.35.1" }
-    kube_version            = "1.36.5"
+    aws_ccm = null
+  }
+  assert {
+    condition     = length(module.aws_ccm) == 1 && length(terraform_data.aws_ccm_api) == 1 && length(terraform_data.aws_ccm_ready) == 1 && local.ccm_image_version == "v1.36.1"
+    error_message = "Explicit null must use the default host-network CCM and pinned image."
+  }
+}
+
+run "ccm_explicit_image_override" {
+  command = plan
+  variables {
+    aws_ccm = { image_version = "v1.36.0" }
+  }
+  assert {
+    condition     = local.ccm_image_version == "v1.36.0" && length(module.aws_ccm) == 1
+    error_message = "The caller's compatible image pin must take precedence."
+  }
+}
+
+run "ccm_rejects_conflicting_helm_image_tag" {
+  command = plan
+  variables {
+    aws_ccm = {
+      image_version = "v1.36.1"
+      helm_values   = "{\"image\":{\"tag\":\"v1.34.0\"}}"
+    }
+  }
+  expect_failures = [var.aws_ccm]
+}
+
+run "ccm_requires_pin_for_unknown_minor" {
+  command = plan
+  variables {
+    kube_version = "1.35.10"
+  }
+  expect_failures = [var.aws_ccm]
+}
+
+run "ccm_accepts_previous_minor_during_upgrade" {
+  command = plan
+  variables {
+    aws_ccm      = { image_version = "v1.36.1" }
+    kube_version = "1.37.0"
+  }
+  assert {
+    condition     = local.ccm_image_version == "v1.36.1" && length(module.aws_ccm) == 1
+    error_message = "The running CCM pin must remain available during a minor upgrade."
+  }
+}
+
+run "ccm_rejects_newer_minor" {
+  command = plan
+  variables {
+    aws_ccm      = { image_version = "v1.38.0" }
+    kube_version = "1.37.0"
+  }
+  expect_failures = [var.aws_ccm]
+}
+
+run "ccm_rejects_image_more_than_one_minor_old" {
+  command = plan
+  variables {
+    aws_ccm      = { image_version = "v1.35.1" }
+    kube_version = "1.37.0"
+  }
+  expect_failures = [var.aws_ccm]
+}
+
+run "ccm_rejects_other_major" {
+  command = plan
+  variables {
+    aws_ccm      = { image_version = "v2.36.1" }
+    kube_version = "1.37.0"
+  }
+  expect_failures = [var.aws_ccm]
+}
+
+run "ccm_rejects_malformed_image" {
+  command = plan
+  variables {
+    aws_ccm      = { image_version = "v1.36" }
+    kube_version = "1.37.0"
   }
   expect_failures = [var.aws_ccm]
 }
@@ -274,8 +356,8 @@ run "bootstrap_follows_named_subnet" {
     error_message = "Routed access must use the configured bootstrap controller, not the first controller."
   }
   assert {
-    condition     = length(terraform_data.controller_provider_id) == 0
-    error_message = "VPN must reconcile provider IDs only with AWS node configuration enabled."
+    condition     = length(terraform_data.controller_provider_id) == 3
+    error_message = "VPN must reconcile the provider IDs of all three AWS controllers."
   }
 }
 
@@ -594,11 +676,20 @@ run "zero_workers_create_no_asgs" {
   }
   assert {
     condition     = output.worker_machine_configuration != null
-    error_message = "Karpenter still needs worker_machine_configuration."
+    error_message = "Legacy Karpenter callers still need worker_machine_configuration."
   }
   assert {
     condition     = output.talos_ami_id != null
     error_message = "Karpenter still needs talos_ami_id."
+  }
+  assert {
+    condition = (
+      output.cluster.type == "talos" && output.cluster.name == "test" &&
+      output.cluster.endpoint == "https://api.test.internal:6443" &&
+      output.node_bootstrap.cluster_endpoint == output.cluster.endpoint &&
+      endswith(output.node_bootstrap.installer_image, ":v1.14.6")
+    )
+    error_message = "The typed Karpenter path must receive the Talos API and version-matched installer."
   }
 }
 
@@ -775,40 +866,10 @@ run "reject_x86_ssm_jump_host" {
   expect_failures = [data.aws_ec2_instance_type.node]
 }
 
-run "worker_identity_defaults" {
-  command = plan
-  override_resource {
-    target = aws_iam_role.worker
-    values = { arn = "arn:aws:iam::123456789012:role/test-worker" }
-  }
-  override_resource {
-    target = aws_iam_instance_profile.worker
-    values = { name = "test-worker", arn = "arn:aws:iam::123456789012:instance-profile/test-worker" }
-  }
-  assert {
-    condition = aws_iam_role.worker.name_prefix == "test-worker-" && aws_iam_instance_profile.worker.name_prefix == "test-worker-" && aws_iam_role.worker.tags == tomap({
-      "Name" = "test-talos-worker", "panfactum.com/module" = "aws_talos_worker_identity", "panfactum.com/cluster" = "test"
-    }) && aws_iam_instance_profile.worker.tags == aws_iam_role.worker.tags
-    error_message = "Default identity names and tags must match the standalone module."
-  }
-  assert {
-    condition     = output.node_role_arn == "arn:aws:iam::123456789012:role/test-worker" && output.node_instance_profile == "test-worker" && output.node_instance_profile_arn == "arn:aws:iam::123456789012:instance-profile/test-worker"
-    error_message = "The worker role and profile must be published through all three outputs."
-  }
-  assert {
-    condition     = length(aws_iam_instance_profile.controller) == 0 && length(aws_iam_role_policy.cache_import) == 0
-    error_message = "Controller profiles and cache import permissions must be opt-in."
-  }
-  assert {
-    condition     = length(data.aws_iam_policy_document.ecr_read.statement) == 2 && one([for s in data.aws_iam_policy_document.ecr_read.statement : s if s.sid == "RegionalAccountRepositoryReads"]).resources == toset(["arn:aws:ecr:us-east-2:123456789012:repository/*"])
-    error_message = "Worker reads must stay within the account and region."
-  }
-}
-
-run "worker_identity_configured" {
+run "controller_identity_configured" {
   command = plan
   variables {
-    worker_identity = {
+    controller_identity = {
       name_prefix                            = "custom"
       ecr_cache_prefixes                     = ["github", "docker-hub", "quay", "kubernetes", "ecr-public"]
       controller_instance_profile_enabled    = true
@@ -820,11 +881,11 @@ run "worker_identity_configured" {
     values = { name = "managed-controller" }
   }
   assert {
-    condition     = aws_iam_role.worker.name_prefix == "custom-worker-" && aws_iam_instance_profile.worker.name_prefix == "custom-worker-" && aws_iam_role.controller[0].name_prefix == "custom-ctrl-" && aws_iam_instance_profile.controller[0].name_prefix == "custom-ctrl-" && aws_iam_role.controller[0].tags == aws_iam_role.worker.tags
-    error_message = "The prefix and tags must match the standalone identity for both roles and profiles."
+    condition     = aws_iam_role.controller[0].name_prefix == "custom-ctrl-" && aws_iam_instance_profile.controller[0].name_prefix == "custom-ctrl-" && aws_iam_role.controller[0].tags["Name"] == "custom-talos-worker"
+    error_message = "Keep the established controller identity prefix and tags."
   }
   assert {
-    condition     = aws_instance.control_plane[0].iam_instance_profile == "managed-controller" && length(aws_iam_role_policy.controller_read) == 1 && length(aws_iam_role_policy.controller_import) == 1 && length(aws_iam_role_policy.cache_import) == 1
+    condition     = aws_instance.control_plane[0].iam_instance_profile == "managed-controller" && length(aws_iam_role_policy.controller_read) == 1 && length(aws_iam_role_policy.controller_import) == 1
     error_message = "The enabled controller profile and import policies must be attached."
   }
   assert {
@@ -837,10 +898,10 @@ run "worker_identity_configured" {
   }
 }
 
-run "worker_identity_external_profile_precedence" {
+run "controller_identity_external_profile_precedence" {
   command = plan
   variables {
-    worker_identity             = { controller_instance_profile_enabled = true }
+    controller_identity         = { controller_instance_profile_enabled = true }
     controller_instance_profile = "external-controller"
   }
   assert {
@@ -849,29 +910,29 @@ run "worker_identity_external_profile_precedence" {
   }
 }
 
-run "worker_identity_invalid_prefix" {
+run "controller_identity_invalid_prefix" {
   command = plan
-  variables { worker_identity = { name_prefix = "not valid!" } }
-  expect_failures = [var.worker_identity]
+  variables { controller_identity = { name_prefix = "not valid!" } }
+  expect_failures = [var.controller_identity]
 }
 
-run "worker_identity_invalid_cache" {
+run "controller_identity_invalid_cache" {
   command = plan
-  variables { worker_identity = { ecr_cache_prefixes = ["other"] } }
-  expect_failures = [var.worker_identity]
+  variables { controller_identity = { ecr_cache_prefixes = ["other"] } }
+  expect_failures = [var.controller_identity]
 }
 
-run "worker_identity_invalid_repository" {
+run "controller_identity_invalid_repository" {
   command = plan
-  variables { worker_identity = { controller_additional_ecr_repositories = ["repo/*"] } }
-  expect_failures = [var.worker_identity]
+  variables { controller_identity = { controller_additional_ecr_repositories = ["repo/*"] } }
+  expect_failures = [var.controller_identity]
 }
 
-run "worker_identity_null_settings" {
+run "controller_identity_null_settings" {
   command = plan
-  variables { worker_identity = null }
+  variables { controller_identity = null }
   assert {
-    condition     = aws_iam_role.worker.name_prefix == "test-worker-" && length(aws_iam_instance_profile.controller) == 0
+    condition     = length(aws_iam_instance_profile.controller) == 0
     error_message = "Null identity settings must select the defaults."
   }
 }
@@ -1128,15 +1189,15 @@ run "aws_controller_provider_ids_follow_vpn_controller_ips" {
   }
 }
 
-run "ssm_bootstrap_keeps_kubernetes_forward_optional" {
+run "ssm_bootstrap_uses_integrated_ccm_forward" {
   command = plan
   variables {
     aws_node_config_enabled = true
     talos_access_transport  = "ssm"
   }
   assert {
-    condition     = length(terraform_data.controller_provider_id) == 0
-    error_message = "SSM bootstrap must continue to work with its Talos-only forward."
+    condition     = length(terraform_data.controller_provider_id) == 1 && local.ccm_api_server == "https://127.0.0.1:16443"
+    error_message = "SSM bootstrap must share the Kubernetes forward with CCM."
   }
 }
 
@@ -1150,5 +1211,32 @@ run "ssm_kubernetes_forward_enables_controller_provider_ids" {
   assert {
     condition     = length(terraform_data.controller_provider_id) == 1
     error_message = "An explicit Kubernetes forward must enable provider ID reconciliation for SSM."
+  }
+}
+
+run "ccm_accepts_matching_helm_image_tag" {
+  command = plan
+  variables {
+    aws_ccm = {
+      image_version = "v1.36.0"
+      helm_values   = "{\"image\":{\"tag\":\"v1.36.0\"}}"
+    }
+  }
+  assert {
+    condition     = local.ccm_image_version == "v1.36.0"
+    error_message = "An identical legacy Helm tag must preserve the explicit CCM image."
+  }
+}
+
+run "ccm_accepts_helm_repository_override" {
+  command = plan
+  variables {
+    aws_ccm = {
+      helm_values = "{\"image\":{\"repository\":\"example.test/ccm\"}}"
+    }
+  }
+  assert {
+    condition     = local.ccm_image_version == "v1.36.1"
+    error_message = "A Helm repository override must use the selected default CCM tag."
   }
 }
