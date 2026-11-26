@@ -94,14 +94,18 @@ class OperatorTunnelTest(unittest.TestCase):
              patch.object(operator_tunnel.signal, "signal"), \
              patch.object(operator_tunnel, "background", return_value=0) as background:
             access_class.return_value.aws.return_value = {"Account": self.account}
-            for profile in ("profile-a", "profile-b"):
-                self.assertEqual(operator_tunnel.main(self.cli("bootstrap", ["--jump-host", self.jump], profile)), 0)
+            self.assertEqual(operator_tunnel.main(self.cli("bootstrap", ["--jump-host", self.jump], "profile-a")), 0)
+            self.assertEqual(operator_tunnel.main(self.cli(
+                "bootstrap", ["--jump-host", self.jump, "--bootstrap-kubernetes"], "profile-b"
+            )), 0)
         args_a = background.call_args_list[0].args[0]
         args_b = background.call_args_list[1].args[0]
         self.assertNotEqual(args_a.state_dir, args_b.state_dir)
         self.assertEqual(args_a.state_dir.parent.name, self.cluster)
         self.assertEqual(args_a.host, self.jump)
         self.assertTrue(args_a.terragrunt_hook)
+        self.assertFalse(args_a.bootstrap_kubernetes)
+        self.assertTrue(args_b.bootstrap_kubernetes)
 
     def test_operator_rejects_nat_choice(self):
         with contextlib.redirect_stderr(io.StringIO()) as stderr, self.assertRaises(SystemExit) as error:

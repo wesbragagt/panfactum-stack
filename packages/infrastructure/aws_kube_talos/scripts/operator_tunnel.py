@@ -113,6 +113,8 @@ def main(argv=None):
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--jump-host")
     target.add_argument("--nat-host", help="Explicit NAT selection for recovery")
+    parser.add_argument("--bootstrap-kubernetes", action="store_true",
+                        help="also forward the Kubernetes API in bootstrap mode")
     parser.add_argument("--kube-port", type=int, default=16443)
     parser.add_argument("--talos-port", type=int, default=50000)
     parser.add_argument("--wait", type=int, default=900, help="Bootstrap controller discovery deadline")
@@ -129,8 +131,10 @@ def main(argv=None):
         parser.error("--nat-host requires recovery mode")
     if any(not 1 <= port <= 65535 for port in (args.kube_port, args.talos_port)):
         parser.error("Local ports must be between 1 and 65535")
-    if args.mode == "recovery" and args.kube_port == args.talos_port:
-        parser.error("Recovery needs two distinct local ports")
+    if args.bootstrap_kubernetes and args.mode != "bootstrap":
+        parser.error("--bootstrap-kubernetes requires bootstrap mode")
+    if (args.mode == "recovery" or args.bootstrap_kubernetes) and args.kube_port == args.talos_port:
+        parser.error("Two forwards need distinct local ports")
     if not (0 < args.wait <= 1800 and 0 < args.ready_timeout <= 300):
         parser.error("--wait and --ready-timeout must be positive and bounded at 1800 and 300 seconds")
     for binary in ("aws", "session-manager-plugin"):

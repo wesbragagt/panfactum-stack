@@ -250,15 +250,16 @@ elif "start-session" in argv:
     with (base / "starts").open("a") as starts:
         starts.write("x\\n")
     number = len((base / "starts").read_text().split())
-    session = {"SessionId": "sess-%%d" %% number, "Reason": option("--reason")}
+    parameters = json.loads(option("--parameters"))
+    session = {"SessionId": "sess-%%d" %% number, "Reason": option("--reason"), "Parameters": parameters}
     (base / "sessions" / (session["SessionId"] + ".json")).write_text(json.dumps(session))
     print("Starting session with SessionId: " + session["SessionId"], flush=True)
-    port = int(json.loads(option("--parameters"))["localPortNumber"][0])
+    port = int(parameters["localPortNumber"][0])
     server = socket.socket()
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(("127.0.0.1", port))
     server.listen()
-    die = base / "die-once"
+    die = base / ("die-kube-once" if parameters["portNumber"] == ["6443"] else "die-once")
     if die.exists():
         die.unlink()
         server.settimeout(1.5)
@@ -357,6 +358,38 @@ class BackgroundTest(unittest.TestCase):
         self.assertEqual(record["talos_port"], self.port)
         self.assertEqual(oct((self.state / "bootstrap.log").stat().st_mode & 0o777), "0o600")
         self.assertTrue(wait_until(lambda: len(self.sessions()) == 1))
+
+    def test_bootstrap_kubernetes_uses_the_controller_ip_and_restarts_only_kubernetes(self):
+        with socket.socket() as talos, socket.socket() as kube:
+            talos.bind(("127.0.0.1", self.port))
+            kube.bind(("127.0.0.1", 0))
+            kube_port = kube.getsockname()[1]
+        (self.fake / "die-kube-once").touch()
+        result = self.hook("--bootstrap-kubernetes", "--kube-port", str(kube_port))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.record()["kube_port"], kube_port)
+        self.assertTrue(wait_until(lambda: self.starts() >= 3 and len(self.sessions()) == 2))
+        self.assertEqual(self.starts(), 3)
+        sessions = sorted(json.loads(path.read_text())["Parameters"]["portNumber"][0]
+                          for path in self.sessions())
+        self.assertEqual(sessions, ["50000", "6443"])
+        for path in self.sessions():
+            self.assertEqual(json.loads(path.read_text())["Parameters"]["host"], ["10.0.0.5"])
+        self.stop_helper()
+        self.assertEqual(self.sessions(), [])
+
+    def test_bootstrap_kubernetes_rejects_occupied_port(self):
+        with socket.socket() as listener:
+            with socket.socket() as talos:
+                talos.bind(("127.0.0.1", self.port))
+                listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            port = listener.getsockname()[1]
+            result = self.hook("--bootstrap-kubernetes", "--kube-port", str(port))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(f"Local port {port} is already in use", result.stderr)
+        self.assertIsNone(self.record())
+        self.assertEqual(self.starts(), 0)
 
     def test_helper_exits_and_cleans_its_session_after_the_parent_dies(self):
         parent = subprocess.Popen(

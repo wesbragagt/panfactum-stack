@@ -58,3 +58,37 @@ variable "talos_bootstrap_enabled" {
   type        = bool
   default     = false
 }
+
+variable "talos_host_networking" {
+  description = "Use host networking, host DNS, and the node-local Talos KubePrism API."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "api_ready" {
+  description = "Deferred readiness check when the Kubernetes API is created in the same plan."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
+variable "custom_oidc_enabled" {
+  description = "Select custom OIDC when the provider ARN and issuer are created in the same plan."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "iam_tags" {
+  description = "Existing IAM base tags to preserve during state adoption. Defaults to Panfactum AWS tags."
+  type        = map(string)
+  default     = null
+}
+
+variable "helm_values" {
+  description = "YAML map of top-level overrides to the default Helm values for legacy state adoption."
+  type        = string
+  default     = "{}"
+  nullable    = false
+}

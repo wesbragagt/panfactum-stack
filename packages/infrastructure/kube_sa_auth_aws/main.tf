@@ -20,7 +20,7 @@ terraform {
 }
 
 locals {
-  custom_oidc_requested = var.oidc_provider_arn != null || var.oidc_issuer_url != null
+  custom_oidc_requested = var.custom_oidc_enabled ? true : var.oidc_provider_arn != null || var.oidc_issuer_url != null
   kube_oidc_provider = trimprefix(trimsuffix(
     var.oidc_issuer_url != null ? var.oidc_issuer_url : try(data.aws_eks_cluster.cluster[0].identity[0].oidc[0].issuer, ""), "/"
   ), "https://")
@@ -30,7 +30,8 @@ locals {
     [for subnet in data.aws_subnet.cluster_subnet_info : subnet.tags["panfactum.com/public-ip"] if contains(keys(subnet.tags), "panfactum.com/public-ip")],
     [for subnet in data.aws_subnet.cluster_subnet_info : subnet.cidr_block]
   )
-  cluster_name = data.pf_metadata.metadata.kube_cluster_name
+  cluster_name = var.cluster_name == null ? data.pf_metadata.metadata.kube_cluster_name : var.cluster_name
+  iam_tags     = var.iam_tags == null ? data.pf_aws_tags.tags.tags : var.iam_tags
 }
 
 data "aws_caller_identity" "main" {}
@@ -66,7 +67,7 @@ resource "aws_iam_policy" "service_account" {
   name_prefix = "${substr(var.service_account, 0, 37)}-"
   description = "Provides IAM permissions for ${var.service_account_namespace}/${var.service_account} in ${local.cluster_name}."
   policy      = var.iam_policy_json
-  tags = merge(data.pf_aws_tags.tags.tags, {
+  tags = merge(local.iam_tags, {
     description = "Provides IAM permissions for ${var.service_account_namespace}/${var.service_account} in ${local.cluster_name}."
   })
 }
@@ -104,14 +105,14 @@ resource "aws_iam_role" "service_account" {
   name_prefix        = "${substr(var.service_account, 0, 37)}-"
   description        = "IAM role for ${var.service_account_namespace}/${var.service_account} in ${local.cluster_name}."
   assume_role_policy = data.aws_iam_policy_document.service_account_assume.json
-  tags = merge(data.pf_aws_tags.tags.tags, {
+  tags = merge(local.iam_tags, {
     description = "IAM role for ${var.service_account_namespace}/${var.service_account} in ${local.cluster_name}."
   })
   max_session_duration = 43200
   lifecycle {
     precondition {
-      condition     = (var.oidc_provider_arn == null) == (var.oidc_issuer_url == null)
-      error_message = "Provide oidc_provider_arn and oidc_issuer_url together, or leave both null for EKS discovery."
+      condition     = local.custom_oidc_requested ? var.oidc_provider_arn != null && var.oidc_issuer_url != null : true
+      error_message = "Provide both oidc_provider_arn and oidc_issuer_url for custom OIDC, or omit both for EKS discovery."
     }
     precondition {
       condition     = local.custom_oidc_requested && var.oidc_provider_arn != null ? endswith(var.oidc_provider_arn, ":oidc-provider/${local.kube_oidc_provider}") && split(":", var.oidc_provider_arn)[4] == data.aws_caller_identity.main.account_id : true
@@ -229,7 +230,7 @@ resource "aws_iam_policy" "ip_blocks" {
   name_prefix = "${substr(var.service_account, 0, 26)}-ip-blocks-"
   description = "Restricts ${var.service_account_namespace}/${var.service_account} in ${local.cluster_name} to cluster IPs."
   policy      = data.aws_iam_policy_document.ip_blocks[0].json
-  tags = merge(data.pf_aws_tags.tags.tags, {
+  tags = merge(local.iam_tags, {
     description = "Restricts ${var.service_account_namespace}/${var.service_account} in ${local.cluster_name} to cluster IPs."
   })
 }

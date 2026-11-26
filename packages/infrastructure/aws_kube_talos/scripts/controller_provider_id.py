@@ -67,6 +67,8 @@ def main():
         "kubectl", "--kubeconfig=/dev/stdin", "--request-timeout=10s",
         f"--server={os.environ['KUBE_API_SERVER']}",
     ]
+    if tls_name := os.environ.get("KUBE_TLS_SERVER_NAME"):
+        command.append(f"--tls-server-name={tls_name}")
 
     def kubectl(*args):
         return subprocess.run(

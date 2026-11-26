@@ -7,6 +7,18 @@ mock_provider "aws" {
   mock_data "aws_caller_identity" { defaults = { account_id = "123456789012" } }
   mock_data "aws_partition" { defaults = { partition = "aws", dns_suffix = "amazonaws.com" } }
   mock_data "aws_region" { defaults = { region = "us-east-2", name = "us-east-2" } }
+  mock_resource "aws_s3_bucket" {
+    defaults = { bucket_regional_domain_name = "test-oidc.s3.us-east-2.amazonaws.com" }
+  }
+  mock_resource "aws_iam_openid_connect_provider" {
+    defaults = { arn = "arn:aws:iam::123456789012:oidc-provider/test-oidc.s3.us-east-2.amazonaws.com" }
+  }
+  mock_resource "aws_iam_policy" {
+    defaults = { arn = "arn:aws:iam::123456789012:policy/test" }
+  }
+  mock_resource "aws_iam_role" {
+    defaults = { arn = "arn:aws:iam::123456789012:role/test" }
+  }
   mock_data "aws_ec2_instance_type" {
     defaults = { supported_architectures = ["arm64"] }
   }
@@ -18,6 +30,12 @@ mock_provider "external" {
   }
 }
 mock_provider "pf" {}
+mock_provider "helm" {
+  alias = "ccm"
+}
+mock_provider "kubernetes" {
+  alias = "ccm"
+}
 
 override_resource {
   target = aws_launch_template.worker
@@ -52,6 +70,83 @@ variables {
     trustdinfo = { token = "x" }
   }
   client_configuration = { ca_certificate = "x", client_certificate = "x", client_key = "x" }
+}
+
+run "ccm_omitted_preserves_original_plan" {
+  command = plan
+
+  assert {
+    condition     = length(module.aws_ccm) == 0 && length(terraform_data.aws_ccm_api) == 0 && length(terraform_data.aws_ccm_ready) == 0
+    error_message = "Omitting aws_ccm must leave ownership and API checks disabled."
+  }
+}
+
+run "ccm_plans_for_fresh_ssm" {
+  command = plan
+  variables {
+    aws_node_config_enabled         = true
+    aws_ccm                         = { image_version = "v1.36.1", operator_kube_port = 26443 }
+    private_api_dns_name            = "api.test.internal"
+    talos_access_transport          = "ssm"
+    control_plane_public_ip_enabled = false
+  }
+
+  assert {
+    condition     = length(module.aws_ccm) == 1 && length(terraform_data.aws_ccm_api) == 1 && length(terraform_data.aws_ccm_ready) == 1
+    error_message = "CCM ownership and bootstrap checks must plan before OIDC outputs exist."
+  }
+
+  assert {
+    condition     = length(terraform_data.controller_provider_id) == 1
+    error_message = "Integrated CCM must set the controller provider ID through the Kubernetes forward."
+  }
+
+  assert {
+    condition     = local.ccm_api_server == "https://127.0.0.1:26443" && local.ccm_tls_server_name == "api.test.internal"
+    error_message = "Providers must use the SSM listener and verify the private API name."
+  }
+}
+
+run "ccm_uses_custom_legacy_ssm_ports" {
+  command = plan
+
+  variables {
+    aws_node_config_enabled = true
+    aws_ccm                 = { image_version = "v1.36.1", operator_kube_port = 26443 }
+    talos_api_endpoint      = "127.0.0.1:55000"
+  }
+
+  assert {
+    condition     = local.ccm_api_server == "https://127.0.0.1:26443" && length(terraform_data.controller_provider_id) == 1
+    error_message = "Legacy callers using a custom local Talos port must use the Kubernetes forward."
+  }
+}
+
+run "ccm_adoption_uses_existing_pod_network" {
+  command = plan
+  variables {
+    aws_node_config_enabled = true
+    aws_ccm = {
+      image_version   = "v1.36.1"
+      host_networking = false
+      subnet_id       = "subnet-00000000000000000"
+    }
+  }
+
+  assert {
+    condition     = length(module.aws_ccm) == 1 && length(terraform_data.aws_ccm_api) == 0 && length(terraform_data.aws_ccm_ready) == 0
+    error_message = "Adopting a legacy release must avoid host-network bootstrap changes."
+  }
+}
+
+run "ccm_rejects_unmatched_image_minor" {
+  command = plan
+  variables {
+    aws_node_config_enabled = true
+    aws_ccm                 = { image_version = "v1.35.1" }
+    kube_version            = "1.36.5"
+  }
+  expect_failures = [var.aws_ccm]
 }
 
 run "reject_x86_worker" {

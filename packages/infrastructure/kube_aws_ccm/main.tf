@@ -21,6 +21,9 @@ module "aws_permissions" {
   annotate_service_account  = false
   oidc_provider_arn         = var.oidc_provider_arn
   oidc_issuer_url           = var.oidc_issuer_url
+  custom_oidc_enabled       = var.custom_oidc_enabled
+  cluster_name              = var.custom_oidc_enabled ? var.cluster_name : null
+  iam_tags                  = var.iam_tags
   ip_restrictions_enabled   = var.ip_restrictions_enabled
   cluster_subnet_ids        = var.cluster_subnet_ids
   # Node metadata only; no load balancer, route or EC2 mutation permissions.
@@ -42,6 +45,12 @@ resource "kubernetes_config_map_v1" "cloud" {
   # Explicit topology avoids the need for access to instance metadata credentials.
   data = {
     "cloud.conf" = "[Global]\nRegion=${var.region}\nZone=${var.availability_zone}\nVPC=${var.vpc_id}\nSubnetID=${var.subnet_id}\nKubernetesClusterID=${var.cluster_name}\n"
+  }
+  lifecycle {
+    precondition {
+      condition     = var.api_ready
+      error_message = "The Kubernetes API must be ready before creating the CCM configuration."
+    }
   }
 }
 
@@ -80,6 +89,9 @@ resource "helm_release" "ccm" {
       ], var.talos_bootstrap_enabled ? [
       { name = "AWS_ROLE_ARN", value = module.aws_permissions.role_arn },
       { name = "AWS_WEB_IDENTITY_TOKEN_FILE", value = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token" }
+      ] : [], var.talos_host_networking ? [
+      { name = "KUBERNETES_SERVICE_HOST", value = "127.0.0.1" },
+      { name = "KUBERNETES_SERVICE_PORT", value = "7445" }
     ] : [])
     resources = {
       requests = { cpu = "50m", memory = "128Mi" }
@@ -92,12 +104,18 @@ resource "helm_release" "ccm" {
       { name = "aws-web-identity", mountPath = "/var/run/secrets/eks.amazonaws.com/serviceaccount", readOnly = true }
     ] : [])
     }, var.talos_bootstrap_enabled ? {
-    tolerations = [
+    tolerations = concat([
       { key = "node.cloudprovider.kubernetes.io/uninitialized", value = "true", effect = "NoSchedule" },
+      ], var.talos_host_networking ? [
+      { key = "node.kubernetes.io/not-ready", operator = "Exists", effect = "NoSchedule" },
+      ] : [], [
       { key = "node-role.kubernetes.io/master", effect = "NoSchedule" },
       { key = "node-role.kubernetes.io/control-plane", effect = "NoSchedule" },
       { key = "controller", operator = "Equal", value = "true", effect = "NoSchedule" }
-    ]
-  } : {})), yamlencode({ serviceAccount = { annotations = module.aws_permissions.service_account_annotations } })]
-  depends_on = [kubernetes_config_map_v1.cloud]
+    ])
+    } : {},
+    var.talos_host_networking ? { hostNetworking = true } : {},
+    var.talos_host_networking ? { dnsPolicy = "Default" } : {},
+  yamldecode(var.helm_values))), yamlencode({ serviceAccount = { annotations = module.aws_permissions.service_account_annotations } })]
+  depends_on = [kubernetes_config_map_v1.cloud, module.aws_permissions]
 }

@@ -8,7 +8,8 @@ in the controller VPC whose Name matches --tunnel-name-pattern, or one of the
 --target instance IDs. --bootstrap instead forwards only the Talos port to a
 controller that may still be pending, for the first apply of a new cluster
 (needs aws and the plugin only); with --background it detaches and exits with its
-parent process, for a terragrunt before_hook. A talosconfig (endpoint 127.0.0.1:<talos-port>,
+parent process, for a Terragrunt before_hook. Add --bootstrap-kubernetes when
+the same apply manages Kubernetes resources. A talosconfig (endpoint 127.0.0.1:<talos-port>,
 node = controller private IP) is written next to the kubeconfig; the Talos API
 certificate carries SAN 127.0.0.1, so it verifies without --insecure.
 """
@@ -299,18 +300,18 @@ class Access:
                 return target, private_ip
         raise AccessError("All SSM Online NAT candidates failed to establish both forwards")
 
-    def wait_for_talos_forward(self):
+    def wait_for_listener(self, port):
         deadline = time.monotonic() + self.args.ready_timeout
         while time.monotonic() < deadline:
             if any(process.poll() is not None for process, _ in self.sessions):
                 raise AccessError("SSM forwarding process exited during startup")
             try:
                 # The controller may still be booting: a TCP accept is the only possible check.
-                with socket.create_connection(("127.0.0.1", self.args.talos_port), timeout=1):
+                with socket.create_connection(("127.0.0.1", port), timeout=1):
                     return
             except OSError:
                 time.sleep(0.2)
-        raise AccessError("Timed out waiting for the Talos forward to accept connections")
+        raise AccessError(f"Timed out waiting for the forward on port {port} to accept connections")
 
 
 def private_write(path, content):
@@ -427,17 +428,17 @@ def wait_for_controller(args, access):
             nap(args, min(5, remaining))
 
 
-def forward_talos(args, access, candidates, private_ip, directory):
+def bootstrap_forward(access, candidates, private_ip, directory, local_port, remote_port):
     for target in candidates:
         access.targets.add(target)
         try:
-            access.forward(target, private_ip, directory, args.talos_port, 50000)
-            access.wait_for_talos_forward()
+            access.forward(target, private_ip, directory, local_port, remote_port)
+            access.wait_for_listener(local_port)
             return target
         except AccessError as exc:
             print(f"Tunnel host {target}: {exc}; trying next Online tunnel host", file=sys.stderr)
             access.close_forwards()
-    raise AccessError("All SSM Online tunnel hosts failed to establish the Talos forward")
+    raise AccessError(f"All SSM Online tunnel hosts failed to establish the forward on port {local_port}")
 
 
 def bootstrap(args, access):
@@ -445,7 +446,7 @@ def bootstrap(args, access):
     private_ip, candidates = wait_for_controller(args, access)
     require_free_port(args.talos_port)
     with tempfile.TemporaryDirectory(prefix="cluster-access-") as directory:
-        target = forward_talos(args, access, candidates, private_ip, Path(directory))
+        target = bootstrap_forward(access, candidates, private_ip, Path(directory), args.talos_port, 50000)
         print(f"Controller private IP: {private_ip}")
         print(f"NAT target: {target}")
         print(f'talos_api_endpoint = "127.0.0.1:{args.talos_port}"')
@@ -464,6 +465,7 @@ def bootstrap(args, access):
 
 def background_run(args, access, initial, ready):
     failures = 0
+    kube = type(access)(args) if args.bootstrap_kubernetes else None
     with tempfile.TemporaryDirectory(prefix="cluster-access-") as directory:
         try:
             # A first apply must be able to create the controller and the SSM host.
@@ -474,15 +476,30 @@ def background_run(args, access, initial, ready):
                 try:
                     private_ip, candidates = initial or wait_for_controller(args, access)
                     require_free_port(args.talos_port)
-                    target = forward_talos(args, access, candidates, private_ip, Path(directory))
+                    target = bootstrap_forward(access, candidates, private_ip, Path(directory), args.talos_port, 50000)
                     started = time.monotonic()
                     print(f"Forwarding Talos to {private_ip} through {target}", flush=True)
+                    if kube is not None:
+                        kube_targets = [target, *(candidate for candidate in candidates if candidate != target)]
+                        require_free_port(args.kube_port)
+                        bootstrap_forward(kube, kube_targets, private_ip, Path(directory), args.kube_port, 6443)
                     if initial is not None:
                         ready()
                         initial = None
+                    kube_retry = 0
                     while all(process.poll() is None for process, _ in access.sessions):
+                        if kube is not None and time.monotonic() >= kube_retry and (
+                            not kube.sessions or any(process.poll() is not None for process, _ in kube.sessions)
+                        ):
+                            kube.close_forwards()
+                            try:
+                                require_free_port(args.kube_port)
+                                bootstrap_forward(kube, kube_targets, private_ip, Path(directory), args.kube_port, 6443)
+                            except AccessError as exc:
+                                print(f"cluster-access: {exc}; will retry Kubernetes forwarding", file=sys.stderr)
+                                kube_retry = time.monotonic() + 5
                         nap(args, 0.5)
-                    raise AccessError("The SSM forward exited")
+                    raise AccessError("The Talos forward exited")
                 except WaitTimeout as exc:
                     # A plan of a cluster that does not exist yet needs no Talos tunnel.
                     print(f"cluster-access: {exc}", file=sys.stderr, flush=True)
@@ -491,6 +508,8 @@ def background_run(args, access, initial, ready):
                     if initial is not None:
                         raise
                     print(f"cluster-access: {exc}", file=sys.stderr, flush=True)
+                    if kube is not None:
+                        kube.close_forwards()
                     access.close_forwards()
                     if started is not None and time.monotonic() - started > 60:
                         failures = 0
@@ -502,6 +521,8 @@ def background_run(args, access, initial, ready):
         finally:
             for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
                 signal.signal(signum, signal.SIG_IGN)
+            if kube is not None:
+                kube.close_forwards()
             access.close_forwards()
 
 
@@ -528,7 +549,8 @@ def run_detached(args, access, parent, directory, write_fd, initial):
         pending = record.with_suffix(".tmp")
         pending.unlink(missing_ok=True)
         private_write(pending, json.dumps(
-            {"pid": os.getpid(), "parent": parent, "talos_port": args.talos_port}).encode())
+            {"pid": os.getpid(), "parent": parent, "talos_port": args.talos_port,
+             "kube_port": args.kube_port if args.bootstrap_kubernetes else None}).encode())
         pending.replace(record)
         def ready():
             os.write(write_fd, str(os.getpid()).encode())
@@ -549,7 +571,7 @@ def run_detached(args, access, parent, directory, write_fd, initial):
 
 
 def background(args, access):
-    """Start the Talos-only forward detached from a terragrunt before_hook; return fast."""
+    """Start bootstrap forwards that live as long as the Terragrunt process."""
     directory = args.state_dir
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     parent = os.getppid()
@@ -564,11 +586,11 @@ def background(args, access):
             print(f"reusing live tunnel for {args.cluster} on 127.0.0.1:{port}")
             return 0
         previous = read_state(directory / "bootstrap.json")
-        if (isinstance(previous, dict) and previous.get("talos_port") == port
-                and alive(previous.get("pid"))):
+        if (isinstance(previous, dict) and alive(previous.get("pid"))
+                and (previous.get("talos_port") == port or previous.get("kube_port") or args.bootstrap_kubernetes)):
             if alive(previous.get("parent")):
-                if args.terragrunt_hook:
-                    raise AccessError(f"Local Talos port {port} is reserved by another tunnel helper")
+                if args.terragrunt_hook or previous.get("kube_port"):
+                    raise AccessError(f"Another bootstrap tunnel helper is active in {directory}")
                 print(f"reusing background helper {previous['pid']} for {args.cluster} on 127.0.0.1:{port}")
                 return 0
             # Its parent is gone, so it is closing its forward; wait for the port to free up.
@@ -576,6 +598,8 @@ def background(args, access):
             while alive(previous["pid"]) and time.monotonic() < deadline:
                 time.sleep(0.2)
         require_free_port(port)
+        if args.bootstrap_kubernetes:
+            require_free_port(args.kube_port)
         initial = None
         if args.terragrunt_hook:
             # An existing cluster may need its API during the first provider refresh.
@@ -984,6 +1008,8 @@ def main():
                         help="kubectl exec plugin: ensure the tunnel, print an ExecCredential")
     parser.add_argument("--bootstrap", action="store_true",
                         help="wait for a pending or running controller and forward only its Talos port")
+    parser.add_argument("--bootstrap-kubernetes", action="store_true",
+                        help="also forward the Kubernetes API during a background bootstrap apply")
     parser.add_argument("--wait", type=float, default=900,
                         help="--bootstrap: seconds to wait for the controller (default: 900)")
     parser.add_argument("--background", action="store_true",
@@ -996,12 +1022,16 @@ def main():
     parser.add_argument("--idle-check-interval", type=float, help=argparse.SUPPRESS)
     parser.add_argument("--ready-file", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()  # --help exits before credentials, AWS or tool discovery.
-    args.terragrunt_hook = False
+    args.terragrunt_hook = args.bootstrap_kubernetes
     args.report = print
     args.parent = None
     if args.background and not args.bootstrap:
         print("cluster-access: --background requires --bootstrap", file=sys.stderr)
         return 1
+    if args.bootstrap_kubernetes:
+        if not args.background or args.kube_port == args.talos_port:
+            parser.error("--bootstrap-kubernetes needs --bootstrap --background and distinct local ports")
+        args.control_plane_name = args.control_plane_name or f"{args.cluster}-control-plane-0"
     if args.exec_credential and args.ensure:
         print("cluster-access: --exec-credential excludes --ensure", file=sys.stderr)
         return 1

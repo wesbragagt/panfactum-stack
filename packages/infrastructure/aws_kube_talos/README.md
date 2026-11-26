@@ -137,7 +137,7 @@ This module replaces `aws_eks`. It needs Talos-only setup before the apply.
 
    ```hcl
    terraform {
-     source = "${get_repo_root()}/<module>"
+     source = "${get_repo_root()}//<module>"
 
      before_hook "talos_tunnel" {
        commands = ["plan", "apply", "destroy"]
@@ -184,6 +184,44 @@ This module replaces `aws_eks`. It needs Talos-only setup before the apply.
    Fix every `FAIL` line before you continue. The preflight finds existing SSM hosts by `Name = nat-*`. Pass `--tunnel-name-pattern` if yours is named differently. It skips the host check before the first apply, because the controller does not exist yet and the module's jump host does not either.
 
 4. Run `pf-tf-init` and `terragrunt apply` in `<caller>`. The module launches the controllers, bootstraps etcd and starts the workers. The Talos provider keeps retrying until the forward connects.
+
+#### AWS cloud controller manager
+
+Set `aws_node_config_enabled = true` and `aws_ccm = { image_version = "v1.36.1" }`
+for Kubernetes 1.36. Pin an image with the same Kubernetes major and minor.
+Omit `aws_ccm` to retain standalone CCM ownership. In a Terragrunt source,
+keep `//` between the checkout root and module path so Terragrunt can load
+sibling modules. The cluster derives the CCM
+region, VPC, bootstrap subnet and availability zone. It uses the same OIDC
+issuer and a projected STS token. The CCM pod uses host DNS and KubePrism on
+`127.0.0.1:7445` before Cilium is installed.
+
+For SSM, add `--bootstrap-kubernetes` to the `before_hook` above. Set
+`--control-plane-name` to the bootstrap controller if it is not position
+zero. Keep the hook on `plan`, `apply` and `destroy`. If you use
+`scripts/operator_tunnel.py bootstrap` with fixed SSM documents, pass the
+same flag and use the bootstrap controller's private IP for its forwarding
+documents. Both scripts have separate local Talos and Kubernetes ports.
+If you change `--kube-port`, match it with `aws_ccm.operator_kube_port`.
+
+Use `terragrunt plan` and `terragrunt apply` on the Talos unit. Both providers
+use the authenticated operator API endpoint. For SSM the helper forwards to
+the controller's private IP while the providers verify the API certificate
+name. The bootstrap helper exits with Terragrunt. On failure, inspect
+`bootstrap.log` and rerun the Talos unit. OpenTofu records completed resources,
+including the Helm release. A successful apply checks a CCM leader, the
+bootstrap controller's AWS provider ID, and removal of its cloud initialization
+taint. Run Cilium after the Talos apply succeeds. Keep the API available through
+CCM removal.
+
+Include this module's `terragrunt.providers.hcl` when your caller inherits
+the shared provider templates. OpenTofu adds Helm to the lockfile during
+init and the shared template can generate Helm 2-style `helm.tf` on later
+runs, including when `aws_ccm` is omitted. The include updates the generated
+file for Helm 3. Use the same module revision for the source and this include.
+
+See [adopting an existing CCM release](CCM-ADOPTION.md) before enabling the
+input on a cluster whose CCM already has standalone state.
 
 #### SSM jump host
 

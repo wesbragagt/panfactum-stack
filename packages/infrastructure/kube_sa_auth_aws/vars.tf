@@ -3,6 +3,25 @@ variable "service_account" {
   type        = string
 }
 
+variable "custom_oidc_enabled" {
+  description = "Select custom OIDC at plan time when the provider ARN and issuer URL are created in the same plan."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "cluster_name" {
+  description = "Explicit Kubernetes cluster name. Defaults to Panfactum kubeconfig metadata."
+  type        = string
+  default     = null
+}
+
+variable "iam_tags" {
+  description = "Existing IAM base tags to preserve during state adoption. Defaults to Panfactum AWS tags."
+  type        = map(string)
+  default     = null
+}
+
 variable "service_account_namespace" {
   description = "The namespace of the service account."
   type        = string

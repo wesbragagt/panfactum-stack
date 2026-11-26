@@ -24,6 +24,7 @@ class OIDCTests(unittest.TestCase):
             "data.aws_caller_identity.main.account_id": "local.mock_account",
             "data.aws_subnet.cluster_subnet_info": "local.mock_subnets",
             "data.pf_metadata.metadata.kube_cluster_name": "local.mock_cluster",
+            "data.pf_aws_tags.tags.tags": "{}",
         }
         for old, new in replacements.items():
             body = body.replace(old, new)
@@ -68,6 +69,11 @@ class OIDCTests(unittest.TestCase):
 
     def test_partial_custom_input_rejected_without_eks_lookup(self):
         result = self.evaluate(oidc_provider_arn="arn:aws:iam::111122223333:oidc-provider/issuer.example")
+        self.assertEqual(result["eks"], 0)
+        self.assertFalse(result["checks"][0])
+
+    def test_custom_oidc_mode_requires_credentials_without_eks_lookup(self):
+        result = self.evaluate(custom_oidc_enabled=True)
         self.assertEqual(result["eks"], 0)
         self.assertFalse(result["checks"][0])
 

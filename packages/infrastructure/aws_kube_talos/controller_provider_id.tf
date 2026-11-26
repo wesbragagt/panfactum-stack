@@ -1,6 +1,7 @@
 resource "terraform_data" "controller_provider_id" {
   count = var.aws_node_config_enabled && (
     var.controller_provider_id_kube_api_server != null ||
+    (local.ccm_host_networking && local.ccm_ssm) ||
     contains(["vpn", "bootstrap_public"], var.talos_access_transport) ||
     var.talos_api_endpoint == null
   ) ? local.control_plane_node_count : 0
@@ -20,10 +21,12 @@ resource "terraform_data" "controller_provider_id" {
       KUBECONFIG_RAW      = talos_cluster_kubeconfig.this.kubeconfig_raw
       KUBE_API_SERVER = coalesce(
         var.controller_provider_id_kube_api_server,
+        local.ccm_host_networking && local.ccm_ssm ? local.ccm_api_server : null,
         var.talos_access_transport == "bootstrap_public" ? "https://${local.bootstrap_public_host}:6443" :
         var.talos_api_endpoint == null ? "https://${local.public_ip}:6443" :
         local.cluster_endpoint,
       )
+      KUBE_TLS_SERVER_NAME = var.controller_provider_id_kube_api_server == null && local.ccm_host_networking && local.ccm_ssm ? local.ccm_tls_server_name : ""
     }
   }
 }

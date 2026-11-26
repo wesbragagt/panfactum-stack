@@ -94,6 +94,24 @@ class CCMValuesTests(unittest.TestCase):
         self.assertEqual(values["extraVolumeMounts"], [{"name": "cloud-config", "mountPath": "/etc/aws", "readOnly": True}])
         self.assertEqual(service_account, {"serviceAccount": {"annotations": ROLE_ANNOTATION}})
 
+    def test_fresh_talos_uses_kubeprism_on_the_host_network(self):
+        values, _ = self.evaluate(talos_bootstrap_enabled=True, talos_host_networking=True, image_version="v1.36.1")
+        self.assertTrue(values["hostNetworking"])
+        self.assertEqual(values["dnsPolicy"], "Default")
+        env = {entry["name"]: entry["value"] for entry in values["env"]}
+        self.assertEqual(env["KUBERNETES_SERVICE_HOST"], "127.0.0.1")
+        self.assertEqual(env["KUBERNETES_SERVICE_PORT"], "7445")
+        self.assertIn({"key": "node.kubernetes.io/not-ready", "operator": "Exists", "effect": "NoSchedule"},
+                      values["tolerations"])
+
+    def test_adoption_override_changes_only_the_overridden_values(self):
+        original, annotations = self.evaluate(talos_bootstrap_enabled=True, image_version="v1.36.1")
+        tolerations = original["tolerations"]
+        tolerations.insert(1, {"key": "node.kubernetes.io/not-ready", "operator": "Exists", "effect": "NoSchedule"})
+        self.assertEqual(self.evaluate(talos_bootstrap_enabled=True, image_version="v1.36.1",
+                                       helm_values=json.dumps({"tolerations": tolerations})),
+                         [original, annotations])
+
 
 if __name__ == "__main__":
     unittest.main()
