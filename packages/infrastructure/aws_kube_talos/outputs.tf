@@ -56,11 +56,6 @@ output "control_plane_private_ips" {
   value       = aws_instance.control_plane[*].private_ip
 }
 
-output "worker_autoscaling_group_name" {
-  description = "Auto Scaling group maintaining the desired Spot worker count, or null when worker_count is 0."
-  value       = one(aws_autoscaling_group.worker[*].name)
-}
-
 output "talosconfig" {
   description = "talosctl client configuration."
   value       = data.talos_client_configuration.this.talos_config
@@ -86,12 +81,6 @@ output "etcd_backup_kms_key_arn" {
 output "etcd_backup_cronjob_manifest" {
   description = "CronJob YAML for Kubernetes-stage reconciliation after bootstrap. Contains Secret references, not credential values."
   value       = yamlencode(one([for manifest in local.backup_manifests : manifest if manifest.kind == "CronJob"]))
-}
-
-output "worker_machine_configuration" {
-  description = "Legacy worker-only machine configuration with caller patches. Contains join credentials. New Karpenter deployments use node_bootstrap."
-  value       = data.talos_machine_configuration.worker.machine_configuration
-  sensitive   = true
 }
 
 output "node_bootstrap" {

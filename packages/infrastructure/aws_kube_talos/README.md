@@ -1,6 +1,6 @@
 # Talos on AWS
 
-This module runs a Talos Linux Kubernetes cluster on EC2. Controllers and workers sit in private subnets with no public addresses. etcd is backed up to S3, and OIDC discovery for service-account tokens is published in a public S3 bucket. Operators reach the Kubernetes and Talos APIs through an AWS SSM port forward, so no API is exposed to the internet by default.
+This module runs a Talos Linux control plane on EC2. Karpenter launches workers in private subnets. etcd is backed up to S3, and OIDC discovery for service-account tokens is published in a public S3 bucket. Operators reach the Kubernetes and Talos APIs through an AWS SSM port forward, so no API is exposed to the internet by default.
 
 ## Components
 
@@ -10,12 +10,11 @@ flowchart LR
   subgraph aws["AWS VPC, private subnets A/B/C"]
     dns["Route53 private zone<br/>api.&lt;cluster&gt;.internal<br/>A records of controller IPs"]
     cp["Controllers<br/>1, 3 or 5 on-demand EC2<br/>fixed IPs, one per AZ<br/>API server + etcd on EBS"]
-    wk["Worker ASGs<br/>Spot + on-demand<br/>until Karpenter takes over"]
+    wk["Karpenter workers<br/>Spot or on-demand"]
     dns --> cp
     wk -->|KubePrism| cp
   end
   cfg["Talos machine config<br/>user data: base, SANs, OIDC issuer<br/>Talos API push: etcd backup patches"] --> cp
-  cfg --> wk
   cp -->|hourly etcd snapshot<br/>KMS-encrypted| bkp["S3 etcd backup bucket"]
   cp -->|signs service-account tokens| oidc["S3 OIDC bucket<br/>discovery + JWKS<br/>IAM OIDC provider for IRSA"]
 ```
@@ -24,7 +23,7 @@ flowchart LR
 |---|---|
 | Controllers (`aws_instance.control_plane`) | Run the Kubernetes API and etcd. Long-lived, never Spot; resize in place, replace by hand (see "Controller runbook"). |
 | Private API name (`aws_route53_record.private_api`) | One stable name for the API; clients try each controller IP. |
-| Worker ASGs (`aws_autoscaling_group.worker`, `worker_on_demand`) | Bootstrap capacity for the first pods, since controllers carry the `controller=true:NoSchedule` taint. |
+| Worker bootstrap (`node_bootstrap`, `talos_ami_id`) | Supply the cluster connection and image to Karpenter. |
 | Talos config (`talos_machine_configuration`, `_apply`, `_bootstrap`) | User data boots each node; the apply pushes patches too large for the 16 KB user data limit; bootstrap starts etcd once. |
 | etcd backups (`backup.tf`) | Hourly KMS-encrypted snapshots to S3, plus a snapshot before any new controller joins. |
 | OIDC (`oidc.tf`) | Public discovery documents so AWS IAM trusts service-account tokens (IRSA). |
@@ -248,16 +247,14 @@ Pick a starting size, then scale with the controller runbook. Every case keeps c
 
 | Use case | Inputs | Result |
 |---|---|---|
-| Bootstrap (cheapest start, no HA) | `control_plane_count = 1`, `worker_count = 1` | 1 controller, 1 worker. Losing the controller stops the API until it is replaced or restored from S3. |
+| Bootstrap with one controller | `control_plane_count = 1` | Karpenter adds workers as needed. Losing the controller stops the API until it is replaced or restored from S3. |
 | Upscale to HA | `control_plane_count = 3` (or 5) | 1 controller per AZ. etcd survives 1 lost controller (2 with 5). |
 | Upscale a controller's size | one `control_plane_instance_types` entry larger | In-place stop/start of that controller, about 2 to 2.5 minutes. |
 | Downscale | `control_plane_count` 5 to 3 to 1, or one type smaller | Fewer or smaller controllers. Each removed controller leaves etcd before its instance is destroyed; the plan fails while one is still a member. |
 
-Bootstrap mode. There is no `bootstrap_mode_enabled` input. A new cluster is in bootstrap mode while it runs only what this module creates:
+Controllers carry the `controller=true:NoSchedule` taint. Install Cilium, CoreDNS, and Karpenter on controllers that tolerate this taint. Workloads that require workers wait for Karpenter to launch them.
 
-1. Controllers carry the `controller=true:NoSchedule` taint from the first boot. Pods that do not tolerate it, such as the guide's test pods, run on the module's worker Auto Scaling groups (`worker_count`, default 1).
-2. Panfactum services that tolerate the taint, such as Cilium, CoreDNS and Karpenter, can run on controllers.
-3. Bootstrap mode ends when Karpenter's node pools launch workers. Then lower `worker_count` (or remove the worker groups) and let Karpenter run the rest.
+Before you upgrade from a revision that managed worker groups, provision replacement workers with Karpenter. Drain the old workers. Use the old revision to review and remove both worker groups and their launch templates. On upgrade, Talos releases any remaining worker bindings from state while the AWS resources continue to exist.
 
 Upscale. To start small and reach HA:
 
@@ -435,10 +432,10 @@ If the first apply cannot reach Talos, target what the first call needs, then ru
 ## Configuration notes
 
 - Networking: `cilium_enabled = true` (default) disables Flannel and kube-proxy. Set `cilium_enabled = false` and `core_dns_enabled = true` only to use the Talos-managed networking and DNS.
-- AWS integration: Talos configures the controller kubelet for the integrated AWS CCM and applies `pod_subnets` and `service_subnets`. Existing callers can keep `aws_node_config_enabled` for the legacy worker Auto Scaling configuration.
+- AWS integration: Talos configures the controller kubelet for the integrated AWS CCM and applies `pod_subnets` and `service_subnets`.
 - Controllers: `control_plane_count` is 1, 3 or 5; above 1 needs `private_api_dns_name`. State is keyed by position in `control_plane_subnets`, so names must be unique and the list is append-only. Growing from 1 to 3 controllers appends two subnets; see "Controller runbook". Reordering or removing an entry replaces nodes. `bootstrap_control_plane`, a subnet name that defaults to the first entry, selects the controller that runs `talos_machine_bootstrap` and serves the kubeconfig.
 - Controller class: controllers get the label `panfactum.com/class=controller` and the taint `controller=true:NoSchedule`, the same as `aws_eks`. Only pods that tolerate that taint run there: Panfactum cluster services such as Karpenter, Cilium, CoreDNS, cert-manager, Kyverno and Vault. Karpenter also selects `panfactum.com/class=controller`, so it needs at least one controller in this class. `control_plane_workloads_enabled` defaults to `true`. Setting it to `false` keeps the default Talos control-plane taint and drops the label.
-- Worker identity: Karpenter manages the role and profile. Transfer the existing worker role, instance profile, and inline policies into Karpenter state before you apply. Use the Talos `cluster` and `node_bootstrap` outputs for new Karpenter callers. The legacy worker YAML output and explicit ASGs remain available for existing callers.
+- Worker identity: Karpenter manages the role and profile. Transfer the existing worker role, instance profile, and inline policies into Karpenter state before you apply. Use the Talos `cluster` and `node_bootstrap` outputs for new Karpenter callers.
 - Controller identity settings: `controller_identity` accepts `name_prefix`, `ecr_cache_prefixes`, `controller_instance_profile_enabled`, and `controller_additional_ecr_repositories`. Cache prefixes and exact controller repository reads are opt-in.
 - Controller identity: `controller_identity.controller_instance_profile_enabled` creates and attaches a controller profile. An explicit `controller_instance_profile` takes precedence. `worker_identity` remains a compatibility alias for controller settings.
 - Images: pass `ami_id` and the matching `installer_image` for a custom Talos factory image.

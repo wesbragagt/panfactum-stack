@@ -31,12 +31,6 @@ variable "bootstrap_control_plane" {
   default     = null
 }
 
-variable "worker_subnets" {
-  description = "Subnet names (Name tag) for the worker nodes. PRIVATE subnets need a NAT route for outbound access; PUBLIC subnets also need worker_public_ip_enabled."
-  type        = list(string)
-  default     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-}
-
 variable "control_plane_count" {
   description = "Number of on-demand control plane nodes, placed in control_plane_subnets order. Above 1 requires private_api_dns_name so nodes do not depend on one controller's address."
   type        = number
@@ -83,30 +77,6 @@ variable "control_plane_workloads_enabled" {
   description = "Whether controllers join the Panfactum controller class: they get the panfactum.com/class=controller label, lose the default control-plane taint and get the controller=true:NoSchedule taint. When false, controllers keep the default Talos control-plane taint and no class label."
   type        = bool
   default     = true
-}
-
-variable "worker_count" {
-  description = "Number of Spot worker nodes in the worker ASG. 0 creates no Spot ASG, for clusters where Karpenter launches every worker."
-  type        = number
-  default     = 0
-}
-
-variable "worker_instance_type" {
-  description = "EC2 instance type for worker nodes. T2 types are not supported by Talos."
-  type        = string
-  default     = "t4g.medium"
-}
-
-variable "worker_instance_types" {
-  description = "Optional Spot instance types for workers, tried by price and capacity. Overrides worker_instance_type when set."
-  type        = list(string)
-  default     = []
-}
-
-variable "on_demand_worker_subnets" {
-  description = "Optional subnet names (Name tag) that each get one on-demand worker, in a separate ASG from the Spot workers. Remove these subnets from worker_subnets to keep Spot out of those zones."
-  type        = list(string)
-  default     = []
 }
 
 variable "root_volume_size_gb" {
@@ -285,12 +255,6 @@ variable "control_plane_config_patches" {
   default     = []
 }
 
-variable "worker_config_patches" {
-  description = "Additional Talos configuration patches for workers."
-  type        = list(string)
-  default     = []
-}
-
 variable "secrets_bundle" {
   description = "Decrypted talosctl secrets bundle, including clientconfig. Keep the source SOPS-encrypted."
   type        = any
@@ -322,12 +286,6 @@ variable "service_subnets" {
   default     = ["10.96.0.0/12"]
 }
 
-variable "aws_node_config_enabled" {
-  description = "Preserve the AWS launch configuration of explicitly managed legacy worker groups. Karpenter workers and controllers use AWS configuration automatically."
-  type        = bool
-  default     = false
-}
-
 variable "controller_provider_id_kube_api_server" {
   description = "Optional HTTPS Kubernetes API URL for setting AWS controller provider IDs. VPN and public access derive the URL automatically. For SSM, keep a Kubernetes forward running and set its loopback URL to enable provider ID reconciliation."
   type        = string
@@ -337,30 +295,6 @@ variable "controller_provider_id_kube_api_server" {
     condition     = var.controller_provider_id_kube_api_server == null ? true : startswith(var.controller_provider_id_kube_api_server, "https://")
     error_message = "controller_provider_id_kube_api_server must be an HTTPS URL."
   }
-}
-
-variable "worker_instance_profile_arn" {
-  description = "Worker IAM instance profile ARN."
-  type        = string
-  default     = null
-}
-
-variable "worker_public_ip_enabled" {
-  description = "Assign public IPv4 addresses to workers. Only useful in PUBLIC subnets; PRIVATE subnets route outbound through NAT."
-  type        = bool
-  default     = false
-}
-
-variable "worker_capacity_rebalance" {
-  description = "Replace Spot workers on EC2 rebalance notices."
-  type        = bool
-  default     = false
-}
-
-variable "worker_suspended_processes" {
-  description = "ASG processes to suspend for Spot workers."
-  type        = list(string)
-  default     = []
 }
 
 variable "worker_identity" {

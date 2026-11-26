@@ -89,18 +89,6 @@ data "aws_subnet" "control_plane" {
   }
 }
 
-data "aws_subnets" "worker" {
-  count = var.worker_count > 0 ? 1 : 0
-  filter {
-    name   = "vpc-id"
-    values = [var.vpc_id]
-  }
-  filter {
-    name   = "tag:Name"
-    values = var.worker_subnets
-  }
-}
-
 ###########################################################################
 ## Security groups
 ###########################################################################
@@ -263,8 +251,7 @@ data "talos_machine_configuration" "control_plane" {
   config_patches = concat(local.control_plane_base_patches, local.oidc_config_patches, var.control_plane_workloads_enabled ? [yamlencode(local.control_plane_node_config)] : [])
 }
 
-# Workers reach the bootstrap controller IP only without a private API name. The indirection
-# keeps worker configs free of aws_instance references, so adding controllers does not defer them.
+# NOTE: Keep the bootstrap IP stable for Karpenter when there is no private API name.
 resource "terraform_data" "worker_endpoint_ip" {
   count = var.private_api_dns_name == null ? 1 : 0
   input = aws_instance.control_plane[local.bootstrap_index].private_ip
@@ -272,18 +259,6 @@ resource "terraform_data" "worker_endpoint_ip" {
 
 locals {
   worker_cluster_endpoint = var.private_api_dns_name == null ? "https://${one(terraform_data.worker_endpoint_ip[*].output)}:6443" : local.cluster_endpoint
-}
-
-data "talos_machine_configuration" "worker" {
-  cluster_name       = var.cluster_name
-  cluster_endpoint   = local.worker_cluster_endpoint
-  machine_type       = "worker"
-  machine_secrets    = local.machine_secrets
-  talos_version      = var.talos_version
-  kubernetes_version = var.kube_version
-  docs               = false
-  examples           = false
-  config_patches     = var.aws_node_config_enabled ? concat(local.aws_worker_patches, [yamlencode({ apiVersion = "v1alpha1", kind = "KubeNodeConfig", registerWithFQDN = true, labels = { "panfactum.com/class" = "worker", "node.kubernetes.io/lifecycle" = "spot" }, taints = { "spot" = "true:NoSchedule" } })], var.worker_config_patches) : var.worker_config_patches
 }
 
 ###########################################################################
@@ -366,165 +341,6 @@ resource "aws_instance" "control_plane" {
       error_message = "control_plane_public_ip_enabled = false requires talos_api_endpoint, private_api_dns_name or control_plane_private_ips, and no api_dns."
     }
   }
-}
-
-# Without AWS node config the on-demand ASG reuses this template.
-resource "aws_launch_template" "worker" {
-  count         = var.worker_count > 0 || (!var.aws_node_config_enabled && length(var.on_demand_worker_subnets) > 0) ? 1 : 0
-  name_prefix   = "${var.cluster_name}-worker-"
-  image_id      = data.aws_ami.talos.id
-  instance_type = var.worker_instance_type
-  user_data     = base64encode(data.talos_machine_configuration.worker.machine_configuration)
-
-  dynamic "iam_instance_profile" {
-    for_each = var.worker_instance_profile_arn == null ? [] : [var.worker_instance_profile_arn]
-    content { arn = iam_instance_profile.value }
-  }
-
-  network_interfaces {
-    associate_public_ip_address = var.worker_public_ip_enabled
-    security_groups             = [aws_security_group.nodes.id]
-  }
-
-  # A mixed instances policy owns the Spot request when fallback types are set.
-  dynamic "instance_market_options" {
-    for_each = length(var.worker_instance_types) > 0 ? [] : [1]
-    content {
-      market_type = "spot"
-    }
-  }
-
-  metadata_options {
-    http_endpoint               = "enabled"
-    http_tokens                 = "required"
-    http_put_response_hop_limit = 1
-  }
-
-  block_device_mappings {
-    device_name = data.aws_ami.talos.root_device_name
-    ebs {
-      volume_size           = var.root_volume_size_gb
-      volume_type           = "gp3"
-      encrypted             = true
-      delete_on_termination = true
-    }
-  }
-
-  tag_specifications {
-    resource_type = "instance"
-    tags = merge(data.pf_aws_tags.tags.tags, {
-      Name = "${var.cluster_name}-worker"
-    })
-  }
-
-  tags = data.pf_aws_tags.tags.tags
-}
-
-resource "aws_autoscaling_group" "worker" {
-  count               = var.worker_count > 0 ? 1 : 0
-  suspended_processes = var.worker_suspended_processes
-  capacity_rebalance  = var.worker_capacity_rebalance
-  dynamic "tag" {
-    for_each = var.aws_node_config_enabled ? [var.cluster_name] : []
-    content {
-      key                 = "kubernetes.io/cluster/${tag.value}"
-      value               = "owned"
-      propagate_at_launch = true
-    }
-  }
-  name_prefix         = "${var.cluster_name}-worker-"
-  min_size            = var.worker_count
-  max_size            = var.worker_count
-  desired_capacity    = var.worker_count
-  vpc_zone_identifier = data.aws_subnets.worker[0].ids
-  health_check_type   = "EC2"
-
-  dynamic "launch_template" {
-    for_each = length(var.worker_instance_types) > 0 ? [] : [1]
-    content {
-      id      = aws_launch_template.worker[0].id
-      version = aws_launch_template.worker[0].latest_version
-    }
-  }
-
-  # Spot capacity for one type can run out in a zone whose EBS volumes pin stateful pods.
-  dynamic "mixed_instances_policy" {
-    for_each = length(var.worker_instance_types) > 0 ? [1] : []
-    content {
-      instances_distribution {
-        on_demand_base_capacity                  = 0
-        on_demand_percentage_above_base_capacity = 0
-        spot_allocation_strategy                 = "price-capacity-optimized"
-      }
-      launch_template {
-        launch_template_specification {
-          launch_template_id = aws_launch_template.worker[0].id
-          version            = aws_launch_template.worker[0].latest_version
-        }
-        dynamic "override" {
-          for_each = var.worker_instance_types
-          content {
-            instance_type = override.value
-          }
-        }
-      }
-    }
-  }
-
-  # Workers join over the private API address, not their changing public IPs.
-  depends_on = [talos_machine_bootstrap.this]
-}
-
-moved {
-  from = aws_launch_template.worker
-  to   = aws_launch_template.worker[0]
-}
-
-moved {
-  from = aws_autoscaling_group.worker
-  to   = aws_autoscaling_group.worker[0]
-}
-
-data "aws_subnets" "worker_on_demand" {
-  count = length(var.on_demand_worker_subnets) > 0 ? 1 : 0
-  filter {
-    name   = "vpc-id"
-    values = [var.vpc_id]
-  }
-  filter {
-    name   = "tag:Name"
-    values = var.on_demand_worker_subnets
-  }
-}
-
-# One on-demand worker per listed subnet, so zones holding EBS-backed stateful pods keep a node through Spot reclaims.
-resource "aws_autoscaling_group" "worker_on_demand" {
-  count               = length(var.on_demand_worker_subnets) > 0 ? 1 : 0
-  name_prefix         = "${var.cluster_name}-worker-od-"
-  min_size            = length(var.on_demand_worker_subnets)
-  max_size            = length(var.on_demand_worker_subnets)
-  desired_capacity    = length(var.on_demand_worker_subnets)
-  vpc_zone_identifier = data.aws_subnets.worker_on_demand[0].ids
-  health_check_type   = "EC2"
-
-  # Without fallback types the launch template requests Spot; override to on-demand here.
-  mixed_instances_policy {
-    instances_distribution {
-      on_demand_base_capacity                  = length(var.on_demand_worker_subnets)
-      on_demand_percentage_above_base_capacity = 100
-    }
-    launch_template {
-      launch_template_specification {
-        launch_template_id = var.aws_node_config_enabled ? aws_launch_template.worker_on_demand[0].id : aws_launch_template.worker[0].id
-        version            = var.aws_node_config_enabled ? aws_launch_template.worker_on_demand[0].latest_version : aws_launch_template.worker[0].latest_version
-      }
-      override {
-        instance_type = var.worker_instance_type
-      }
-    }
-  }
-
-  depends_on = [talos_machine_bootstrap.this]
 }
 
 ###########################################################################

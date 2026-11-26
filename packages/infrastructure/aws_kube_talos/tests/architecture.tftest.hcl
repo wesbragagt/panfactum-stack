@@ -38,16 +38,6 @@ mock_provider "kubernetes" {
 }
 
 override_resource {
-  target = aws_launch_template.worker
-  values = { id = "lt-0000000000000000a" }
-}
-
-override_resource {
-  target = aws_launch_template.worker_on_demand
-  values = { id = "lt-0000000000000000b" }
-}
-
-override_resource {
   target = aws_eip.api
   values = { public_ip = "192.0.2.10" }
 }
@@ -87,7 +77,6 @@ run "ccm_default_enabled" {
 run "ccm_plans_for_fresh_ssm" {
   command = plan
   variables {
-    aws_node_config_enabled         = true
     aws_ccm                         = { image_version = "v1.36.1", operator_kube_port = 26443 }
     private_api_dns_name            = "api.test.internal"
     talos_access_transport          = "ssm"
@@ -114,9 +103,8 @@ run "ccm_uses_custom_legacy_ssm_ports" {
   command = plan
 
   variables {
-    aws_node_config_enabled = true
-    aws_ccm                 = { image_version = "v1.36.1", operator_kube_port = 26443 }
-    talos_api_endpoint      = "127.0.0.1:55000"
+    aws_ccm            = { image_version = "v1.36.1", operator_kube_port = 26443 }
+    talos_api_endpoint = "127.0.0.1:55000"
   }
 
   assert {
@@ -128,7 +116,6 @@ run "ccm_uses_custom_legacy_ssm_ports" {
 run "ccm_adoption_uses_existing_pod_network" {
   command = plan
   variables {
-    aws_node_config_enabled = true
     aws_ccm = {
       image_version   = "v1.36.1"
       host_networking = false
@@ -231,25 +218,14 @@ run "ccm_rejects_malformed_image" {
   expect_failures = [var.aws_ccm]
 }
 
-run "reject_x86_worker" {
-  command = plan
-  variables { worker_instance_type = "m6i.large" }
-  override_data {
-    target = data.aws_ec2_instance_type.node
-    values = { supported_architectures = ["x86_64"] }
-  }
-  expect_failures = [data.aws_ec2_instance_type.node]
-}
-
-run "arm64_fallbacks" {
+run "arm64_controller_types" {
   command = plan
   variables {
     control_plane_instance_types = ["t4g.medium", "m7g.large", "c7g.large"]
-    worker_instance_types        = ["c7g.large", "c8g.large"]
   }
   assert {
-    condition     = length(local.node_instance_types) == 4
-    error_message = "Every controller override and worker fallback must be checked."
+    condition     = length(local.node_instance_types) == 3
+    error_message = "Every controller instance type override must be checked."
   }
 }
 run "reject_x86_controller" {
@@ -261,20 +237,9 @@ run "reject_x86_controller" {
   }
   expect_failures = [data.aws_ec2_instance_type.node]
 }
-run "reject_x86_fallback" {
-  command = plan
-  variables { worker_instance_types = ["c7g.large", "m6i.large"] }
-  override_data {
-    target = data.aws_ec2_instance_type.node
-    values = { supported_architectures = ["x86_64"] }
-  }
-  expect_failures = [data.aws_ec2_instance_type.node]
-}
-
 run "fixed_controller_ip_and_requested_user_data_sans" {
   command = plan
   variables {
-    worker_count              = 0
     control_plane_private_ips = ["10.0.1.10"]
     kube_api_extra_sans       = ["127.0.0.1"]
     talos_api_extra_sans      = ["127.0.0.1"]
@@ -304,7 +269,6 @@ run "reject_private_without_address" {
 run "public_opt_in_keeps_elastic_ip" {
   command = plan
   variables {
-    aws_node_config_enabled         = true
     control_plane_public_ip_enabled = true
     control_plane_subnets           = ["PUBLIC_A", "PUBLIC_B", "PUBLIC_C"]
     talos_api_endpoint              = null
@@ -519,26 +483,15 @@ run "workloads_disabled_has_no_label_or_taint" {
   }
 }
 
-run "controller_taint_without_aws_node_config" {
+run "controller_taint_with_aws_ccm" {
   command = plan
-  variables { aws_node_config_enabled = false }
   assert {
     condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"controller\": \"true:NoSchedule\"")
-    error_message = "The controller taint must apply without aws_node_config_enabled too."
+    error_message = "Controllers must retain the controller taint with AWS CCM enabled."
   }
 }
 
-run "controller_taint_with_aws_node_config" {
-  command = plan
-  variables { aws_node_config_enabled = true }
-  assert {
-    condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"controller\": \"true:NoSchedule\"")
-    error_message = "The controller taint must apply with aws_node_config_enabled."
-  }
-}
-
-# Adding controllers must not defer the worker config, or worker launch templates churn.
-run "worker_config_known_while_adding_controllers" {
+run "worker_bootstrap_known_while_adding_controllers" {
   command = plan
   variables {
     control_plane_count       = 3
@@ -547,8 +500,8 @@ run "worker_config_known_while_adding_controllers" {
     private_api_dns_name      = "api.test.internal"
   }
   assert {
-    condition     = output.worker_machine_configuration != null
-    error_message = "Worker config must be known at plan time when private_api_dns_name is set."
+    condition     = output.node_bootstrap.cluster_endpoint == "https://api.test.internal:6443"
+    error_message = "Worker bootstrap metadata must be known when a private API DNS name is set."
   }
 }
 
@@ -605,7 +558,7 @@ run "private_api_is_a_records_to_controller_ips" {
     error_message = "The private API A record must list every controller IP."
   }
   assert {
-    condition     = data.talos_machine_configuration.control_plane.cluster_endpoint == "https://api.test.internal:6443" && data.talos_machine_configuration.worker.cluster_endpoint == "https://api.test.internal:6443"
+    condition     = data.talos_machine_configuration.control_plane.cluster_endpoint == "https://api.test.internal:6443" && output.node_bootstrap.cluster_endpoint == "https://api.test.internal:6443"
     error_message = "Controllers and workers must share the private API hostname."
   }
   assert {
@@ -662,21 +615,10 @@ run "resize_one_controller_changes_only_its_type" {
   }
 }
 
-# Karpenter launches every worker; the ASG path must allow zero and keep the outputs Karpenter reads.
-run "zero_workers_create_no_asgs" {
+run "karpenter_worker_bootstrap_outputs" {
   command = plan
   variables {
-    aws_node_config_enabled  = true
-    on_demand_worker_subnets = []
-    private_api_dns_name     = "api.test.internal"
-  }
-  assert {
-    condition     = length(aws_launch_template.worker) + length(aws_autoscaling_group.worker) + length(aws_launch_template.worker_on_demand) + length(aws_autoscaling_group.worker_on_demand) == 0
-    error_message = "worker_count = 0 with no on-demand subnets must create no worker launch templates or ASGs."
-  }
-  assert {
-    condition     = output.worker_machine_configuration != null
-    error_message = "Legacy Karpenter callers still need worker_machine_configuration."
+    private_api_dns_name = "api.test.internal"
   }
   assert {
     condition     = output.talos_ami_id != null
@@ -690,15 +632,6 @@ run "zero_workers_create_no_asgs" {
       endswith(output.node_bootstrap.installer_image, ":v1.14.6")
     )
     error_message = "The typed Karpenter path must receive the Talos API and version-matched installer."
-  }
-}
-
-run "explicit_workers_keep_spot_asg" {
-  command = plan
-  variables { worker_count = 1 }
-  assert {
-    condition     = length(aws_autoscaling_group.worker) == 1 && length(aws_launch_template.worker) == 1
-    error_message = "worker_count above 0 must keep the Spot worker ASG."
   }
 }
 
@@ -751,7 +684,6 @@ run "no_removed_controllers_makes_no_external_call" {
 run "direct_private_api_has_no_ssm_dependency" {
   command = plan
   variables {
-    worker_count                     = 0
     private_api_dns_name             = "api.test.internal"
     talos_api_endpoint               = "10.0.1.10"
     kube_api_source_security_groups  = { runner = "sg-00000000000000001" }
@@ -778,7 +710,6 @@ run "direct_private_api_has_no_ssm_dependency" {
 run "caller_owned_ssm_path" {
   command = plan
   variables {
-    worker_count                     = 0
     private_api_dns_name             = "api.test.internal"
     talos_api_endpoint               = "127.0.0.1:50003"
     kube_api_extra_sans              = ["127.0.0.1", "kubectl.test.internal"]
@@ -811,7 +742,6 @@ run "caller_owned_ssm_path" {
 run "ssm_jump_host_enabled" {
   command = plan
   variables {
-    worker_count          = 0
     ssm_jump_host_enabled = true
     private_api_dns_name  = "api.test.internal"
   }
@@ -901,12 +831,12 @@ run "controller_identity_configured" {
 run "controller_identity_external_profile_precedence" {
   command = plan
   variables {
-    controller_identity         = { controller_instance_profile_enabled = true }
+    worker_identity             = { controller_instance_profile_enabled = true }
     controller_instance_profile = "external-controller"
   }
   assert {
     condition     = aws_instance.control_plane[0].iam_instance_profile == "external-controller" && length(aws_iam_instance_profile.controller) == 1
-    error_message = "An explicit controller profile must take precedence over the managed profile."
+    error_message = "The legacy controller IAM alias must retain its profile, and an explicit profile must take precedence."
   }
 }
 
@@ -944,7 +874,6 @@ run "fixed_ssm_first_bootstrap" {
     talos_access_transport           = "ssm"
     kube_api_source_security_groups  = { jump = "sg-00000000000000001" }
     talos_api_source_security_groups = { jump = "sg-00000000000000001" }
-    aws_node_config_enabled          = true
     service_subnets                  = ["10.113.0.0/16"]
     kube_version                     = "1.36.5"
   }
@@ -969,7 +898,6 @@ run "fixed_ssm_first_bootstrap" {
 run "bootstrap_public_first_plan" {
   command = plan
   variables {
-    aws_node_config_enabled   = true
     talos_access_transport    = "bootstrap_public"
     private_api_dns_name      = "api.test.internal"
     control_plane_private_ips = []
@@ -1176,7 +1104,6 @@ run "bootstrap_public_rejects_invalid_cidr" {
 run "aws_controller_provider_ids_follow_vpn_controller_ips" {
   command = plan
   variables {
-    aws_node_config_enabled   = true
     talos_access_transport    = "vpn"
     control_plane_count       = 3
     control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
@@ -1192,8 +1119,7 @@ run "aws_controller_provider_ids_follow_vpn_controller_ips" {
 run "ssm_bootstrap_uses_integrated_ccm_forward" {
   command = plan
   variables {
-    aws_node_config_enabled = true
-    talos_access_transport  = "ssm"
+    talos_access_transport = "ssm"
   }
   assert {
     condition     = length(terraform_data.controller_provider_id) == 1 && local.ccm_api_server == "https://127.0.0.1:16443"
@@ -1204,7 +1130,6 @@ run "ssm_bootstrap_uses_integrated_ccm_forward" {
 run "ssm_kubernetes_forward_enables_controller_provider_ids" {
   command = plan
   variables {
-    aws_node_config_enabled                = true
     talos_access_transport                 = "ssm"
     controller_provider_id_kube_api_server = "https://127.0.0.1:16444"
   }

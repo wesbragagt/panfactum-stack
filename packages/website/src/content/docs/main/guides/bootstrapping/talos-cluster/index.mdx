@@ -81,4 +81,4 @@ Move the worker role, instance profile, ECR read policy, and optional cache impo
 
 Transfer the bindings before you apply either module. Check that the plan retains the original profile and policies. Existing controller identities stay in Talos. Use `controller_identity` for controller settings.
 
-Explicit legacy ASGs remain available with a caller-provided `worker_instance_profile_arn`. Keep them at zero for new Karpenter clusters.
+If the old Talos revision manages worker groups, provision replacement workers with Karpenter. Drain the old workers. Use the old revision to review and remove both worker groups and their launch templates. The updated module releases the old addresses from state while the AWS resources continue to exist.

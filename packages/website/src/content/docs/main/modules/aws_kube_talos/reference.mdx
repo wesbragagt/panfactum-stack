@@ -51,14 +51,6 @@ object({
 
 Default: `{}`
 
-### aws\_node\_config\_enabled
-
-Description: Preserve the AWS launch configuration of explicitly managed legacy worker groups. Karpenter workers and controllers use AWS configuration automatically.
-
-Type: `bool`
-
-Default: `false`
-
 ### bootstrap\_control\_plane
 
 Description: Subnet name of the controller that runs talos\_machine\_bootstrap and serves as the cluster endpoint fallback. Null uses the first entry of control\_plane\_subnets. Must be one of the active subnets.
@@ -334,14 +326,6 @@ object({
 
 Default: `null`
 
-### on\_demand\_worker\_subnets
-
-Description: Optional subnet names (Name tag) that each get one on-demand worker, in a separate ASG from the Spot workers. Remove these subnets from worker\_subnets to keep Spot out of those zones.
-
-Type: `list(string)`
-
-Default: `[]`
-
 ### operator\_tunnel\_security\_group\_ids
 
 Description: Security groups of SSM tunnel hosts (for example one NAT per AZ) allowed to reach the private Kubernetes and Talos APIs.
@@ -482,30 +466,6 @@ Type: `string`
 
 Default: n/a
 
-### worker\_capacity\_rebalance
-
-Description: Replace Spot workers on EC2 rebalance notices.
-
-Type: `bool`
-
-Default: `false`
-
-### worker\_config\_patches
-
-Description: Additional Talos configuration patches for workers.
-
-Type: `list(string)`
-
-Default: `[]`
-
-### worker\_count
-
-Description: Number of Spot worker nodes in the worker ASG. 0 creates no Spot ASG, for clusters where Karpenter launches every worker.
-
-Type: `number`
-
-Default: `0`
-
 ### worker\_identity
 
 Description: Deprecated alias for the Talos controller identity settings. Worker IAM is managed by Karpenter.
@@ -522,62 +482,6 @@ object({
 ```
 
 Default: `{}`
-
-### worker\_instance\_profile\_arn
-
-Description: Worker IAM instance profile ARN.
-
-Type: `string`
-
-Default: `null`
-
-### worker\_instance\_type
-
-Description: EC2 instance type for worker nodes. T2 types are not supported by Talos.
-
-Type: `string`
-
-Default: `"t4g.medium"`
-
-### worker\_instance\_types
-
-Description: Optional Spot instance types for workers, tried by price and capacity. Overrides worker\_instance\_type when set.
-
-Type: `list(string)`
-
-Default: `[]`
-
-### worker\_public\_ip\_enabled
-
-Description: Assign public IPv4 addresses to workers. Only useful in PUBLIC subnets; PRIVATE subnets route outbound through NAT.
-
-Type: `bool`
-
-Default: `false`
-
-### worker\_subnets
-
-Description: Subnet names (Name tag) for the worker nodes. PRIVATE subnets need a NAT route for outbound access; PUBLIC subnets also need worker\_public\_ip\_enabled.
-
-Type: `list(string)`
-
-Default:
-
-```json
-[
-  "PRIVATE_A",
-  "PRIVATE_B",
-  "PRIVATE_C"
-]
-```
-
-### worker\_suspended\_processes
-
-Description: ASG processes to suspend for Spot workers.
-
-Type: `list(string)`
-
-Default: `[]`
 
 ## Outputs
 
@@ -690,14 +594,6 @@ Description: Talos AMI used by workers.
 ### talosconfig
 
 Description: talosctl client configuration.
-
-### worker\_autoscaling\_group\_name
-
-Description: Auto Scaling group maintaining the desired Spot worker count, or null when worker\_count is 0.
-
-### worker\_machine\_configuration
-
-Description: Legacy worker-only machine configuration with caller patches. Contains join credentials. New Karpenter deployments use node\_bootstrap.
 
 ## Providers
 
