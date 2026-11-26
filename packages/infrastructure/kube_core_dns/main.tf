@@ -23,7 +23,16 @@ terraform {
 
 locals {
   name      = "core-dns"
-  namespace = "kube-system" // This must be deployed in the kube-system namespace per convention
+  namespace = var.namespace_create ? module.namespace[0].namespace : var.namespace
+}
+
+module "namespace" {
+  count  = var.namespace_create ? 1 : 0
+  source = "../kube_namespace"
+
+  namespace      = var.namespace
+  linkerd_inject = false
+  extra_labels   = var.namespace_labels
 }
 
 module "constants" {
@@ -217,7 +226,7 @@ module "core_dns" {
   } : {})
 
   service_ip   = var.service_ip
-  service_name = "kube-dns" // By convention, this must be available at kube-system/kube-dns
+  service_name = "kube-dns"
 
   vpa_enabled = var.vpa_enabled
 

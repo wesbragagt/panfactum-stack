@@ -79,3 +79,21 @@ variable "replicas" {
     error_message = "replicas must be at least one."
   }
 }
+
+variable "namespace" {
+  description = "The namespace to deploy CoreDNS into"
+  type        = string
+  default     = "core-dns"
+}
+
+variable "namespace_create" {
+  description = "Whether to create the namespace"
+  type        = bool
+  default     = true
+}
+
+variable "namespace_labels" {
+  description = "Additional namespace labels"
+  type        = map(string)
+  default     = {}
+}

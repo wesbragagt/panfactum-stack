@@ -62,6 +62,30 @@ Type: `bool`
 
 Default: `false`
 
+### namespace
+
+Description: The namespace to deploy CoreDNS into
+
+Type: `string`
+
+Default: `"core-dns"`
+
+### namespace\_create
+
+Description: Whether to create the namespace
+
+Type: `bool`
+
+Default: `true`
+
+### namespace\_labels
+
+Description: Additional namespace labels
+
+Type: `map(string)`
+
+Default: `{}`
+
 ### panfactum\_scheduler\_enabled
 
 Description: Whether to use the Panfactum pod scheduler with enhanced bin-packing
