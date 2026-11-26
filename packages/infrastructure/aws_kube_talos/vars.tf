@@ -328,6 +328,17 @@ variable "aws_node_config_enabled" {
   default     = false
 }
 
+variable "controller_provider_id_kube_api_server" {
+  description = "Optional HTTPS Kubernetes API URL for setting AWS controller provider IDs. VPN and public access derive the URL automatically. For SSM, keep a Kubernetes forward running and set its loopback URL to enable provider ID reconciliation."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.controller_provider_id_kube_api_server == null ? true : startswith(var.controller_provider_id_kube_api_server, "https://")
+    error_message = "controller_provider_id_kube_api_server must be an HTTPS URL."
+  }
+}
+
 variable "worker_instance_profile_arn" {
   description = "Worker IAM instance profile ARN."
   type        = string

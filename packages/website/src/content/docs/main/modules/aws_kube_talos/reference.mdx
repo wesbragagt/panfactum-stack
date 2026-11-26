@@ -172,6 +172,14 @@ Type: `string`
 
 Default: `null`
 
+### controller\_provider\_id\_kube\_api\_server
+
+Description: Optional HTTPS Kubernetes API URL for setting AWS controller provider IDs. VPN and public access derive the URL automatically. For SSM, keep a Kubernetes forward running and set its loopback URL to enable provider ID reconciliation.
+
+Type: `string`
+
+Default: `null`
+
 ### core\_dns\_enabled
 
 Description: Whether Talos deploys its own CoreDNS. Disabled by default for Panfactum kube\_core\_dns.

@@ -127,6 +127,7 @@ run "reject_private_without_address" {
 run "public_opt_in_keeps_elastic_ip" {
   command = plan
   variables {
+    aws_node_config_enabled         = true
     control_plane_public_ip_enabled = true
     control_plane_subnets           = ["PUBLIC_A", "PUBLIC_B", "PUBLIC_C"]
     talos_api_endpoint              = null
@@ -134,6 +135,10 @@ run "public_opt_in_keeps_elastic_ip" {
   assert {
     condition     = length(aws_eip.api) == 1 && aws_instance.control_plane[0].associate_public_ip_address
     error_message = "Opting in must keep the Elastic IP and public address."
+  }
+  assert {
+    condition     = length(terraform_data.controller_provider_id) == 1
+    error_message = "Legacy public access must reconcile AWS controller provider IDs."
   }
 }
 
@@ -172,6 +177,10 @@ run "bootstrap_follows_named_subnet" {
   assert {
     condition     = talos_machine_configuration_apply.control_plane[0].endpoint == "10.0.2.10"
     error_message = "Routed access must use the configured bootstrap controller, not the first controller."
+  }
+  assert {
+    condition     = length(terraform_data.controller_provider_id) == 0
+    error_message = "VPN must reconcile provider IDs only with AWS node configuration enabled."
   }
 }
 
@@ -804,6 +813,7 @@ run "fixed_ssm_first_bootstrap" {
 run "bootstrap_public_first_plan" {
   command = plan
   variables {
+    aws_node_config_enabled   = true
     talos_access_transport    = "bootstrap_public"
     private_api_dns_name      = "api.test.internal"
     control_plane_private_ips = []
@@ -856,6 +866,10 @@ run "bootstrap_public_first_plan" {
       output.bootstrap_public_kube_url == "https://test.elb.amazonaws.com:6443"
     )
     error_message = "Both API certificates must cover the public hostname while cluster traffic stays private."
+  }
+  assert {
+    condition     = length(terraform_data.controller_provider_id) == 1
+    error_message = "Public bootstrap must reconcile AWS controller provider IDs."
   }
 }
 
@@ -1001,4 +1015,45 @@ run "bootstrap_public_rejects_invalid_cidr" {
   command = plan
   variables { bootstrap_public = { operator_cidr = "invalid" } }
   expect_failures = [var.bootstrap_public]
+}
+
+run "aws_controller_provider_ids_follow_vpn_controller_ips" {
+  command = plan
+  variables {
+    aws_node_config_enabled   = true
+    talos_access_transport    = "vpn"
+    control_plane_count       = 3
+    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
+    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
+    private_api_dns_name      = "api.test.internal"
+  }
+  assert {
+    condition     = [for identity in terraform_data.controller_provider_id : identity.triggers_replace.private_ip] == ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
+    error_message = "VPN must reconcile the provider ID for each AWS controller using its private IP."
+  }
+}
+
+run "ssm_bootstrap_keeps_kubernetes_forward_optional" {
+  command = plan
+  variables {
+    aws_node_config_enabled = true
+    talos_access_transport  = "ssm"
+  }
+  assert {
+    condition     = length(terraform_data.controller_provider_id) == 0
+    error_message = "SSM bootstrap must continue to work with its Talos-only forward."
+  }
+}
+
+run "ssm_kubernetes_forward_enables_controller_provider_ids" {
+  command = plan
+  variables {
+    aws_node_config_enabled                = true
+    talos_access_transport                 = "ssm"
+    controller_provider_id_kube_api_server = "https://127.0.0.1:16444"
+  }
+  assert {
+    condition     = length(terraform_data.controller_provider_id) == 1
+    error_message = "An explicit Kubernetes forward must enable provider ID reconciliation for SSM."
+  }
 }
