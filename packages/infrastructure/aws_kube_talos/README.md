@@ -254,8 +254,6 @@ Pick a starting size, then scale with the controller runbook. Every case keeps c
 
 Controllers carry the `controller=true:NoSchedule` taint. Install Cilium, CoreDNS, and Karpenter on controllers that tolerate this taint. Workloads that require workers wait for Karpenter to launch them.
 
-Before you upgrade from a revision that managed worker groups, provision replacement workers with Karpenter. Drain the old workers. Use the old revision to review and remove both worker groups and their launch templates. On upgrade, Talos releases any remaining worker bindings from state while the AWS resources continue to exist.
-
 Upscale. To start small and reach HA:
 
 1. Bootstrap with `control_plane_count = 1` and `private_api_dns_name` set, so the API name already exists.
