@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### alert_email
+### alert\_email
 
 Description: An email that will receive certificate alerts.
 
@@ -14,7 +14,7 @@ Type: `string`
 
 Default: n/a
 
-### aws_iam_ip_allow_list
+### aws\_iam\_ip\_allow\_list
 
 Description: A list of IPs that can use the service account token to authenticate with AWS API
 
@@ -22,7 +22,7 @@ Type: `list(string)`
 
 Default: `[]`
 
-### bootstrap_mode_enabled
+### bootstrap\_mode\_enabled
 
 Description: Whether the cluster is being bootstrapped and does not yet have the autoscaler enabled
 
@@ -30,7 +30,7 @@ Type: `bool`
 
 Default: `false`
 
-### burstable_nodes_enabled
+### burstable\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on burstable nodes
 
@@ -38,7 +38,7 @@ Type: `bool`
 
 Default: `true`
 
-### canary_enabled
+### canary\_enabled
 
 Description: Whether to add canary checks to the deployed systems
 
@@ -46,7 +46,7 @@ Type: `bool`
 
 Default: `false`
 
-### cert_manager_version
+### cert\_manager\_version
 
 Description: The version of cert-manager to deploy
 
@@ -54,7 +54,7 @@ Type: `string`
 
 Default: `"1.16.3"`
 
-### cloudflare_api_token
+### cloudflare\_api\_token
 
 Description: Cloudflare API Token
 
@@ -62,16 +62,15 @@ Type: `string`
 
 Default: `null`
 
-### cloudflare_zones
+### cloudflare\_zones
 
-Description: A list of public DNS domains managed by Cloudflare; cert-manager uses this to issue public-facing
-certificates.
+Description: A list of public DNS domains managed by Cloudflare; cert-manager uses this to issue public-facing certificates.
 
 Type: `list(string)`
 
 Default: `[]`
 
-### controller_nodes_enabled
+### controller\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on EKS Node Group nodes (controller nodes)
 
@@ -79,7 +78,7 @@ Type: `bool`
 
 Default: `true`
 
-### kube_domain
+### kube\_domain
 
 Description: The domain under which cluster utilities have subdomains registered.
 
@@ -87,7 +86,15 @@ Type: `string`
 
 Default: n/a
 
-### log_verbosity
+### kyverno\_cel\_policies\_enabled
+
+Description: Use CEL policies to sync the CA bundle across namespaces.
+
+Type: `bool`
+
+Default: `false`
+
+### log\_verbosity
 
 Description: The log verbosity (0-9) for the cert-manager pods
 
@@ -95,7 +102,7 @@ Type: `number`
 
 Default: `0`
 
-### monitoring_enabled
+### monitoring\_enabled
 
 Description: Whether to add active monitoring to the deployed systems
 
@@ -103,7 +110,7 @@ Type: `bool`
 
 Default: `false`
 
-### panfactum_scheduler_enabled
+### panfactum\_scheduler\_enabled
 
 Description: Whether to use the Panfactum pod scheduler with enhanced bin-packing
 
@@ -111,7 +118,7 @@ Type: `bool`
 
 Default: `false`
 
-### pull_through_cache_enabled
+### pull\_through\_cache\_enabled
 
 Description: Whether to use the ECR pull through cache for the deployed images
 
@@ -119,10 +126,9 @@ Type: `bool`
 
 Default: `true`
 
-### route53_zones
+### route53\_zones
 
-Description: A mapping of public DNS domains managed by AWS to their configuration; cert-manager uses this to issue
-public-facing certificates.
+Description: A mapping of public DNS domains managed by AWS to their configuration; cert-manager uses this to issue public-facing certificates.
 
 Type:
 
@@ -135,7 +141,7 @@ map(object({
 
 Default: `{}`
 
-### self_generated_certs_enabled
+### self\_generated\_certs\_enabled
 
 Description: Whether to enable self-generated webhook certs (only use on initial installation)
 
@@ -143,16 +149,15 @@ Type: `bool`
 
 Default: `true`
 
-### sla_target
+### sla\_target
 
-Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest
-uptime (99.999%), highest Cost
+Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest uptime (99.999%), highest Cost
 
 Type: `number`
 
 Default: `3`
 
-### spot_nodes_enabled
+### spot\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on spot nodes
 
@@ -160,7 +165,7 @@ Type: `bool`
 
 Default: `true`
 
-### vault_internal_url
+### vault\_internal\_url
 
 Description: The url to the vault instance for internal cert issuance
 
@@ -168,7 +173,7 @@ Type: `string`
 
 Default: `"http://vault-active.vault.svc.cluster.local:8200"`
 
-### vpa_enabled
+### vpa\_enabled
 
 Description: Whether the VPA resources should be enabled
 
@@ -178,9 +183,7 @@ Default: `false`
 
 ### wait
 
-Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to
-proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment
-failures.
+Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment failures.
 
 Type: `bool`
 
@@ -190,7 +193,7 @@ Default: `true`
 
 The following outputs are exported:
 
-### cloudflare_zones
+### cloudflare\_zones
 
 Description: The cloudflare DNS names provided as an input
 
@@ -198,15 +201,15 @@ Description: The cloudflare DNS names provided as an input
 
 Description: n/a
 
-### route53_zones
+### route53\_zones
 
 Description: The route53 zone configuration provided as an input
 
-### service_account
+### service\_account
 
 Description: n/a
 
-### vault_ca_crt
+### vault\_ca\_crt
 
 Description: The public certificate of the root vault certificate authority
 

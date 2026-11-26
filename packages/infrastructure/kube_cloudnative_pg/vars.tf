@@ -4,6 +4,12 @@ variable "cloudnative_pg_helm_version" {
   default     = "0.29.1"
 }
 
+variable "kyverno_cel_policies_enabled" {
+  description = "Use the CEL policies required by Kyverno 1.20 and later."
+  type        = bool
+  default     = false
+}
+
 variable "vpa_enabled" {
   description = "Whether the VPA resources should be enabled"
   type        = bool

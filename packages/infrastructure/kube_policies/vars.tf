@@ -82,3 +82,8 @@ variable "gc_released_volumes_after_days" {
   default     = 30
 }
 
+variable "kyverno_cel_policies_enabled" {
+  description = "Use policies.kyverno.io/v1 CEL equivalents, required by Kyverno 1.20+."
+  type        = bool
+  default     = false
+}

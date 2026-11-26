@@ -250,7 +250,7 @@ resource "kubernetes_cluster_role" "kyverno_roles" {
   }
   rule {
     api_groups = ["postgresql.cnpg.io"]
-    verbs      = ["get", "list", "create", "update", "watch", "delete"]
+    verbs      = concat(["get", "list", "create", "update", "watch", "delete"], var.kyverno_cel_policies_enabled && each.key == "background-controller" ? ["patch"] : [])
     resources  = ["clusters", "backups", "clusterimagecatalogs", "imagecatalogs", "poolers", "scheduledbackups"]
   }
 }
@@ -260,7 +260,13 @@ resource "kubernetes_cluster_role" "kyverno_roles" {
 * See: https://github.com/cloudnative-pg/cloudnative-pg/issues/2574
 ***************************************/
 
+moved {
+  from = kubectl_manifest.cnpg_scale_selector
+  to   = kubectl_manifest.cnpg_scale_selector[0]
+}
+
 resource "kubectl_manifest" "cnpg_scale_selector" {
+  count = var.kyverno_cel_policies_enabled ? 0 : 1
   yaml_body = yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "ClusterPolicy"

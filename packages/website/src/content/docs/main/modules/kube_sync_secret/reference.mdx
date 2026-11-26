@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### destination_namespaces
+### destination\_namespaces
 
 Description: A list of namespaces to sync the Secret to. If not specified, will sync to all namespaces.
 
@@ -14,7 +14,7 @@ Type: `list(string)`
 
 Default: `[]`
 
-### excluded_namespaces
+### excluded\_namespaces
 
 Description: A list of namespaces that are explicitly excluded from having the Secret copied to.
 
@@ -22,7 +22,15 @@ Type: `list(string)`
 
 Default: `[]`
 
-### secret_name
+### kyverno\_cel\_policies\_enabled
+
+Description: Use policies.kyverno.io/v1 CEL policies, required by Kyverno 1.20+. Existing legacy policies must be migrated with a reviewed replacement plan.
+
+Type: `bool`
+
+Default: `false`
+
+### secret\_name
 
 Description: The name of the Secret to sync
 
@@ -30,7 +38,7 @@ Type: `string`
 
 Default: n/a
 
-### secret_namespace
+### secret\_namespace
 
 Description: The namespace of the Secret to sync
 
@@ -40,7 +48,11 @@ Default: n/a
 
 ## Outputs
 
-No outputs.
+The following outputs are exported:
+
+### cel\_policy\_document
+
+Description: CEL policy manifest for migration validation.
 
 ## Providers
 
@@ -52,4 +64,6 @@ The following providers are needed by this module:
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 
-{/* eslint-enable import-x/order */} {/* lint enable no-duplicate-headings */}
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

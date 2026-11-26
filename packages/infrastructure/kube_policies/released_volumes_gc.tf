@@ -1,7 +1,7 @@
 // Deletes released persistentvolumes after a specified number of days
 resource "kubectl_manifest" "released_pv_gc" {
   count = var.gc_released_volumes_after_days > -1 ? 1 : 0
-  yaml_body = yamlencode({
+  yaml_body = var.kyverno_cel_policies_enabled ? yamlencode(local.cel_released_pv_gc) : yamlencode({
     apiVersion = "kyverno.io/v2"
     kind       = "ClusterCleanupPolicy"
     metadata = {

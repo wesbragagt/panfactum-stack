@@ -91,3 +91,8 @@ variable "cluster_subnet_ids" {
   type        = set(string)
   default     = null
 }
+variable "kyverno_cel_policies_enabled" {
+  description = "Use the CEL policies required by Kyverno 1.20 and later."
+  type        = bool
+  default     = false
+}

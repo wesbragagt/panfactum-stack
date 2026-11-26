@@ -175,6 +175,14 @@ resource "helm_release" "kyverno" {
     yamlencode({
       fullnameOverride = local.name
 
+      upgrade = {
+        legacyPolicyCheck = {
+          tolerations  = module.util_crd_migrate.tolerations
+          nodeAffinity = lookup(module.util_admission_controller.affinity, "nodeAffinity", null)
+          podLabels    = module.util_crd_migrate.labels
+        }
+      }
+
       crds = {
         install = true
         migration = {

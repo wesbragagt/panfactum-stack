@@ -42,7 +42,7 @@ locals {
   non_sensitive_resources = { for k, v in { for row in local.resource_rows : row[1] => {
     resources = tolist(setsubtract(toset(split(",", row[0])), toset(concat(local.secret_resources, local.sensitive_resources))))
     api_group = row[1]
-  } } : k => v if length(v.resources) > 0 }
+  } } : k => v if k != "policies.kyverno.io" && length(v.resources) > 0 }
 
   all_verbs  = ["get", "list", "watch", "create", "delete", "patch", "update"]
   read_verbs = ["get", "list", "watch"]
@@ -120,6 +120,12 @@ resource "kubernetes_cluster_role" "admins" {
       "policyexceptions"
     ]
     verbs = local.read_verbs
+  }
+
+  rule {
+    api_groups = ["policies.kyverno.io"]
+    resources  = local.non_secret_resources["policies.kyverno.io"].resources
+    verbs      = local.read_verbs
   }
 }
 

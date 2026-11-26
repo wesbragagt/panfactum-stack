@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### argo_domain
+### argo\_domain
 
 Description: The domain to use for the argo UI. Must be in a subdomain available to the environment.
 
@@ -14,7 +14,7 @@ Type: `string`
 
 Default: n/a
 
-### argo_events_helm_version
+### argo\_events\_helm\_version
 
 Description: The version of the argo events helm chart to deploy
 
@@ -22,7 +22,7 @@ Type: `string`
 
 Default: `"2.4.9"`
 
-### argo_workflows_helm_version
+### argo\_workflows\_helm\_version
 
 Description: The version of the argo workflows helm chart to deploy
 
@@ -30,7 +30,7 @@ Type: `string`
 
 Default: `"0.47.4"`
 
-### aws_iam_ip_allow_list
+### aws\_iam\_ip\_allow\_list
 
 Description: A list of IPs that can use the service account token to authenticate with AWS API
 
@@ -38,7 +38,7 @@ Type: `list(string)`
 
 Default: `[]`
 
-### burstable_nodes_enabled
+### burstable\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on burstable nodes
 
@@ -46,7 +46,31 @@ Type: `bool`
 
 Default: `true`
 
-### controller_nodes_enabled
+### cluster\_subnet\_ids
+
+Description: Explicit cluster subnet ids override; defaults preserve existing deployments.
+
+Type: `set(string)`
+
+Default: `null`
+
+### component\_memory\_limit\_mb
+
+Description: Memory limit for Workflows controller and server in MiB.
+
+Type: `number`
+
+Default: `65`
+
+### component\_memory\_request\_mb
+
+Description: Memory request for Workflows controller and server in MiB.
+
+Type: `number`
+
+Default: `50`
+
+### controller\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on EKS Node Group nodes (controller nodes)
 
@@ -54,7 +78,15 @@ Type: `bool`
 
 Default: `true`
 
-### db_backup_directory
+### db\_az\_spread\_required
+
+Description: Explicit db az spread required override; defaults preserve existing deployments.
+
+Type: `bool`
+
+Default: `true`
+
+### db\_backup\_directory
 
 Description: The name of the directory in the backup bucket containing the backups files for the database.
 
@@ -62,7 +94,39 @@ Type: `string`
 
 Default: `"initial"`
 
-### db_recovery_directory
+### db\_backup\_schedule\_name
+
+Description: Optional stable database ScheduledBackup name for archive generation changes.
+
+Type: `string`
+
+Default: `null`
+
+### db\_backups\_force\_delete
+
+Description: Explicit db backups force delete override; defaults preserve existing deployments.
+
+Type: `bool`
+
+Default: `true`
+
+### db\_controller\_nodes\_enabled
+
+Description: Explicit db controller nodes enabled override; defaults preserve existing deployments.
+
+Type: `bool`
+
+Default: `false`
+
+### db\_node\_selector
+
+Description: Explicit db node selector override; defaults preserve existing deployments.
+
+Type: `map(string)`
+
+Default: `{}`
+
+### db\_recovery\_directory
 
 Description: The name of the directory in the backup bucket that contains the PostgreSQL backups and WAL archives
 
@@ -70,7 +134,7 @@ Type: `string`
 
 Default: `null`
 
-### db_recovery_mode_enabled
+### db\_recovery\_mode\_enabled
 
 Description: Whether to enable recovery mode for the PostgreSQL database
 
@@ -78,16 +142,31 @@ Type: `bool`
 
 Default: `false`
 
-### db_recovery_target_time
+### db\_recovery\_target\_time
 
-Description: If provided, will recover the PostgreSQL database to the indicated target time in RFC 3339 format rather
-than to the latest data.
+Description: If provided, will recover the PostgreSQL database to the indicated target time in RFC 3339 format rather than to the latest data.
 
 Type: `string`
 
 Default: `null`
 
-### ingress_enabled
+### db\_spot\_nodes\_enabled
+
+Description: Database Spot override; null inherits spot\_nodes\_enabled.
+
+Type: `bool`
+
+Default: `null`
+
+### events\_enabled
+
+Description: Explicit events enabled override; defaults preserve existing deployments.
+
+Type: `bool`
+
+Default: `true`
+
+### ingress\_enabled
 
 Description: Whether or not to enable the ingress for routing traffic to argo
 
@@ -95,7 +174,31 @@ Type: `bool`
 
 Default: `true`
 
-### log_level
+### ip\_restrictions\_enabled
+
+Description: Explicit ip restrictions enabled override; defaults preserve existing deployments.
+
+Type: `bool`
+
+Default: `true`
+
+### kyverno\_cel\_policies\_enabled
+
+Description: Use CEL policies for artifact configuration sync and database workloads.
+
+Type: `bool`
+
+Default: `false`
+
+### linkerd\_enabled
+
+Description: Explicit linkerd enabled override; defaults preserve existing deployments.
+
+Type: `bool`
+
+Default: `true`
+
+### log\_level
 
 Description: The log level for the argo pods
 
@@ -103,7 +206,7 @@ Type: `string`
 
 Default: `"info"`
 
-### monitoring_enabled
+### monitoring\_enabled
 
 Description: Whether to add active monitoring to the deployed systems
 
@@ -111,7 +214,31 @@ Type: `bool`
 
 Default: `false`
 
-### panfactum_scheduler_enabled
+### namespace\_labels
+
+Description: Explicit namespace labels override; defaults preserve existing deployments.
+
+Type: `map(string)`
+
+Default: `{}`
+
+### oidc\_issuer\_url
+
+Description: Explicit oidc issuer url override; defaults preserve existing deployments.
+
+Type: `string`
+
+Default: `null`
+
+### oidc\_provider\_arn
+
+Description: Explicit oidc provider arn override; defaults preserve existing deployments.
+
+Type: `string`
+
+Default: `null`
+
+### panfactum\_scheduler\_enabled
 
 Description: Whether to use the Panfactum pod scheduler with enhanced bin-packing
 
@@ -119,7 +246,7 @@ Type: `bool`
 
 Default: `false`
 
-### pg_maximum_cpu_millicores
+### pg\_maximum\_cpu\_millicores
 
 Description: The maximum amount of cpu to allocate to the postgres pods (in millicores)
 
@@ -127,7 +254,7 @@ Type: `number`
 
 Default: `10000`
 
-### pg_maximum_memory_mb
+### pg\_maximum\_memory\_mb
 
 Description: The maximum amount of memory to allocate to the postgres pods (in Mi)
 
@@ -135,7 +262,7 @@ Type: `number`
 
 Default: `128000`
 
-### pg_minimum_cpu_millicores
+### pg\_minimum\_cpu\_millicores
 
 Description: The minimum amount of cpu to allocate to the postgres pods (in millicores)
 
@@ -143,16 +270,15 @@ Type: `number`
 
 Default: `50`
 
-### pg_minimum_cpu_update_millicores
+### pg\_minimum\_cpu\_update\_millicores
 
-Description: The CPU settings for the Postgres won't be updated until the recommendations from the VPA (if enabled)
-differ from the current settings by at least this many millicores. This prevents autoscaling thrash.
+Description: The CPU settings for the Postgres won't be updated until the recommendations from the VPA (if enabled) differ from the current settings by at least this many millicores. This prevents autoscaling thrash.
 
 Type: `number`
 
 Default: `250`
 
-### pg_minimum_memory_mb
+### pg\_minimum\_memory\_mb
 
 Description: The minimum amount of memory to allocate to the postgres pods (in Mi)
 
@@ -160,7 +286,7 @@ Type: `number`
 
 Default: `500`
 
-### pgbouncer_maximum_cpu_millicores
+### pgbouncer\_maximum\_cpu\_millicores
 
 Description: The maximum amount of cpu to allocate to the pgbouncer pods (in millicores)
 
@@ -168,7 +294,7 @@ Type: `number`
 
 Default: `10000`
 
-### pgbouncer_maximum_memory_mb
+### pgbouncer\_maximum\_memory\_mb
 
 Description: The maximum amount of memory to allocate to the pgbouncer pods (in Mi)
 
@@ -176,7 +302,7 @@ Type: `number`
 
 Default: `32000`
 
-### pgbouncer_minimum_cpu_millicores
+### pgbouncer\_minimum\_cpu\_millicores
 
 Description: The minimum amount of cpu to allocate to the pgbouncer pods (in millicores)
 
@@ -184,7 +310,7 @@ Type: `number`
 
 Default: `15`
 
-### pgbouncer_minimum_memory_mb
+### pgbouncer\_minimum\_memory\_mb
 
 Description: The minimum amount of memory to allocate to the pgbouncer pods (in Mi)
 
@@ -192,7 +318,7 @@ Type: `number`
 
 Default: `25`
 
-### pull_through_cache_enabled
+### pull\_through\_cache\_enabled
 
 Description: Whether to use the ECR pull through cache for the deployed images
 
@@ -200,16 +326,23 @@ Type: `bool`
 
 Default: `true`
 
-### sla_target
+### server\_replicas
 
-Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest
-uptime (99.999%), highest Cost
+Description: Explicit server replicas override; defaults preserve existing deployments.
+
+Type: `number`
+
+Default: `2`
+
+### sla\_target
+
+Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest uptime (99.999%), highest Cost
 
 Type: `number`
 
 Default: `3`
 
-### spot_nodes_enabled
+### spot\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on spot nodes
 
@@ -217,7 +350,15 @@ Type: `bool`
 
 Default: `true`
 
-### test_workflow_enabled
+### sso\_enabled
+
+Description: Explicit sso enabled override; defaults preserve existing deployments.
+
+Type: `bool`
+
+Default: `true`
+
+### test\_workflow\_enabled
 
 Description: Whether to enable the test WorkflowTemplate
 
@@ -225,7 +366,7 @@ Type: `bool`
 
 Default: `false`
 
-### vault_domain
+### vault\_domain
 
 Description: The domain of the Vault instance running in the cluster.
 
@@ -233,7 +374,7 @@ Type: `string`
 
 Default: n/a
 
-### vpa_enabled
+### vpa\_enabled
 
 Description: Whether the VPA resources should be enabled
 
@@ -243,15 +384,13 @@ Default: `true`
 
 ### wait
 
-Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to
-proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment
-failures.
+Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment failures.
 
 Type: `bool`
 
 Default: `true`
 
-### workflow_archive_ttl
+### workflow\_archive\_ttl
 
 Description: Length of time that previously run workflow states are stored
 
@@ -263,19 +402,19 @@ Default: `"60d"`
 
 The following outputs are exported:
 
-### artifact_bucket_arn
+### artifact\_bucket\_arn
 
 Description: ARN of the S3 bucket holding workflow artifacts
 
-### artifact_bucket_name
+### artifact\_bucket\_name
 
 Description: Name of the S3 bucket holding workflow artifacts
 
-### db_backup_bucket
+### db\_backup\_bucket
 
 Description: The name of the S3 bucket that contains the PostgreSQL backups and WAL archives
 
-### db_backup_directory
+### db\_backup\_directory
 
 Description: The name of the directory in the backup bucket that contains the PostgreSQL backups and WAL archives
 

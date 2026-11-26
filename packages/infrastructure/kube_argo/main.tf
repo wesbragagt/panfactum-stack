@@ -259,6 +259,8 @@ module "sync_artifact_config_map" {
 
   config_map_name      = kubernetes_config_map.artifacts.metadata[0].name
   config_map_namespace = kubernetes_config_map.artifacts.metadata[0].namespace
+
+  kyverno_cel_policies_enabled = var.kyverno_cel_policies_enabled
 }
 
 /***************************************
@@ -268,6 +270,7 @@ module "sync_artifact_config_map" {
 module "database" {
   source = "../kube_pg_cluster"
 
+  kyverno_cel_policies_enabled         = var.kyverno_cel_policies_enabled
   oidc_provider_arn                    = var.oidc_provider_arn
   oidc_issuer_url                      = var.oidc_issuer_url
   cluster_subnet_ids                   = var.cluster_subnet_ids

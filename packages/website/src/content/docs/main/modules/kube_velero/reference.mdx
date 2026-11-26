@@ -54,6 +54,14 @@ Type: `bool`
 
 Default: `true`
 
+### kyverno\_cel\_policies\_enabled
+
+Description: Use the CEL policies required by Kyverno 1.20 and later.
+
+Type: `bool`
+
+Default: `false`
+
 ### log\_level
 
 Description: The log level for the Velero pods
@@ -137,6 +145,10 @@ Description: The name of the S3 bucket used to store cluster backups
 ### backup\_bucket\_arn
 
 Description: The ARN of the S3 bucket used to store cluster backups
+
+### kyverno\_cel\_policy\_documents
+
+Description: CEL policies managed by this module.
 
 ## Providers
 

@@ -411,7 +411,7 @@ locals {
 }
 
 resource "kubectl_manifest" "exclude_new_pod_owned_pvcs" {
-  yaml_body = yamlencode({
+  yaml_body = var.kyverno_cel_policies_enabled ? yamlencode(local.cel_exclude_new_pod_owned_pvcs) : yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "ClusterPolicy"
     metadata = {
@@ -436,7 +436,7 @@ resource "kubectl_manifest" "exclude_new_pod_owned_pvcs" {
 // Kyverno only allows mutating existing resources when every rule in the policy has targets,
 // so this cannot share a policy with the admission rule above.
 resource "kubectl_manifest" "exclude_existing_pod_owned_pvcs" {
-  yaml_body = yamlencode({
+  yaml_body = var.kyverno_cel_policies_enabled ? yamlencode(local.cel_exclude_existing_pod_owned_pvcs) : yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "ClusterPolicy"
     metadata = {

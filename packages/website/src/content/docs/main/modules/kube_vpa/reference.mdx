@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### burstable_nodes_enabled
+### burstable\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on burstable nodes
 
@@ -14,7 +14,7 @@ Type: `bool`
 
 Default: `true`
 
-### controller_nodes_enabled
+### controller\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on EKS Node Group nodes (controller nodes)
 
@@ -22,7 +22,7 @@ Type: `bool`
 
 Default: `true`
 
-### history_length_hours
+### history\_length\_hours
 
 Description: The number of prior hours of metrics data that will be used for VPA recommendations
 
@@ -30,7 +30,15 @@ Type: `number`
 
 Default: `24`
 
-### log_verbosity
+### kyverno\_cel\_policies\_enabled
+
+Description: Use CEL policies for VPA workloads with Kyverno 1.20 and later.
+
+Type: `bool`
+
+Default: `false`
+
+### log\_verbosity
 
 Description: The log verbosity (0-9) for the VPA pods
 
@@ -38,7 +46,7 @@ Type: `number`
 
 Default: `0`
 
-### monitoring_enabled
+### monitoring\_enabled
 
 Description: Whether to allow monitoring CRs to be deployed in the namespace
 
@@ -46,7 +54,7 @@ Type: `bool`
 
 Default: `true`
 
-### panfactum_scheduler_enabled
+### panfactum\_scheduler\_enabled
 
 Description: Whether to use the Panfactum pod scheduler with enhanced bin-packing
 
@@ -54,7 +62,7 @@ Type: `bool`
 
 Default: `false`
 
-### prometheus_enabled
+### prometheus\_enabled
 
 Description: Whether to enable prometheus as the storage backend for the VPA recommender
 
@@ -62,7 +70,7 @@ Type: `bool`
 
 Default: `false`
 
-### pull_through_cache_enabled
+### pull\_through\_cache\_enabled
 
 Description: Whether to use the ECR pull through cache for the deployed images
 
@@ -70,16 +78,15 @@ Type: `bool`
 
 Default: `true`
 
-### sla_target
+### sla\_target
 
-Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest
-uptime (99.999%), highest Cost
+Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest uptime (99.999%), highest Cost
 
 Type: `number`
 
 Default: `3`
 
-### spot_nodes_enabled
+### spot\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on spot nodes
 
@@ -87,7 +94,7 @@ Type: `bool`
 
 Default: `true`
 
-### thanos_query_frontend_url
+### thanos\_query\_frontend\_url
 
 Description: The address of the thanos query frontend to be used by the VPA recommender
 
@@ -95,7 +102,7 @@ Type: `string`
 
 Default: `null`
 
-### vertical_autoscaler_helm_version
+### vertical\_autoscaler\_helm\_version
 
 Description: The version of VPA helm chart to deploy
 
@@ -103,7 +110,7 @@ Type: `string`
 
 Default: `"4.10.2"`
 
-### vertical_autoscaler_image_version
+### vertical\_autoscaler\_image\_version
 
 Description: The version of VPA image deploy
 
@@ -111,7 +118,7 @@ Type: `string`
 
 Default: `"1.5.0"`
 
-### vpa_enabled
+### vpa\_enabled
 
 Description: Whether the VPA resources should be enabled
 
@@ -121,9 +128,7 @@ Default: `false`
 
 ### wait
 
-Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to
-proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment
-failures.
+Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment failures.
 
 Type: `bool`
 
@@ -131,7 +136,11 @@ Default: `true`
 
 ## Outputs
 
-No outputs.
+The following outputs are exported:
+
+### kyverno\_cel\_policy\_documents
+
+Description: CEL policies managed by this module.
 
 ## Providers
 
@@ -145,4 +154,6 @@ The following providers are needed by this module:
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 
-{/* eslint-enable import-x/order */} {/* lint enable no-duplicate-headings */}
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

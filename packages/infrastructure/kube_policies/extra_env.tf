@@ -351,7 +351,8 @@ resource "kubernetes_secret" "common" {
 }
 
 module "secret_sync" {
-  source           = "../kube_sync_secret"
-  secret_name      = kubernetes_secret.common.metadata[0].name
-  secret_namespace = kubernetes_secret.common.metadata[0].namespace
+  source                       = "../kube_sync_secret"
+  secret_name                  = kubernetes_secret.common.metadata[0].name
+  secret_namespace             = kubernetes_secret.common.metadata[0].namespace
+  kyverno_cel_policies_enabled = var.kyverno_cel_policies_enabled
 }

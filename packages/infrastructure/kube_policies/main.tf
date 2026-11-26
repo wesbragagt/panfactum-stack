@@ -57,7 +57,14 @@ locals {
   }
 }
 
+moved {
+  from = kubectl_manifest.panfactum_policies
+  to   = kubectl_manifest.panfactum_policies[0]
+}
+
 resource "kubectl_manifest" "panfactum_policies" {
+  count = var.kyverno_cel_policies_enabled ? 0 : 1
+
   yaml_body = yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "ClusterPolicy"

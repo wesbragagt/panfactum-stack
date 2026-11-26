@@ -6,16 +6,15 @@
 
 The following input variables are supported:
 
-### common_env
+### common\_env
 
-Description: Key-value pairs that will be injected into all containers in all pods in the cluster as environment
-variables
+Description: Key-value pairs that will be injected into all containers in all pods in the cluster as environment variables
 
 Type: `map(string)`
 
 Default: `{}`
 
-### common_pod_annotations
+### common\_pod\_annotations
 
 Description: Key-value pairs that will be injected as annotations into all pods in the cluster
 
@@ -23,7 +22,7 @@ Type: `map(string)`
 
 Default: `{}`
 
-### common_pod_labels
+### common\_pod\_labels
 
 Description: Key-value pairs that will be injected as labels into all pods in the cluster
 
@@ -31,16 +30,15 @@ Type: `map(string)`
 
 Default: `{}`
 
-### common_secrets
+### common\_secrets
 
-Description: Key-values pairs that will be injected into all containers in all pods in the cluster as environment
-variables (but stored in a Secret resource)
+Description: Key-values pairs that will be injected into all containers in all pods in the cluster as environment variables (but stored in a Secret resource)
 
 Type: `map(string)`
 
 Default: `{}`
 
-### default_arm64_toleration_enabled
+### default\_arm64\_toleration\_enabled
 
 Description: Whether pods should tolerate arm64 nodes by default
 
@@ -48,7 +46,7 @@ Type: `bool`
 
 Default: `true`
 
-### default_burstable_toleration_enabled
+### default\_burstable\_toleration\_enabled
 
 Description: Whether pods should tolerate burstable nodes by default
 
@@ -56,7 +54,7 @@ Type: `bool`
 
 Default: `false`
 
-### default_controller_toleration_enabled
+### default\_controller\_toleration\_enabled
 
 Description: Whether pods should tolerate controller (EKS) nodes by default
 
@@ -64,7 +62,7 @@ Type: `bool`
 
 Default: `false`
 
-### default_spot_toleration_enabled
+### default\_spot\_toleration\_enabled
 
 Description: Whether pods should tolerate spot nodes by default
 
@@ -72,7 +70,7 @@ Type: `bool`
 
 Default: `true`
 
-### environment_variable_injection_enabled
+### environment\_variable\_injection\_enabled
 
 Description: Whether a standard set of environment variables should be injected into each container
 
@@ -80,7 +78,7 @@ Type: `bool`
 
 Default: `true`
 
-### extra_priority_classes
+### extra\_priority\_classes
 
 Description: A mapping of extra priority class names to their values
 
@@ -88,16 +86,23 @@ Type: `map(number)`
 
 Default: `{}`
 
-### gc_released_volumes_after_days
+### gc\_released\_volumes\_after\_days
 
-Description: The number of days to wait before deleting released PersistentVolumes (PVs). These are volumes that are no
-longer used but may contain recovery data. Set to -1 to disable.
+Description: The number of days to wait before deleting released PersistentVolumes (PVs). These are volumes that are no longer used but may contain recovery data. Set to -1 to disable.
 
 Type: `number`
 
 Default: `30`
 
-### panfactum_scheduler_enabled
+### kyverno\_cel\_policies\_enabled
+
+Description: Use policies.kyverno.io/v1 CEL equivalents, required by Kyverno 1.20+.
+
+Type: `bool`
+
+Default: `false`
+
+### panfactum\_scheduler\_enabled
 
 Description: Whether pods should be automatically updated to use the Panfactum bin-packing scheduler.
 
@@ -105,7 +110,7 @@ Type: `bool`
 
 Default: `false`
 
-### panfactum_scheduler_talos_enabled
+### panfactum\_scheduler\_talos\_enabled
 
 Description: Whether the Panfactum scheduler profile is served by the Talos control-plane scheduler.
 
@@ -113,7 +118,7 @@ Type: `bool`
 
 Default: `false`
 
-### pull_through_cache_enabled
+### pull\_through\_cache\_enabled
 
 Description: Whether pods should have their images replaced with image references of the ECR pull-through cache.
 
@@ -123,7 +128,15 @@ Default: `true`
 
 ## Outputs
 
-No outputs.
+The following outputs are exported:
+
+### kyverno\_cel\_cleanup\_policy\_documents
+
+Description: CEL cleanup policies managed by this module.
+
+### kyverno\_cel\_pod\_policy\_documents
+
+Description: CEL documents for the core pod and Cilium test policies
 
 ## Providers
 

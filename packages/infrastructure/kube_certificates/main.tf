@@ -791,6 +791,8 @@ module "sync_ca_bundle" {
 
   config_map_name      = kubernetes_config_map.ca_bundle.metadata[0].name
   config_map_namespace = kubernetes_config_map.ca_bundle.metadata[0].namespace
+
+  kyverno_cel_policies_enabled = var.kyverno_cel_policies_enabled
 }
 
 //////////////////////////////////

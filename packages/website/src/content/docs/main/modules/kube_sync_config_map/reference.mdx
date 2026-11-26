@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### config_map_name
+### config\_map\_name
 
 Description: The name of the ConfigMap to sync
 
@@ -14,7 +14,7 @@ Type: `string`
 
 Default: n/a
 
-### config_map_namespace
+### config\_map\_namespace
 
 Description: The namespace of the ConfigMap to sync
 
@@ -22,7 +22,7 @@ Type: `any`
 
 Default: n/a
 
-### destination_namespaces
+### destination\_namespaces
 
 Description: A list of namespaces to sync the ConfigMap to. If not specified, will sync to all namespaces.
 
@@ -30,7 +30,7 @@ Type: `list(string)`
 
 Default: `[]`
 
-### excluded_namespaces
+### excluded\_namespaces
 
 Description: A list of namespaces that are explicitly excluded from having the ConfigMap copied to.
 
@@ -38,18 +38,32 @@ Type: `list(string)`
 
 Default: `[]`
 
+### kyverno\_cel\_policies\_enabled
+
+Description: Use policies.kyverno.io/v1 CEL policies, required by Kyverno 1.20+. Existing legacy policies must be migrated with a reviewed replacement plan.
+
+Type: `bool`
+
+Default: `false`
+
 ## Outputs
 
-No outputs.
+The following outputs are exported:
+
+### cel\_policy\_document
+
+Description: CEL policy manifest for migration validation.
 
 ## Providers
 
 The following providers are needed by this module:
 
-- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
 
-- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/2.35.0/docs) (2.35.0)
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 
-{/* eslint-enable import-x/order */} {/* lint enable no-duplicate-headings */}
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

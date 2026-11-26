@@ -1,7 +1,8 @@
 variable "kyverno_helm_version" {
   description = "The version of kyverno helm chart to deploy"
   type        = string
-  default     = "3.10.0"
+  # NOTE: Panfactum still applies legacy ClusterPolicy and ClusterCleanupPolicy resources, which Kyverno 1.20 no longer enforces.
+  default = "3.9.2"
 }
 
 variable "vpa_enabled" {

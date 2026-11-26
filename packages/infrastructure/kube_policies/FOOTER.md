@@ -1,6 +1,34 @@
 ## Usage
 
-No notes
+For a new CEL deployment, select Kyverno chart `3.10.0` and set
+`kyverno_cel_policies_enabled = true` in this module and the add-on modules
+that write policies. The CEL policy types use `policies.kyverno.io/v1`.
+
+For an existing cluster, use Kyverno 1.19 as the transition release. It serves
+`policies.kyverno.io/v1` and still runs the legacy policies. Check its Kubernetes
+support range before planning the transition. Kyverno 1.17 can serve the CEL
+API while its compiler still rejects `cel.bind`, which these policies use.
+
+Before replacing a
+legacy Secret or ConfigMap sync policy, set
+`spec.rules[0].generate.orphanDownstreamOnPolicyDelete` to `true` on that
+policy so Kyverno retains the existing copies. Make a fresh plan after the
+change. Review the policy replacement plans for this module and the other
+deployed policy producers.
+Verify pod mutations, namespace sync and cleanup behavior before upgrading
+Kyverno to 1.20. The policy replacement can leave an interval without the old
+rules while the new admission policies become ready.
+
+If the cluster installs CloudNativePG after Kyverno, enable
+`admissionController.crdWatcher` and `backgroundController.crdWatcher` in the
+Kyverno Helm values so the controllers discover the new resource types.
+
+Before upgrading Kyverno, check for legacy policies across the cluster:
+
+```sh
+kubectl get clusterpolicies.kyverno.io,clustercleanuppolicies.kyverno.io
+kubectl get policies.kyverno.io,cleanuppolicies.kyverno.io,policyexceptions.kyverno.io --all-namespaces
+```
 
 ## Maintainers
 

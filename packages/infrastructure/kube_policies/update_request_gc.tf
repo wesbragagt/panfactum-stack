@@ -1,6 +1,6 @@
 // Deletes unprocessed update requests after 24 hours
 resource "kubectl_manifest" "update_request_gc" {
-  yaml_body = yamlencode({
+  yaml_body = var.kyverno_cel_policies_enabled ? yamlencode(local.cel_update_request_gc) : yamlencode({
     apiVersion = "kyverno.io/v2"
     kind       = "ClusterCleanupPolicy"
     metadata = {

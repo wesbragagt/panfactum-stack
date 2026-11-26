@@ -130,3 +130,9 @@ variable "kube_domain" {
   description = "The domain under which cluster utilities have subdomains registered."
   type        = string
 }
+
+variable "kyverno_cel_policies_enabled" {
+  description = "Use CEL policies to sync the CA bundle across namespaces."
+  type        = bool
+  default     = false
+}

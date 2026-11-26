@@ -92,3 +92,9 @@ variable "controller_nodes_enabled" {
   type        = bool
   default     = true
 }
+
+variable "kyverno_cel_policies_enabled" {
+  description = "Use CEL policies for VPA workloads with Kyverno 1.20 and later."
+  type        = bool
+  default     = false
+}

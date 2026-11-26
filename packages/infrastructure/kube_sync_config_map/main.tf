@@ -85,10 +85,18 @@ locals {
       matchConstraints = {
         resourceRules = [{ apiGroups = [""], apiVersions = ["v1"], operations = ["CREATE", "UPDATE"], resources = ["namespaces"] }]
       }
-      matchConditions = [
-        { name = "destinations", expression = length(var.destination_namespaces) > 0 ? "object.metadata.name in ${jsonencode(var.destination_namespaces)}" : "true" },
-        { name = "exclusions", expression = "!(object.metadata.name in ${jsonencode(var.excluded_namespaces)}) && object.metadata.name != ${jsonencode(var.config_map_namespace)}" },
-      ]
+      matchConditions = concat(
+        [{ name = "source-namespace", expression = "object.metadata.name != ${jsonencode(var.config_map_namespace)}" }],
+        [for condition, patterns in { destinations = var.destination_namespaces, exclusions = var.excluded_namespaces } : {
+          name                                     = condition
+          # NOTE: Legacy namespace selectors accept * and ? as wildcards.
+          expression = format(
+            "%s%s.exists(pattern, object.metadata.name.matches(pattern))",
+            condition == "exclusions" ? "!" : "",
+            jsonencode([for pattern in patterns : format("^%s$", replace(replace(replace(pattern, "/([^a-z0-9?*-])/", "\\$1"), "*", ".*"), "?", "."))])
+          )
+        } if length(patterns) > 0]
+      )
       variables = [{ name = "source", expression = "resource.Get('v1', 'configmaps', ${jsonencode(var.config_map_namespace)}, ${jsonencode(var.config_map_name)})" }]
       generate  = [{ expression = "generator.Apply(object.metadata.name, [variables.source])" }]
     }

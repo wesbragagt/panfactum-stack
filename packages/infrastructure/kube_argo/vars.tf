@@ -313,3 +313,9 @@ variable "db_backup_schedule_name" {
   type        = string
   default     = null
 }
+
+variable "kyverno_cel_policies_enabled" {
+  description = "Use CEL policies for artifact configuration sync and database workloads."
+  type        = bool
+  default     = false
+}

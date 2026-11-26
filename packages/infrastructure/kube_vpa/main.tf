@@ -498,7 +498,14 @@ resource "kubernetes_cluster_role" "kyverno_admission_controller" {
   }
 }
 
+moved {
+  from = kubectl_manifest.adjust_vpa_settings
+  to   = kubectl_manifest.adjust_vpa_settings[0]
+}
+
 resource "kubectl_manifest" "adjust_vpa_settings" {
+  count = var.kyverno_cel_policies_enabled ? 0 : 1
+
   yaml_body = yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "Policy"
