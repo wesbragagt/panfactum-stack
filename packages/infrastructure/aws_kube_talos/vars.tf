@@ -88,7 +88,7 @@ variable "control_plane_workloads_enabled" {
 variable "worker_count" {
   description = "Number of Spot worker nodes in the worker ASG. 0 creates no Spot ASG, for clusters where Karpenter launches every worker."
   type        = number
-  default     = 1
+  default     = 0
 }
 
 variable "worker_instance_type" {

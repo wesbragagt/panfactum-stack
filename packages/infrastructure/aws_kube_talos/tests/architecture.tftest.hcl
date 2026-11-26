@@ -481,7 +481,6 @@ run "zero_workers_create_no_asgs" {
   command = plan
   variables {
     aws_node_config_enabled  = true
-    worker_count             = 0
     on_demand_worker_subnets = []
     private_api_dns_name     = "api.test.internal"
   }
@@ -499,8 +498,9 @@ run "zero_workers_create_no_asgs" {
   }
 }
 
-run "default_workers_keep_spot_asg" {
+run "explicit_workers_keep_spot_asg" {
   command = plan
+  variables { worker_count = 1 }
   assert {
     condition     = length(aws_autoscaling_group.worker) == 1 && length(aws_launch_template.worker) == 1
     error_message = "worker_count above 0 must keep the Spot worker ASG."
