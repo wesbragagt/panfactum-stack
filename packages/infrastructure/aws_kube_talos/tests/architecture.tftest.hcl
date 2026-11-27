@@ -64,13 +64,32 @@ variables {
 
 run "ccm_default_enabled" {
   command = plan
+
+  override_module {
+    target = module.aws_ccm_permissions
+    outputs = {
+      role_arn                    = "arn:aws:iam::123456789012:role/ccm"
+      service_account_annotations = { "eks.amazonaws.com/role-arn" = "arn:aws:iam::123456789012:role/ccm" }
+    }
+  }
+
   assert {
-    condition     = length(module.aws_ccm) == 1 && length(terraform_data.aws_ccm_api) == 1 && length(terraform_data.aws_ccm_ready) == 1 && local.ccm_image_version == "v1.36.1"
+    condition     = helm_release.ccm.name == "aws-cloud-controller-manager" && length(terraform_data.aws_ccm_api) == 1 && length(terraform_data.aws_ccm_ready) == 1 && local.ccm_image_version == "v1.36.1"
     error_message = "AWS node configuration must default to host-network CCM with the pinned matching image."
   }
   assert {
     condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"cloud-provider\": \"external\"")
     error_message = "Controllers must use the external AWS cloud provider by default."
+  }
+  assert {
+    condition = (
+      yamldecode(helm_release.ccm.values[0]).hostNetworking &&
+      yamldecode(helm_release.ccm.values[0]).dnsPolicy == "Default" &&
+      one([for env in yamldecode(helm_release.ccm.values[0]).env : env.value if env.name == "KUBERNETES_SERVICE_HOST"]) == "127.0.0.1" &&
+      one([for env in yamldecode(helm_release.ccm.values[0]).env : env.value if env.name == "KUBERNETES_SERVICE_PORT"]) == "7445" &&
+      yamldecode(helm_release.ccm.values[1]).serviceAccount.annotations["eks.amazonaws.com/role-arn"] == output.aws_ccm_role_arn
+    )
+    error_message = "The Talos-owned release must use KubePrism over the host network and annotate the service account with the CCM IAM role."
   }
 }
 
@@ -84,7 +103,7 @@ run "ccm_plans_for_fresh_ssm" {
   }
 
   assert {
-    condition     = length(module.aws_ccm) == 1 && length(terraform_data.aws_ccm_api) == 1 && length(terraform_data.aws_ccm_ready) == 1
+    condition     = helm_release.ccm.name == "aws-cloud-controller-manager" && length(terraform_data.aws_ccm_api) == 1 && length(terraform_data.aws_ccm_ready) == 1
     error_message = "CCM ownership and bootstrap checks must plan before OIDC outputs exist."
   }
 
@@ -113,19 +132,44 @@ run "ccm_uses_custom_legacy_ssm_ports" {
   }
 }
 
-run "ccm_adoption_uses_existing_pod_network" {
+run "ccm_supports_pod_network_and_overrides" {
   command = plan
   variables {
     aws_ccm = {
-      image_version   = "v1.36.1"
-      host_networking = false
-      subnet_id       = "subnet-00000000000000000"
+      image_version     = "v1.36.1"
+      host_networking   = false
+      subnet_id         = "subnet-00000000000000000"
+      availability_zone = "us-east-2a"
+      helm_values       = "{\"image\":{\"repository\":\"example.test/ccm\"}}"
+    }
+  }
+
+  override_data {
+    target = data.aws_subnet.control_plane
+    values = { id = "subnet-11111111111111111", availability_zone = "us-east-2b" }
+  }
+
+  override_module {
+    target = module.aws_ccm_permissions
+    outputs = {
+      role_arn                    = "arn:aws:iam::123456789012:role/ccm"
+      service_account_annotations = { "eks.amazonaws.com/role-arn" = "arn:aws:iam::123456789012:role/ccm" }
     }
   }
 
   assert {
-    condition     = length(module.aws_ccm) == 1 && length(terraform_data.aws_ccm_api) == 0 && length(terraform_data.aws_ccm_ready) == 0
-    error_message = "Adopting a legacy release must avoid host-network bootstrap changes."
+    condition     = helm_release.ccm.name == "aws-cloud-controller-manager" && length(terraform_data.aws_ccm_api) == 0 && length(terraform_data.aws_ccm_ready) == 0
+    error_message = "Pod-network CCM must skip the host-network bootstrap checks."
+  }
+  assert {
+    condition = (
+      !contains(keys(yamldecode(helm_release.ccm.values[0])), "hostNetworking") &&
+      yamldecode(helm_release.ccm.values[0]).image.repository == "example.test/ccm" &&
+      yamldecode(helm_release.ccm.values[0]).image.tag == "v1.36.1" &&
+      strcontains(kubernetes_config_map_v1.cloud.data["cloud.conf"], "Zone=us-east-2a\n") &&
+      strcontains(kubernetes_config_map_v1.cloud.data["cloud.conf"], "SubnetID=subnet-00000000000000000\n")
+    )
+    error_message = "Pod-network CCM must use the overridden topology and the custom image repository with the selected tag."
   }
 }
 
@@ -135,7 +179,7 @@ run "ccm_explicit_null" {
     aws_ccm = null
   }
   assert {
-    condition     = length(module.aws_ccm) == 1 && length(terraform_data.aws_ccm_api) == 1 && length(terraform_data.aws_ccm_ready) == 1 && local.ccm_image_version == "v1.36.1"
+    condition     = helm_release.ccm.name == "aws-cloud-controller-manager" && length(terraform_data.aws_ccm_api) == 1 && length(terraform_data.aws_ccm_ready) == 1 && local.ccm_image_version == "v1.36.1"
     error_message = "Explicit null must use the default host-network CCM and pinned image."
   }
 }
@@ -146,7 +190,7 @@ run "ccm_explicit_image_override" {
     aws_ccm = { image_version = "v1.36.0" }
   }
   assert {
-    condition     = local.ccm_image_version == "v1.36.0" && length(module.aws_ccm) == 1
+    condition     = local.ccm_image_version == "v1.36.0" && helm_release.ccm.name == "aws-cloud-controller-manager"
     error_message = "The caller's compatible image pin must take precedence."
   }
 }
@@ -177,7 +221,7 @@ run "ccm_accepts_previous_minor_during_upgrade" {
     kube_version = "1.37.0"
   }
   assert {
-    condition     = local.ccm_image_version == "v1.36.1" && length(module.aws_ccm) == 1
+    condition     = local.ccm_image_version == "v1.36.1" && helm_release.ccm.name == "aws-cloud-controller-manager"
     error_message = "The running CCM pin must remain available during a minor upgrade."
   }
 }

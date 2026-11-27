@@ -186,7 +186,7 @@ This module replaces `aws_eks`. It needs Talos-only setup before the apply.
 
 #### AWS cloud controller manager
 
-Talos installs the AWS cloud controller manager (CCM) during bootstrap. Kubernetes `1.36` defaults to CCM `v1.36.1`. Set `aws_ccm.image_version` to override the default or to select an image for a different Kubernetes minor. Use the Kubernetes major and the target or preceding minor. See [CCM adoption](CCM-ADOPTION.md) before you apply to a cluster with a standalone release.
+Talos installs the AWS cloud controller manager (CCM) during bootstrap. Kubernetes `1.36` defaults to CCM `v1.36.1`. Set `aws_ccm.image_version` to override the default or to select an image for a different Kubernetes minor. Use the Kubernetes major and the target or preceding minor. Destroy any existing standalone CCM release before applying the Talos unit.
 
 For SSM, add `--bootstrap-kubernetes` to the `before_hook` above. Set
 `--control-plane-name` to the bootstrap controller if it is not position
@@ -211,9 +211,6 @@ the shared provider templates. OpenTofu adds Helm to the lockfile during
 init and the shared template can generate Helm 2-style `helm.tf` on later
 runs. The include updates the generated
 file for Helm 3. Use the same module revision for the source and this include.
-
-See [adopting an existing CCM release](CCM-ADOPTION.md) before enabling the
-input on a cluster whose CCM already has standalone state.
 
 #### SSM jump host
 

@@ -19,7 +19,7 @@ Set `talos_access_transport = "bootstrap_public"`. The module detects the runner
 
 CCM starts with Talos. Kubernetes `1.36` defaults to CCM `v1.36.1`. Set `aws_ccm.image_version` to override it. Set an explicit image if the Kubernetes minor has no default. Use the same Kubernetes major and the target minor or the previous minor. During an upgrade, keep CCM at or below the oldest API server minor that it can reach. [AWS CCM compatibility](https://cloud-provider-aws.sigs.k8s.io/#compatibility-with-kubernetes) · [Kubernetes version skew](https://kubernetes.io/releases/version-skew-policy/#kube-controller-manager-kube-scheduler-and-cloud-controller-manager)
 
-If a separate caller owns CCM, complete the state transfer in `aws_kube_talos/CCM-ADOPTION.md` before you apply the updated Talos module.
+If a separate caller owns CCM, destroy that caller's CCM resources before applying `aws_kube_talos`.
 
 ## 3. Install networking and switch to private access
 
