@@ -969,8 +969,8 @@ run "version_upgrades_default_installer" {
     error_message = "Without installer_image or image_factory_schematic_id the module must build its own schematic and derive the installer from it."
   }
   assert {
-    condition     = contains([for patch in data.talos_machine_configuration.control_plane_runtime.config_patches : try(yamldecode(patch).kind, null)], "KubeCredentialProviderConfig") && !contains([for patch in data.talos_machine_configuration.control_plane.config_patches : try(yamldecode(patch).kind, null)], "KubeCredentialProviderConfig")
-    error_message = "The ECR credential config must apply at runtime and stay out of boot user data, because stock AMIs lack the binary."
+    condition     = contains([for patch in data.talos_machine_configuration.control_plane.config_patches : try(yamldecode(patch).kind, null)], "KubeCredentialProviderConfig")
+    error_message = "Boot user data must configure the ECR credential provider so kubelet pulls from ECR on first boot."
   }
 }
 
