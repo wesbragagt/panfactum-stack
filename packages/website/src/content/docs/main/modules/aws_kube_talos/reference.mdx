@@ -37,14 +37,6 @@ Type: `bool`
 
 Default: `true`
 
-### bootstrap\_control\_plane
-
-Description: Subnet name of the controller that bootstraps talos\_cluster and serves as the cluster endpoint fallback. Null uses the first entry of control\_plane\_subnets. Must be one of the active subnets.
-
-Type: `string`
-
-Default: `null`
-
 ### bootstrap\_mode\_enabled
 
 Description: Controllers skip the controller=true:NoSchedule and control-plane taints so workloads run on them until Karpenter launches workers; set to false after that.
@@ -55,7 +47,7 @@ Default: `false`
 
 ### bootstrap\_public
 
-Description: Overrides for the temporary public NLB. Public transport enables it and detects the runner's public IPv4 address by default. Set operator\_cidr to override discovery. Set enabled to false after verifying private access to retire the public NLB.
+Description: Overrides for the temporary public NLB. Public transport enables it and detects the runner's public IPv4 address by default. Set operator\_cidr to override discovery. Set dns\_zone\_id to a public Route 53 zone for private\_api\_dns\_name and keep it when setting enabled to false after verifying private access.
 
 Type:
 
@@ -63,6 +55,7 @@ Type:
 object({
     enabled       = optional(bool, true)
     operator_cidr = optional(string)
+    dns_zone_id   = optional(string)
   })
 ```
 
@@ -92,6 +85,30 @@ Type: `string`
 
 Default: n/a
 
+### control\_plane
+
+Description: Control plane nodes, one entry each: subnet (Name tag, required), optional fixed private\_ip (null lets AWS assign one) and optional instance\_type. The first entry bootstraps talos\_cluster and is the endpoint fallback. Node state is keyed by list position, so only append entries; reordering or removing one replaces nodes. A fixed private\_ip lets an SSM tunnel target the controller before it exists. An instance\_type change resizes that controller in place (stop, modify, start); T2 types are not supported by Talos. More than one entry requires private\_api\_dns\_name.
+
+Type:
+
+```hcl
+list(object({
+    subnet        = string
+    private_ip    = optional(string)
+    instance_type = optional(string, "t4g.medium")
+  }))
+```
+
+Default:
+
+```json
+[
+  {
+    "subnet": "PRIVATE_A"
+  }
+]
+```
+
 ### control\_plane\_config\_patches
 
 Description: Additional Talos configuration patches for control plane nodes.
@@ -100,41 +117,9 @@ Type: `list(string)`
 
 Default: `[]`
 
-### control\_plane\_count
-
-Description: Number of on-demand control plane nodes, placed in control\_plane\_subnets order. Above 1 requires private\_api\_dns\_name so nodes do not depend on one controller's address.
-
-Type: `number`
-
-Default: `1`
-
-### control\_plane\_instance\_type
-
-Description: EC2 instance type for control plane nodes. T2 types are not supported by Talos.
-
-Type: `string`
-
-Default: `"t4g.medium"`
-
-### control\_plane\_instance\_types
-
-Description: Optional per-node instance types in control\_plane\_subnets order, overriding control\_plane\_instance\_type. A change resizes that controller in place (stop, modify, start).
-
-Type: `list(string)`
-
-Default: `[]`
-
-### control\_plane\_private\_ips
-
-Description: Optional fixed private IPs for control plane nodes, one per node in control\_plane\_subnets order. A fixed address lets an SSM tunnel target the controller before it exists, so the first bootstrap needs no public ingress. Changing it replaces the nodes.
-
-Type: `list(string)`
-
-Default: `[]`
-
 ### control\_plane\_public\_ip\_enabled
 
-Description: Give controllers a public IP and an Elastic IP API endpoint. Off by default: controllers sit in private subnets and operators reach them through an SSM tunnel, which needs private\_api\_dns\_name or control\_plane\_private\_ips.
+Description: Give controllers a public IP and an Elastic IP API endpoint. Off by default: controllers sit in private subnets and operators reach them through an SSM tunnel, which needs private\_api\_dns\_name or a control\_plane private\_ip.
 
 Type: `bool`
 
@@ -147,22 +132,6 @@ Description: Whether controllers register Nodes under the EC2 private DNS name s
 Type: `bool`
 
 Default: `false`
-
-### control\_plane\_subnets
-
-Description: Subnet names (Name tag), one per control plane node in order. Use PUBLIC subnets only with control\_plane\_public\_ip\_enabled. Names must be unique. Node state is keyed by list position, so only append entries; reordering or removing one replaces nodes.
-
-Type: `list(string)`
-
-Default:
-
-```json
-[
-  "PRIVATE_A",
-  "PRIVATE_B",
-  "PRIVATE_C"
-]
-```
 
 ### control\_plane\_workloads\_enabled
 
@@ -237,9 +206,17 @@ Type: `number`
 
 Default: `600`
 
+### image\_factory\_schematic\_id
+
+Description: Optional Talos Image Factory schematic ID. Derives the AWS installer from talos\_version and reconciles the schematic on existing controllers.
+
+Type: `string`
+
+Default: `null`
+
 ### installer\_image
 
-Description: Optional Talos factory installer image matching the AMI.
+Description: Optional explicit Talos installer image. Mutually exclusive with image\_factory\_schematic\_id.
 
 Type: `string`
 
@@ -276,6 +253,14 @@ Description: Kubernetes version (e.g., 1.36.5). The Talos cluster resource manag
 Type: `string`
 
 Default: `"1.36.5"`
+
+### lifecycle\_lock
+
+Description: Disable force\_destroy on the etcd backup and service account OIDC buckets. Set to false for disposable clusters to allow deletion of both S3 buckets and their contents.
+
+Type: `bool`
+
+Default: `true`
 
 ### machine\_secrets
 
@@ -390,7 +375,7 @@ Default: `"t4g.nano"`
 
 ### ssm\_jump\_host\_subnet
 
-Description: Name tag of the private subnet for the SSM jump host. Defaults to the first entry of control\_plane\_subnets.
+Description: Name tag of the private subnet for the SSM jump host. Defaults to the first control\_plane entry's subnet.
 
 Type: `string`
 
@@ -506,7 +491,7 @@ Description: The URL of the Kubernetes API server (use as kube\_api\_server in r
 
 ### control\_plane\_private\_ips
 
-Description: Private IPs of the control plane nodes, in control\_plane\_subnets order.
+Description: Private IPs of the control plane nodes, in control\_plane order.
 
 ### control\_plane\_public\_ips
 
@@ -563,6 +548,10 @@ Description: Instance ID of the SSM jump host, or null when ssm\_jump\_host\_ena
 ### ssm\_jump\_host\_security\_group\_id
 
 Description: Security group of the SSM jump host, or null when ssm\_jump\_host\_enabled is false.
+
+### stable\_api\_hostname
+
+Description: Shared Talos and Kubernetes API DNS name across public bootstrap and private access, when configured.
 
 ### talos\_ami\_id
 

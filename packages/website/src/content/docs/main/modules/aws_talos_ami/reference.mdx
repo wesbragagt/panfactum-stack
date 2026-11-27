@@ -1,0 +1,67 @@
+{/* lint disable no-duplicate-headings */}
+
+{/* eslint-disable import-x/order */}
+
+## Inputs
+
+The following input variables are supported:
+
+### aws\_profile
+
+Description: AWS CLI profile for the helper launch script. Omit to use the ambient AWS credentials.
+
+Type: `string`
+
+Default: `null`
+
+### images
+
+Description: Talos AMIs to build, keyed by image name.
+
+Type:
+
+```hcl
+map(object({
+    talos_version = string
+    architecture  = optional(string, "arm64")
+    extensions    = optional(list(string), ["siderolabs/ecr-credential-provider", "siderolabs/util-linux-tools"])
+  }))
+```
+
+Default: n/a
+
+### name\_prefix
+
+Description: Prefix for AMI, snapshot and IAM role names.
+
+Type: `string`
+
+Default: `"talos"`
+
+### subnet\_id
+
+Description: Private subnet with NAT egress for the helper instance that stages images in S3.
+
+Type: `string`
+
+Default: n/a
+
+## Outputs
+
+The following outputs are exported:
+
+### images
+
+Description: Built images keyed by image name.
+
+## Providers
+
+The following providers are needed by this module:
+
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
+
+- talos (0.12.0)
+
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

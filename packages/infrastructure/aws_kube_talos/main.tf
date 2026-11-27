@@ -396,13 +396,7 @@ locals {
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeServiceAccountConfig", issuer = { issuerURL = local.service_account_oidc_issuer_url } }),
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeAPIServerConfig", extraArgs = { "service-account-jwks-uri" = "${local.service_account_oidc_issuer_url}/keys.json" } })
   ]
-  control_plane_patches = concat(local.control_plane_base_patches, local.oidc_config_patches, var.control_plane_workloads_enabled || var.bootstrap_mode_enabled ? [yamlencode(local.control_plane_node_config)] : [], local.fqdn_patches, [
-    yamlencode({ apiVersion = "v1alpha1", kind = "KubeCredentialProviderConfig", configuration = {
-      apiVersion = "kubelet.config.k8s.io/v1", kind = "CredentialProviderConfig", providers = [{
-        name = "ecr-credential-provider", apiVersion = "credentialprovider.kubelet.k8s.io/v1", defaultCacheDuration = "12h", matchImages = ["*.dkr.ecr.*.amazonaws.com"]
-      }]
-    } }),
-  ])
+  control_plane_patches = concat(local.control_plane_base_patches, local.oidc_config_patches, var.control_plane_workloads_enabled || var.bootstrap_mode_enabled ? [yamlencode(local.control_plane_node_config)] : [], local.fqdn_patches)
 }
 
 data "talos_machine_configuration" "control_plane" {
@@ -428,7 +422,15 @@ data "talos_machine_configuration" "control_plane_runtime" {
   kubernetes_version = var.kube_version
   docs               = false
   examples           = false
-  config_patches     = concat(local.control_plane_patches, local.backup_config_patches)
+  # NOTE: Stock AMIs lack the ecr-credential-provider binary until talos_machine installs the
+  # Factory image, so the provider config stays out of boot user data.
+  config_patches = concat(local.control_plane_patches, local.backup_config_patches, [
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeCredentialProviderConfig", configuration = {
+      apiVersion = "kubelet.config.k8s.io/v1", kind = "CredentialProviderConfig", providers = [{
+        name = "ecr-credential-provider", apiVersion = "credentialprovider.kubelet.k8s.io/v1", defaultCacheDuration = "12h", matchImages = ["*.dkr.ecr.*.amazonaws.com"]
+      }]
+    } }),
+  ])
 }
 
 # Workers reach the bootstrap controller IP only without a private API name. The indirection
