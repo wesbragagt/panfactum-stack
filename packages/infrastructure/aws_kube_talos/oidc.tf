@@ -16,7 +16,7 @@ locals {
 resource "aws_s3_bucket" "service_account_oidc" {
   count         = 1
   bucket        = "${var.cluster_name}-oidc-${data.aws_caller_identity.oidc.account_id}"
-  force_destroy = false
+  force_destroy = !var.lifecycle_lock
   tags = merge(data.pf_aws_tags.tags.tags, {
     Name    = "${var.cluster_name}-oidc"
     Purpose = "Public service-account OIDC discovery and verification keys"

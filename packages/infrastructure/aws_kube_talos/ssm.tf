@@ -31,7 +31,7 @@ variable "ssm_jump_host_instance_type" {
 }
 
 variable "ssm_jump_host_subnet" {
-  description = "Name tag of the private subnet for the SSM jump host. Defaults to the first entry of control_plane_subnets."
+  description = "Name tag of the private subnet for the SSM jump host. Defaults to the first control_plane entry's subnet."
   type        = string
   default     = null
 }
@@ -48,7 +48,7 @@ data "aws_subnet" "ssm_jump_host" {
   vpc_id = var.vpc_id
   filter {
     name   = "tag:Name"
-    values = [coalesce(var.ssm_jump_host_subnet, var.control_plane_subnets[0])]
+    values = [coalesce(var.ssm_jump_host_subnet, var.control_plane[0].subnet)]
   }
 }
 
@@ -113,6 +113,9 @@ resource "aws_instance" "ssm_jump_host" {
   vpc_security_group_ids      = [aws_security_group.ssm_jump_host[0].id]
   iam_instance_profile        = aws_iam_instance_profile.ssm_jump_host[0].name
   associate_public_ip_address = false
+
+  # Attach the SSM policy before the agent starts on a new host.
+  depends_on = [aws_iam_role_policy_attachment.ssm_jump_host]
 
   metadata_options {
     http_endpoint               = "enabled"

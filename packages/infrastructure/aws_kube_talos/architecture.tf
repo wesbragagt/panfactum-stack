@@ -1,6 +1,6 @@
 locals {
   node_instance_types = toset(concat(
-    length(var.control_plane_instance_types) > 0 ? var.control_plane_instance_types : [var.control_plane_instance_type],
+    var.control_plane[*].instance_type,
     var.ssm_jump_host_enabled ? [var.ssm_jump_host_instance_type] : []
   ))
 }

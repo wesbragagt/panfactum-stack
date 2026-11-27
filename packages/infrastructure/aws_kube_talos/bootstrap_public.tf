@@ -8,14 +8,46 @@ locals {
     var.talos_access_transport == "bootstrap_public" || local.bootstrap_public_override_cidr != null ||
     length(flatten(data.aws_security_groups.bootstrap_public_existing[*].ids)) > 0
   )
-  bootstrap_public_ports = local.bootstrap_public_enabled ? tomap({ talos = 50000, kubernetes = 6443 }) : tomap({})
-  bootstrap_public_host  = one(aws_lb.bootstrap_public[*].dns_name)
+  bootstrap_public_ports       = local.bootstrap_public_enabled ? tomap({ talos = 50000, kubernetes = 6443 }) : tomap({})
+  bootstrap_public_dns_zone_id = try(var.bootstrap_public.dns_zone_id, null)
+  stable_api_hostname          = local.bootstrap_public_dns_zone_id == null ? null : var.private_api_dns_name
+  bootstrap_public_nlb_host    = one(aws_lb.bootstrap_public[*].dns_name)
+  bootstrap_public_host        = local.bootstrap_public_enabled && local.stable_api_hostname != null ? local.stable_api_hostname : local.bootstrap_public_nlb_host
   bootstrap_public_existing_cidrs = toset([
     for rule in data.aws_vpc_security_group_rule.bootstrap_public_existing : rule.cidr_ipv4
     if !rule.is_egress && rule.ip_protocol == "tcp" && rule.from_port == rule.to_port &&
     contains(values(local.bootstrap_public_ports), rule.from_port) && rule.description == local.bootstrap_public_rule_description &&
     rule.cidr_ipv4 != null && rule.cidr_ipv4 != ""
   ])
+}
+
+data "aws_route53_zone" "bootstrap_public" {
+  count        = local.bootstrap_public_enabled && local.stable_api_hostname != null ? 1 : 0
+  zone_id      = local.bootstrap_public_dns_zone_id
+  private_zone = false
+
+  lifecycle {
+    postcondition {
+      condition = !self.private_zone && (
+        lower(local.stable_api_hostname) == lower(trimsuffix(self.name, ".")) ||
+        endswith(lower(local.stable_api_hostname), ".${lower(trimsuffix(self.name, "."))}")
+      )
+      error_message = "bootstrap_public.dns_zone_id must be a public Route 53 hosted zone for private_api_dns_name."
+    }
+  }
+}
+
+resource "aws_route53_record" "bootstrap_public" {
+  count   = length(data.aws_route53_zone.bootstrap_public)
+  zone_id = data.aws_route53_zone.bootstrap_public[0].zone_id
+  name    = local.stable_api_hostname
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.bootstrap_public[0].dns_name
+    zone_id                = aws_lb.bootstrap_public[0].zone_id
+    evaluate_target_health = false
+  }
 }
 
 # NOTE: The previous provider endpoint must stay reachable during the first private apply.
@@ -71,7 +103,7 @@ data "aws_subnets" "bootstrap_public" {
   }
   filter {
     name   = "availability-zone"
-    values = [data.aws_subnet.control_plane[local.bootstrap_index].availability_zone]
+    values = [data.aws_subnet.control_plane[0].availability_zone]
   }
   tags = { "panfactum.com/type" = "public" }
 

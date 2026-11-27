@@ -787,7 +787,10 @@ def direct_talosconfig(args):
         endpoints = [client_endpoint(args.transport, args.bootstrap_public_host, 50000, None)[0]]
     else:
         node = args.node or args.talos_endpoint[0]
-        endpoints = [node] if args.node in args.talos_endpoint else args.talos_endpoint
+        if args.talos_hostname:
+            endpoints = [client_endpoint("vpn", args.talos_hostname, 50000, None)[0]]
+        else:
+            endpoints = [node] if args.node in args.talos_endpoint else args.talos_endpoint
     path = directory / f"talosconfig-{vpn_cache_key(args, node, endpoints, str(args.source_talosconfig))}"
     with tempfile.TemporaryDirectory(dir=directory) as temporary:
         config = talosconfig(args, Path(temporary), node, endpoints)
@@ -944,6 +947,7 @@ def main():
     parser.add_argument("--preflight", action="store_true", help="verify fixed documents and Online hosts without sessions")
     parser.add_argument("--talos-config", action="store_true", help="print the path of a protected talosconfig")
     parser.add_argument("--talos-endpoint", action="append", help="private controller IP; repeatable with --talos-config")
+    parser.add_argument("--talos-hostname", help="stable API hostname for VPN --talos-config")
     parser.add_argument("--bootstrap-public-host", help="public load balancer hostname for --talos-config")
     parser.add_argument("--node", help="private Talos node IP for --talos-config")
     parser.add_argument("--bootstrap", action="store_true",
@@ -990,6 +994,9 @@ def main():
         parser.error("direct access uses --exec-credential or --talos-config; use --transport ssm --ensure for recovery")
     if args.bootstrap_public_host and not (args.transport == "bootstrap_public" and args.talos_config):
         parser.error("--bootstrap-public-host requires --transport bootstrap_public --talos-config")
+    if args.talos_hostname and not (args.transport == "vpn" and args.talos_config and is_dns_name(args.talos_hostname)
+                                    and not is_ip(args.talos_hostname)):
+        parser.error("--talos-hostname requires a DNS hostname and --transport vpn --talos-config")
     if args.talos_config:
         if args.exec_credential or args.bootstrap or args.ensure:
             parser.error("--talos-config excludes --exec-credential, --bootstrap and --ensure")

@@ -1,8 +1,10 @@
 import importlib.util
+import json
 from pathlib import Path
 import re
 import sys
 import unittest
+from unittest.mock import Mock, patch
 
 MODULE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(MODULE / "scripts"))
@@ -20,6 +22,7 @@ MEMBERS = """NODE        ID     HOSTNAME   PEER URLS               CLIENT URLS  
 10.0.1.10   a      cp-0       https://10.0.1.10:2380  https://10.0.1.10:2379  false
 10.0.1.10   b      cp-1       https://10.0.2.10:2380  https://10.0.2.10:2379  false
 """
+SCHEMATIC = "a" * 64
 
 
 class ParseTest(unittest.TestCase):
@@ -33,6 +36,22 @@ class ParseTest(unittest.TestCase):
     def test_learners(self):
         self.assertFalse(module.learners(MEMBERS))
         self.assertTrue(module.learners(MEMBERS.replace("2379  false\n", "2379  true\n", 1)))
+
+    def test_reads_schematic_from_consecutive_extension_documents(self):
+        output = "\n".join(json.dumps({"spec": {"metadata": {"name": name, "version": version}}})
+                           for name, version in (("ecr-credential-provider", "1.0.0"), ("schematic", SCHEMATIC)))
+        talos = module.Talos("config", "endpoint")
+        talos.run = Mock(side_effect=[output, "", None])
+        self.assertEqual(talos.schematic("10.0.1.10"), SCHEMATIC)
+        self.assertEqual(talos.schematic("10.0.1.10"), "")
+        self.assertIsNone(talos.schematic("10.0.1.10", check=False))
+
+    def test_invalid_extension_report_is_not_treated_as_a_different_schematic(self):
+        talos = module.Talos("config", "endpoint")
+        talos.run = Mock(return_value="invalid")
+        with self.assertRaisesRegex(module.UpgradeError, "extension"):
+            talos.schematic("10.0.1.10")
+        self.assertIsNone(talos.schematic("10.0.1.10", check=False))
 
 
 class FakeTalos:
@@ -71,6 +90,30 @@ class UpgradeTalosTest(unittest.TestCase):
         with self.assertRaisesRegex(module.UpgradeError, "etcd"):
             module.upgrade_talos(talos, ["10.0.1.10"], "v1.15.0", "img")
         self.assertEqual(talos.upgraded, [])
+
+    def test_same_version_installs_new_schematic_and_waits_for_reboot(self):
+        node = "10.0.1.10"
+        talos = Mock()
+        talos.talos_version.return_value = "v1.14.6"
+        talos.schematic.side_effect = ["", "b" * 64, SCHEMATIC]
+        talos.boot_id.side_effect = ["boot-before", "boot-before", None, "boot-after", "boot-after"]
+        talos.etcd_healthy.return_value = True
+        talos.ready.return_value = True
+        with patch.object(module.time, "sleep"):
+            module.upgrade_talos(talos, [node], "v1.14.6", "img", SCHEMATIC)
+        talos.run.assert_called_once_with(node, "upgrade", "--image", "img", "--wait=false", timeout=300)
+        self.assertEqual(talos.boot_id.call_count, 5)
+        self.assertEqual(talos.schematic.call_count, 3)
+
+    def test_same_version_and_schematic_are_already_done_before_cni(self):
+        node = "10.0.1.10"
+        talos = Mock()
+        talos.talos_version.return_value = "v1.14.6"
+        talos.schematic.return_value = SCHEMATIC
+        talos.ready.return_value = False
+        module.upgrade_talos(talos, [node], "v1.14.6", "img", SCHEMATIC)
+        talos.run.assert_not_called()
+        talos.ready.assert_not_called()
 
 
 class OrderingTest(unittest.TestCase):

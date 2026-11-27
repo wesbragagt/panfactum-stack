@@ -52,7 +52,7 @@ output "control_plane_public_ips" {
 }
 
 output "control_plane_private_ips" {
-  description = "Private IPs of the control plane nodes, in control_plane_subnets order."
+  description = "Private IPs of the control plane nodes, in control_plane order."
   value       = aws_instance.control_plane[*].private_ip
 }
 
@@ -127,6 +127,11 @@ output "ssm_jump_host_security_group_id" {
 output "bootstrap_public_host" {
   description = "Temporary public hostname for the Talos and Kubernetes operator APIs. Null when the public load balancer is disabled."
   value       = local.bootstrap_public_host
+}
+
+output "stable_api_hostname" {
+  description = "Shared Talos and Kubernetes API DNS name across public bootstrap and private access, when configured."
+  value       = local.stable_api_hostname
 }
 
 output "bootstrap_public_talos_endpoint" {

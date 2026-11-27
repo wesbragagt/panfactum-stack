@@ -21,7 +21,7 @@ terraform {
       "bash", "-ec",
       join("\n", [
         "cd \"$2\"",
-        "set -- \"$1/scripts/pf-bootstrap-talos\" register --cluster \"$TF_VAR_cluster_name\" --module \"$2\" --region \"$PF_TALOS_AWS_REGION\" --profile \"$PF_TALOS_AWS_PROFILE\" --kube-port \"$${PF_TALOS_KUBE_PORT:-16443}\" --talos-port \"$${PF_TALOS_PORT:-50000}\"",
+        "set -- \"$1/scripts/pf-bootstrap-talos\" register --cluster \"$TF_VAR_cluster_name\" --module \"$2\" --region \"$PF_TALOS_AWS_REGION\" --profile \"$PF_TALOS_AWS_PROFILE\"",
         "if [ \"$${TF_VAR_talos_access_transport:-$PF_TALOS_TRANSPORT}\" = bootstrap_public ]; then set -- \"$@\" --bootstrap-public; fi",
         "exec python3 \"$@\"",
       ]),

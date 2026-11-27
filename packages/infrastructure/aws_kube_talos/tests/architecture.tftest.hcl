@@ -54,9 +54,9 @@ override_resource {
 }
 
 variables {
-  cluster_name              = "test"
-  vpc_id                    = "vpc-00000000"
-  control_plane_private_ips = ["10.0.1.10"]
+  cluster_name  = "test"
+  vpc_id        = "vpc-00000000"
+  control_plane = [{ subnet = "PRIVATE_A", private_ip = "10.0.1.10" }]
   # Placeholder PKI; the provider is mocked, so no value is parsed.
   machine_secrets = {
     certs = {
@@ -71,6 +71,28 @@ variables {
     trustdinfo = { token = "x" }
   }
   client_configuration = { ca_certificate = "x", client_certificate = "x", client_key = "x" }
+}
+
+run "lifecycle_lock_default" {
+  command = plan
+
+  assert {
+    condition     = var.lifecycle_lock && !aws_s3_bucket.etcd_backup.force_destroy && !aws_s3_bucket.service_account_oidc[0].force_destroy
+    error_message = "The lifecycle lock must be enabled and both buckets must retain their contents by default."
+  }
+}
+
+run "lifecycle_lock_disabled" {
+  command = plan
+
+  variables {
+    lifecycle_lock = false
+  }
+
+  assert {
+    condition     = aws_s3_bucket.etcd_backup.force_destroy && aws_s3_bucket.service_account_oidc[0].force_destroy
+    error_message = "Disabling the lifecycle lock must allow both versioned buckets to be emptied during deletion."
+  }
 }
 
 run "external_cloud_provider" {
@@ -128,7 +150,12 @@ run "scheduler_enabled_with_caller_patch" {
 run "arm64_fallbacks" {
   command = plan
   variables {
-    control_plane_instance_types = ["t4g.medium", "m7g.large", "c7g.large"]
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10", instance_type = "m7g.large" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10", instance_type = "c7g.large" },
+    ]
+    private_api_dns_name = "api.test.internal"
   }
   assert {
     condition     = local.node_instance_types == toset(["t4g.medium", "m7g.large", "c7g.large"])
@@ -137,7 +164,7 @@ run "arm64_fallbacks" {
 }
 run "reject_x86_controller" {
   command = plan
-  variables { control_plane_instance_type = "m6i.large" }
+  variables { control_plane = [{ subnet = "PRIVATE_A", private_ip = "10.0.1.10", instance_type = "m6i.large" }] }
   override_data {
     target = data.aws_ec2_instance_type.node
     values = { supported_architectures = ["x86_64"] }
@@ -147,9 +174,9 @@ run "reject_x86_controller" {
 run "fixed_controller_ip_and_requested_user_data_sans" {
   command = plan
   variables {
-    control_plane_private_ips = ["10.0.1.10"]
-    kube_api_extra_sans       = ["127.0.0.1"]
-    talos_api_extra_sans      = ["127.0.0.1"]
+    control_plane        = [{ subnet = "PRIVATE_A", private_ip = "10.0.1.10" }]
+    kube_api_extra_sans  = ["127.0.0.1"]
+    talos_api_extra_sans = ["127.0.0.1"]
   }
   assert {
     condition     = aws_instance.control_plane[0].private_ip == "10.0.1.10"
@@ -161,15 +188,9 @@ run "fixed_controller_ip_and_requested_user_data_sans" {
   }
 }
 
-run "reject_private_ip_count_mismatch" {
-  command = plan
-  variables { control_plane_private_ips = ["10.0.1.10", "10.0.1.11"] }
-  expect_failures = [aws_instance.control_plane]
-}
-
 run "reject_private_without_address" {
   command = plan
-  variables { control_plane_private_ips = [] }
+  variables { control_plane = [{ subnet = "PRIVATE_A" }] }
   expect_failures = [aws_instance.control_plane]
 }
 
@@ -177,7 +198,7 @@ run "public_opt_in_keeps_elastic_ip" {
   command = plan
   variables {
     control_plane_public_ip_enabled = true
-    control_plane_subnets           = ["PUBLIC_A", "PUBLIC_B", "PUBLIC_C"]
+    control_plane                   = [{ subnet = "PUBLIC_A", private_ip = "10.0.1.10" }]
     talos_api_endpoint              = null
   }
   assert {
@@ -189,17 +210,19 @@ run "public_opt_in_keeps_elastic_ip" {
 run "three_unique_subnets_plan_three_controllers" {
   command = plan
   variables {
-    control_plane_count       = 3
-    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
-    private_api_dns_name      = "api.test.internal"
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+    ]
+    private_api_dns_name = "api.test.internal"
   }
   assert {
     condition     = length(aws_instance.control_plane) == 3 && length(talos_machine.control_plane) == 3
     error_message = "Three subnets must plan three controllers."
   }
   assert {
-    condition     = toset(talos_cluster.this.control_plane_nodes) == toset(var.control_plane_private_ips)
+    condition     = toset(talos_cluster.this.control_plane_nodes) == toset(var.control_plane[*].private_ip)
     error_message = "Native cluster health checks must include every controller IP."
   }
   assert {
@@ -208,39 +231,27 @@ run "three_unique_subnets_plan_three_controllers" {
   }
 }
 
-run "bootstrap_follows_named_subnet" {
+run "bootstrap_follows_first_entry" {
   command = plan
   variables {
-    control_plane_count       = 3
-    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
-    private_api_dns_name      = "api.test.internal"
-    bootstrap_control_plane   = "PRIVATE_B"
-    talos_access_transport    = "vpn"
-  }
-  assert {
-    condition     = local.bootstrap_index == 1
-    error_message = "bootstrap_control_plane must select its subnet's position."
+    control_plane = [
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+    ]
+    private_api_dns_name   = "api.test.internal"
+    talos_access_transport = "vpn"
   }
   assert {
     condition     = talos_machine.control_plane[0].endpoint == "10.0.2.10"
-    error_message = "Routed access must use the configured bootstrap controller, not the first controller."
+    error_message = "Routed access must use the first control_plane entry."
   }
-}
-
-run "reject_inactive_bootstrap" {
-  command = plan
-  variables {
-    control_plane_subnets   = ["PRIVATE_A", "PRIVATE_B"]
-    bootstrap_control_plane = "PRIVATE_B"
-  }
-  expect_failures = [aws_instance.control_plane]
 }
 
 run "reject_duplicate_subnets" {
   command = plan
-  variables { control_plane_subnets = ["PRIVATE_A", "PRIVATE_A"] }
-  expect_failures = [var.control_plane_subnets]
+  variables { control_plane = [{ subnet = "PRIVATE_A" }, { subnet = "PRIVATE_A" }, { subnet = "PRIVATE_B" }] }
+  expect_failures = [var.control_plane]
 }
 
 run "operator_tunnel_rules_per_group_and_port" {
@@ -257,10 +268,12 @@ run "operator_tunnel_rules_per_group_and_port" {
 run "no_snapshot_without_existing_controllers" {
   command = plan
   variables {
-    control_plane_count       = 3
-    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
-    private_api_dns_name      = "api.test.internal"
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+    ]
+    private_api_dns_name = "api.test.internal"
   }
   assert {
     condition     = length(terraform_data.pre_membership_snapshot) == 0
@@ -283,9 +296,11 @@ run "no_snapshot_when_keys_unchanged" {
 run "snapshot_when_controllers_added" {
   command = plan
   variables {
-    control_plane_count                     = 3
-    control_plane_subnets                   = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-    control_plane_private_ips               = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+    ]
     private_api_dns_name                    = "api.test.internal"
     etcd_pre_membership_snapshot_kubeconfig = "/tmp/kubeconfig"
   }
@@ -302,10 +317,12 @@ run "snapshot_when_controllers_added" {
 run "reject_snapshot_without_kubeconfig" {
   command = plan
   variables {
-    control_plane_count       = 3
-    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
-    private_api_dns_name      = "api.test.internal"
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+    ]
+    private_api_dns_name = "api.test.internal"
   }
   override_data {
     target = data.aws_instances.existing_control_plane
@@ -317,9 +334,11 @@ run "reject_snapshot_without_kubeconfig" {
 run "reject_snapshot_with_empty_kubeconfig" {
   command = plan
   variables {
-    control_plane_count                     = 3
-    control_plane_subnets                   = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-    control_plane_private_ips               = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+    ]
     private_api_dns_name                    = "api.test.internal"
     etcd_pre_membership_snapshot_kubeconfig = " "
   }
@@ -333,9 +352,11 @@ run "reject_snapshot_with_empty_kubeconfig" {
 run "opt_out_skips_snapshot" {
   command = plan
   variables {
-    control_plane_count                  = 3
-    control_plane_subnets                = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-    control_plane_private_ips            = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+    ]
     private_api_dns_name                 = "api.test.internal"
     etcd_pre_membership_snapshot_enabled = false
   }
@@ -398,10 +419,12 @@ run "controller_taint_with_aws_node_configuration" {
 run "node_bootstrap_known_while_adding_controllers" {
   command = plan
   variables {
-    control_plane_count       = 3
-    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
-    private_api_dns_name      = "api.test.internal"
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+    ]
+    private_api_dns_name = "api.test.internal"
   }
   assert {
     condition     = output.node_bootstrap.cluster_endpoint != null
@@ -413,44 +436,55 @@ run "node_bootstrap_known_while_adding_controllers" {
 run "five_controllers_accepted" {
   command = plan
   variables {
-    control_plane_count       = 5
-    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C", "PRIVATE_D", "PRIVATE_E"]
-    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10", "10.0.4.10", "10.0.5.10"]
-    private_api_dns_name      = "api.test.internal"
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+      { subnet = "PRIVATE_D", private_ip = "10.0.4.10" },
+      { subnet = "PRIVATE_E", private_ip = "10.0.5.10" },
+    ]
+    private_api_dns_name = "api.test.internal"
   }
   assert {
     condition     = length(aws_instance.control_plane) == 5
-    error_message = "control_plane_count = 5 must plan five controllers."
+    error_message = "Five control_plane entries must plan five controllers."
   }
 }
 
 run "reject_two_controllers" {
   command = plan
   variables {
-    control_plane_count       = 2
-    control_plane_private_ips = ["10.0.1.10", "10.0.2.10"]
-    private_api_dns_name      = "api.test.internal"
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+    ]
+    private_api_dns_name = "api.test.internal"
   }
-  expect_failures = [var.control_plane_count]
+  expect_failures = [var.control_plane]
 }
 
 run "reject_four_controllers" {
   command = plan
   variables {
-    control_plane_count       = 4
-    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C", "PRIVATE_D"]
-    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10", "10.0.4.10"]
-    private_api_dns_name      = "api.test.internal"
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+      { subnet = "PRIVATE_D", private_ip = "10.0.4.10" },
+    ]
+    private_api_dns_name = "api.test.internal"
   }
-  expect_failures = [var.control_plane_count]
+  expect_failures = [var.control_plane]
 }
 
 run "private_api_is_a_records_to_controller_ips" {
   command = plan
   variables {
-    control_plane_count       = 3
-    control_plane_subnets     = ["PRIVATE_B", "PRIVATE_A", "PRIVATE_C"]
-    control_plane_private_ips = ["10.0.2.10", "10.0.1.10", "10.0.3.10"]
+    control_plane = [
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+    ]
     private_api_dns_name      = "api.test.internal"
     api_load_balancer_enabled = false
   }
@@ -475,9 +509,11 @@ run "private_api_is_a_records_to_controller_ips" {
 run "controllers_are_on_demand_with_instance_profile" {
   command = plan
   variables {
-    control_plane_count         = 3
-    control_plane_subnets       = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-    control_plane_private_ips   = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+    ]
     private_api_dns_name        = "api.test.internal"
     controller_instance_profile = "test-ctrl"
   }
@@ -492,15 +528,16 @@ run "controllers_are_on_demand_with_instance_profile" {
 run "resize_one_controller_changes_only_its_type" {
   command = plan
   variables {
-    control_plane_count          = 3
-    control_plane_subnets        = ["PRIVATE_B", "PRIVATE_A", "PRIVATE_C"]
-    control_plane_private_ips    = ["10.0.2.10", "10.0.1.10", "10.0.3.10"]
-    private_api_dns_name         = "api.test.internal"
-    control_plane_instance_types = ["t4g.large", "t4g.large", "t4g.large"]
+    control_plane = [
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10", instance_type = "t4g.large" },
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10", instance_type = "t4g.large" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10", instance_type = "t4g.large" },
+    ]
+    private_api_dns_name = "api.test.internal"
   }
   assert {
     condition     = [for i in aws_instance.control_plane : i.instance_type] == ["t4g.large", "t4g.large", "t4g.large"]
-    error_message = "Each controller must take its own control_plane_instance_types entry."
+    error_message = "Each controller must take its own control_plane instance_type."
   }
   assert {
     condition     = [for i in aws_instance.control_plane : i.private_ip] == ["10.0.2.10", "10.0.1.10", "10.0.3.10"]
@@ -594,10 +631,8 @@ run "networking_disabled_without_inputs" {
 run "shrink_blocked_while_removed_controller_is_etcd_member" {
   command = plan
   variables {
-    control_plane_count       = 1
-    control_plane_subnets     = ["a", "b", "c"]
-    control_plane_private_ips = ["10.0.1.10"]
-    talos_api_endpoint        = "127.0.0.1"
+    control_plane      = [{ subnet = "a", private_ip = "10.0.1.10" }]
+    talos_api_endpoint = "127.0.0.1"
   }
   override_data {
     target = data.aws_instances.removed_control_plane
@@ -613,10 +648,8 @@ run "shrink_blocked_while_removed_controller_is_etcd_member" {
 run "shrink_allowed_after_etcd_leave" {
   command = plan
   variables {
-    control_plane_count       = 1
-    control_plane_subnets     = ["a", "b", "c"]
-    control_plane_private_ips = ["10.0.1.10"]
-    talos_api_endpoint        = "127.0.0.1"
+    control_plane      = [{ subnet = "a", private_ip = "10.0.1.10" }]
+    talos_api_endpoint = "127.0.0.1"
   }
   override_data {
     target = data.aws_instances.removed_control_plane
@@ -787,9 +820,11 @@ run "reject_x86_ssm_jump_host" {
 run "api_lb_disabled_keeps_controller_ip_record" {
   command = plan
   variables {
-    control_plane_count       = 3
-    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+    ]
     private_api_dns_name      = "api.test.internal"
     api_load_balancer_enabled = false
   }
@@ -806,10 +841,12 @@ run "api_lb_disabled_keeps_controller_ip_record" {
 run "api_lb_enabled_aliases_record" {
   command = plan
   variables {
-    control_plane_count       = 3
-    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
-    private_api_dns_name      = "api.test.internal"
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+    ]
+    private_api_dns_name = "api.test.internal"
   }
   assert {
     condition     = aws_lb.api[0].internal && aws_lb.api[0].load_balancer_type == "network" && aws_lb.api[0].enable_cross_zone_load_balancing
@@ -861,10 +898,12 @@ run "controller_provider_ids_output" {
   command = plan
 
   variables {
-    control_plane_count       = 3
-    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
-    private_api_dns_name      = "api.test.internal"
+    control_plane = [
+      { subnet = "PRIVATE_A", private_ip = "10.0.1.10" },
+      { subnet = "PRIVATE_B", private_ip = "10.0.2.10" },
+      { subnet = "PRIVATE_C", private_ip = "10.0.3.10" },
+    ]
+    private_api_dns_name = "api.test.internal"
   }
   override_resource {
     target = aws_instance.control_plane
@@ -924,6 +963,67 @@ run "version_upgrades_default_installer" {
     condition     = local.upgrade_installer_image == "factory.talos.dev/aws-installer/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba:v1.14.6"
     error_message = "Without installer_image the upgrade must use the official AWS installer for talos_version."
   }
+  assert {
+    condition     = !contains([for patch in data.talos_machine_configuration.control_plane_runtime.config_patches : try(yamldecode(patch).kind, null)], "KubeCredentialProviderConfig")
+    error_message = "The ECR credential configuration must be opt-in."
+  }
+}
+
+run "ecr_credential_provider_opt_in" {
+  command = plan
+  variables {
+    ecr_credential_provider_enabled = true
+  }
+  assert {
+    condition     = contains([for patch in data.talos_machine_configuration.control_plane_runtime.config_patches : try(yamldecode(patch).kind, null)], "KubeCredentialProviderConfig")
+    error_message = "Enabling the ECR credential provider must add its kubelet configuration."
+  }
+  assert {
+    condition     = !contains([for patch in data.talos_machine_configuration.control_plane.config_patches : try(yamldecode(patch).kind, null)], "KubeCredentialProviderConfig")
+    error_message = "Boot user data must omit the ECR credential config, because stock AMIs lack the binary."
+  }
+}
+
+run "image_factory_bootstrap_with_ecr_disabled" {
+  command = plan
+  variables {
+    image_factory_schematic_id = "7835171368ed53d6f9ed4d298a4db7d4bcc745bbbca3f7cb2374967d64a6a8aa"
+  }
+  override_data {
+    target = data.aws_instances.existing_control_plane
+    values = { ids = ["i-0000000000000000a"], private_ips = ["10.0.1.10"] }
+  }
+  assert {
+    condition     = output.node_bootstrap.installer_image == "factory.talos.dev/aws-installer/${var.image_factory_schematic_id}:${var.talos_version}" && talos_machine.control_plane[0].image == output.node_bootstrap.installer_image
+    error_message = "The controller and worker bootstrap must both use the supplied Image Factory schematic."
+  }
+  assert {
+    condition     = one([for patch in local.aws_control_plane_patches : yamldecode(patch).installer.image if yamldecode(patch).kind == "UnattendedInstallConfig"]) == output.node_bootstrap.installer_image
+    error_message = "The unattended install patch must use the resolved Factory installer."
+  }
+  assert {
+    condition     = terraform_data.talos_upgrade[0].triggers_replace[0] == output.node_bootstrap.installer_image
+    error_message = "Changing only the opt-in schematic must schedule a serial upgrade."
+  }
+  assert {
+    condition     = !contains([for patch in data.talos_machine_configuration.control_plane_runtime.config_patches : try(yamldecode(patch).kind, null)], "KubeCredentialProviderConfig")
+    error_message = "A stock AMI bootstrap must be able to omit the ECR credential config."
+  }
+}
+
+run "reject_invalid_image_factory_schematic_id" {
+  command = plan
+  variables { image_factory_schematic_id = "not-a-schematic" }
+  expect_failures = [var.image_factory_schematic_id]
+}
+
+run "reject_schematic_with_explicit_image" {
+  command = plan
+  variables {
+    image_factory_schematic_id = "7835171368ed53d6f9ed4d298a4db7d4bcc745bbbca3f7cb2374967d64a6a8aa"
+    installer_image            = "factory.talos.dev/aws-installer/explicit:v1.14.6"
+  }
+  expect_failures = [var.image_factory_schematic_id]
 }
 
 run "version_upgrades_opt_out" {
@@ -1022,9 +1122,9 @@ run "controller_identity_null_settings" {
 run "bootstrap_public_first_plan" {
   command = plan
   variables {
-    talos_access_transport    = "bootstrap_public"
-    private_api_dns_name      = "api.test.internal"
-    control_plane_private_ips = []
+    talos_access_transport = "bootstrap_public"
+    private_api_dns_name   = "api.test.internal"
+    control_plane          = [{ subnet = "PRIVATE_A" }]
   }
   override_data {
     target = data.external.bootstrap_public_cidr
@@ -1071,10 +1171,104 @@ run "bootstrap_public_first_plan" {
       local.cluster_endpoint == "https://api.test.internal:6443" &&
       output.bootstrap_public_host == "test.elb.amazonaws.com" &&
       output.bootstrap_public_talos_endpoint == "test.elb.amazonaws.com:50000" &&
-      output.bootstrap_public_kube_url == "https://test.elb.amazonaws.com:6443"
+      output.bootstrap_public_kube_url == "https://test.elb.amazonaws.com:6443" &&
+      output.stable_api_hostname == null &&
+      length(aws_route53_record.bootstrap_public) == 0 &&
+      length(aws_lb_listener.private_talos) == 0
     )
     error_message = "Both API certificates must cover the public hostname while cluster traffic stays private."
   }
+}
+
+run "bootstrap_public_stable_hostname" {
+  command = plan
+  variables {
+    talos_access_transport = "bootstrap_public"
+    private_api_dns_name   = "api.test.example.com"
+    bootstrap_public       = { dns_zone_id = "Z0123456789", operator_cidr = "198.51.100.10/32" }
+  }
+  override_data {
+    target = data.aws_route53_zone.bootstrap_public
+    values = { name = "example.com." }
+  }
+  override_data {
+    target = data.aws_subnets.bootstrap_public
+    values = { ids = ["subnet-0123456789abcdef0"] }
+  }
+  override_resource {
+    target = aws_lb.bootstrap_public
+    values = {
+      arn      = "arn:aws:elasticloadbalancing:us-east-2:123456789012:loadbalancer/net/bootstrap/0123456789abcdef"
+      dns_name = "test.elb.amazonaws.com"
+      zone_id  = "Z0123456789ELB"
+    }
+  }
+  assert {
+    condition = (
+      output.stable_api_hostname == "api.test.example.com" &&
+      output.bootstrap_public_kube_url == output.cluster_url &&
+      output.bootstrap_public_talos_endpoint == "api.test.example.com:50000" &&
+      talos_machine.control_plane[0].endpoint == output.stable_api_hostname &&
+      aws_route53_record.bootstrap_public[0].name == output.stable_api_hostname &&
+      aws_route53_record.private_api[0].name == output.stable_api_hostname &&
+      one(aws_route53_record.bootstrap_public[0].alias).name == "test.elb.amazonaws.com" &&
+      contains(yamldecode(local.talos_api_patches[0]).machine.certSANs, output.stable_api_hostname) &&
+      contains(yamldecode(local.talos_api_patches[0]).machine.certSANs, "test.elb.amazonaws.com") &&
+      contains(yamldecode(local.api_san_patch).certExtraSANs, output.stable_api_hostname)
+    )
+    error_message = "The public alias, both API certificates and the private record must share the stable hostname."
+  }
+}
+
+run "bootstrap_public_stable_hostname_after_cutover" {
+  command = plan
+  variables {
+    talos_access_transport           = "vpn"
+    private_api_dns_name             = "api.test.example.com"
+    bootstrap_public                 = { enabled = false, dns_zone_id = "Z0123456789" }
+    control_plane                    = [{ subnet = "PRIVATE_A" }]
+    talos_api_source_security_groups = { headscale = "sg-0123456789abcdef0" }
+    talos_api_allowed_cidrs          = ["192.0.2.10/32"]
+  }
+  override_resource {
+    target = aws_instance.control_plane
+    values = { private_ip = "10.0.1.10" }
+  }
+  assert {
+    condition = (
+      output.stable_api_hostname == "api.test.example.com" &&
+      output.cluster_url == "https://api.test.example.com:6443" &&
+      output.bootstrap_public_host == null &&
+      length(aws_route53_record.bootstrap_public) == 0 &&
+      length(data.aws_route53_zone.bootstrap_public) == 0 &&
+      talos_machine.control_plane[0].endpoint == output.stable_api_hostname &&
+      contains(yamldecode(local.talos_api_patches[0]).machine.certSANs, output.stable_api_hostname) &&
+      aws_lb_listener.private_talos[0].port == 50000 &&
+      aws_lb_listener.private_talos[0].protocol == "TCP" &&
+      length(aws_lb_target_group_attachment.private_talos) == 1 &&
+      aws_vpc_security_group_ingress_rule.private_talos_source["headscale"].referenced_security_group_id == "sg-0123456789abcdef0" &&
+      aws_vpc_security_group_ingress_rule.private_talos_cidr["192.0.2.10/32"].cidr_ipv4 == "192.0.2.10/32"
+    )
+    error_message = "Removing the public alias must preserve the DNS name, Talos certificate and restricted private listener."
+  }
+}
+
+run "bootstrap_public_stable_hostname_rejects_unrelated_zone" {
+  command = plan
+  variables {
+    talos_access_transport = "bootstrap_public"
+    private_api_dns_name   = "api.test.example.com"
+    bootstrap_public       = { dns_zone_id = "Z0123456789", operator_cidr = "198.51.100.10/32" }
+  }
+  override_data {
+    target = data.aws_route53_zone.bootstrap_public
+    values = { name = "other-example.com" }
+  }
+  override_data {
+    target = data.aws_subnets.bootstrap_public
+    values = { ids = ["subnet-0123456789abcdef0"] }
+  }
+  expect_failures = [data.aws_route53_zone.bootstrap_public]
 }
 
 run "bootstrap_public_vpn_retained" {

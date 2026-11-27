@@ -71,9 +71,9 @@ The route should use `tailscale0`. The private name should resolve to the intern
 
 For either backend, an enrolled client with accepted subnet routes and DNS connects directly to the private Kubernetes and Talos endpoints. The client needs cluster credentials. The SSM jump host is for explicit recovery. Headscale server administration and router bootstrap use SSM separately from the client network path.
 
-The committed `.kube/config.talos.yaml` contains shared cluster metadata, including the private URL and controller endpoints. The gitignored `.kube/config.talos.user.yaml` holds the operator profile and transport. Set the existing `homelab-talos-2` entry to `transport: vpn`, using `.kube/config.talos.user.example.yaml` as the shape. Omitted transport or `ssm` selects SSM and requires `PF_TALOS_FIXED_SSM`.
+The committed `.kube/cluster_info.talos` contains shared cluster metadata, including the private URL and controller endpoints. The gitignored `.kube/config.talos.user.yaml` holds the operator profile and transport. Set the existing `homelab-talos-2` entry to `transport: vpn`, using `.kube/config.talos.user.example.yaml` as the shape. Omitting `transport` selects VPN. Setting `ssm` selects SSM and requires `PF_TALOS_FIXED_SSM`.
 
-Register after the Talos caller has outputs, then merge. The commands use the repository's primary checkout for the shared generated config.
+Register after the Talos caller has outputs, run `pf-update-kube-talos --build`, then run `pf-update-kube-talos`. The commands use the repository's primary checkout for the shared generated config.
 
 ```sh
 direnv exec . python3 forks/panfactum/packages/infrastructure/aws_kube_talos/scripts/pf-bootstrap-talos register --cluster homelab-talos-2 --module environments/homelab/us-east-2/aws_kube_talos --region us-east-2 --profile homelab-superuser --vpn-endpoints

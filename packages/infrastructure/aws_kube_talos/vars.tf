@@ -8,38 +8,24 @@ variable "vpc_id" {
   type        = string
 }
 
-variable "control_plane_private_ips" {
-  description = "Optional fixed private IPs for control plane nodes, one per node in control_plane_subnets order. A fixed address lets an SSM tunnel target the controller before it exists, so the first bootstrap needs no public ingress. Changing it replaces the nodes."
-  type        = list(string)
-  default     = []
-}
-
-variable "control_plane_subnets" {
-  description = "Subnet names (Name tag), one per control plane node in order. Use PUBLIC subnets only with control_plane_public_ip_enabled. Names must be unique. Node state is keyed by list position, so only append entries; reordering or removing one replaces nodes."
-  type        = list(string)
-  default     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-
-  validation {
-    condition     = length(distinct(var.control_plane_subnets)) == length(var.control_plane_subnets)
-    error_message = "control_plane_subnets must not repeat a subnet name."
-  }
-}
-
-variable "bootstrap_control_plane" {
-  description = "Subnet name of the controller that bootstraps talos_cluster and serves as the cluster endpoint fallback. Null uses the first entry of control_plane_subnets. Must be one of the active subnets."
-  type        = string
-  default     = null
-}
-
-variable "control_plane_count" {
-  description = "Number of on-demand control plane nodes, placed in control_plane_subnets order. Above 1 requires private_api_dns_name so nodes do not depend on one controller's address."
-  type        = number
-  default     = 1
+variable "control_plane" {
+  description = "Control plane nodes, one entry each: subnet (Name tag, required), optional fixed private_ip (null lets AWS assign one) and optional instance_type. The first entry bootstraps talos_cluster and is the endpoint fallback. Node state is keyed by list position, so only append entries; reordering or removing one replaces nodes. A fixed private_ip lets an SSM tunnel target the controller before it exists. An instance_type change resizes that controller in place (stop, modify, start); T2 types are not supported by Talos. More than one entry requires private_api_dns_name."
+  type = list(object({
+    subnet        = string
+    private_ip    = optional(string)
+    instance_type = optional(string, "t4g.medium")
+  }))
+  default = [{ subnet = "PRIVATE_A" }]
 
   # etcd quorum: 3 members tolerate one loss and 5 tolerate two; even counts add no tolerance.
   validation {
-    condition     = contains([1, 3, 5], var.control_plane_count)
-    error_message = "control_plane_count must be 1, 3 or 5."
+    condition     = contains([1, 3, 5], length(var.control_plane))
+    error_message = "control_plane must have 1, 3 or 5 entries."
+  }
+
+  validation {
+    condition     = length(distinct(var.control_plane[*].subnet)) == length(var.control_plane)
+    error_message = "control_plane must not repeat a subnet name."
   }
 }
 
@@ -50,7 +36,7 @@ variable "controller_instance_profile" {
 }
 
 variable "control_plane_public_ip_enabled" {
-  description = "Give controllers a public IP and an Elastic IP API endpoint. Off by default: controllers sit in private subnets and operators reach them through an SSM tunnel, which needs private_api_dns_name or control_plane_private_ips."
+  description = "Give controllers a public IP and an Elastic IP API endpoint. Off by default: controllers sit in private subnets and operators reach them through an SSM tunnel, which needs private_api_dns_name or a control_plane private_ip."
   type        = bool
   default     = false
 }
@@ -65,18 +51,6 @@ variable "api_load_balancer_enabled" {
   description = "Put an internal network load balancer in front of the controllers and point the private_api_dns_name record at it. Its HTTPS /readyz health check stops traffic to a controller that accepts TCP but is not ready. Has no effect without private_api_dns_name."
   type        = bool
   default     = true
-}
-
-variable "control_plane_instance_type" {
-  description = "EC2 instance type for control plane nodes. T2 types are not supported by Talos."
-  type        = string
-  default     = "t4g.medium"
-}
-
-variable "control_plane_instance_types" {
-  description = "Optional per-node instance types in control_plane_subnets order, overriding control_plane_instance_type. A change resizes that controller in place (stop, modify, start)."
-  type        = list(string)
-  default     = []
 }
 
 variable "control_plane_workloads_enabled" {
@@ -152,10 +126,11 @@ variable "talos_access_transport" {
 }
 
 variable "bootstrap_public" {
-  description = "Overrides for the temporary public NLB. Public transport enables it and detects the runner's public IPv4 address by default. Set operator_cidr to override discovery. Set enabled to false after verifying private access to retire the public NLB."
+  description = "Overrides for the temporary public NLB. Public transport enables it and detects the runner's public IPv4 address by default. Set operator_cidr to override discovery. Set dns_zone_id to a public Route 53 zone for private_api_dns_name and keep it when setting enabled to false after verifying private access."
   type = object({
     enabled       = optional(bool, true)
     operator_cidr = optional(string)
+    dns_zone_id   = optional(string)
   })
   default = null
 
@@ -196,6 +171,13 @@ variable "api_dns" {
     name    = string
   })
   default = null
+}
+
+variable "lifecycle_lock" {
+  description = "Protect the etcd backup bucket and KMS key from destruction. Disable for disposable clusters to allow deletion of both S3 buckets and their contents."
+  type        = bool
+  default     = true
+  nullable    = false
 }
 
 variable "etcd_backup_retention_days" {
@@ -287,9 +269,32 @@ variable "ami_id" {
 }
 
 variable "installer_image" {
-  description = "Optional Talos factory installer image matching the AMI."
+  description = "Optional explicit Talos installer image. Mutually exclusive with image_factory_schematic_id."
   type        = string
   default     = null
+}
+
+variable "image_factory_schematic_id" {
+  description = "Optional Talos Image Factory schematic ID. Derives the AWS installer from talos_version and reconciles the schematic on existing controllers."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.image_factory_schematic_id == null || can(regex("^[a-f0-9]{64}$", var.image_factory_schematic_id))
+    error_message = "image_factory_schematic_id must be a 64-character lowercase hexadecimal ID."
+  }
+
+  validation {
+    condition     = var.image_factory_schematic_id == null || var.installer_image == null
+    error_message = "Set either image_factory_schematic_id or installer_image."
+  }
+}
+
+variable "ecr_credential_provider_enabled" {
+  description = "Configure the kubelet ECR credential provider. Enable only after the nodes run an image with the ecr-credential-provider extension."
+  type        = bool
+  default     = false
+  nullable    = false
 }
 
 variable "pod_subnets" {

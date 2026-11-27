@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Upgrade Talos on the controllers when the module's Talos version changes.
+"""Upgrade Talos on the controllers when the Talos version or selected schematic changes.
 
-  version_upgrade.py talos --endpoint E --nodes IP,IP --target vX.Y.Z --image IMAGE
+  version_upgrade.py talos --endpoint E --nodes IP,IP --target vX.Y.Z --image IMAGE [--schematic-id ID]
 
 Run by terraform_data local-exec. The client certificate comes from TALOS_CA, TALOS_CRT and
 TALOS_KEY (base64, as in a talosconfig), so talosctl must be on PATH and the Talos API reachable
-at --endpoint (the terragrunt hook's SSM forward). Talos OS upgrades skip nodes at the target.
+at --endpoint. Talos OS upgrades skip nodes already running the requested image.
 """
 
 import argparse
@@ -61,6 +61,38 @@ class Talos:
         output = self.run(node, "version", check=check)
         return output and server_tag(output)
 
+    def schematic(self, node, check=True):
+        output = self.run(node, "get", "extensions", "-o", "json", check=check)
+        if output is None:
+            return None
+        decoder = json.JSONDecoder()
+        pending = output.strip()
+        try:
+            # NOTE: The CLI prints one JSON document per extension, with no enclosing array.
+            while pending:
+                resource, end = decoder.raw_decode(pending)
+                metadata = resource["spec"]["metadata"]
+                if metadata["name"] == "schematic":
+                    version = metadata["version"]
+                    if not re.fullmatch(r"[a-f0-9]{64}", version):
+                        raise ValueError("invalid schematic ID")
+                    return version
+                pending = pending[end:].lstrip()
+        except (KeyError, TypeError, ValueError) as exc:
+            if check:
+                raise UpgradeError(f"invalid extension status on {node}: {exc}") from exc
+            return None
+        return ""
+
+    def boot_id(self, node, check=True):
+        output = self.run(node, "read", "/proc/sys/kernel/random/boot_id", check=check)
+        value = output.strip() if output is not None else ""
+        if re.fullmatch(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}", value):
+            return value
+        if check:
+            raise UpgradeError(f"could not read the boot ID on {node}")
+        return None
+
     def etcd_healthy(self, nodes):
         # Every expected controller must be a voting member and answer etcd status.
         members = self.run(nodes[0], "etcd", "members", check=False)
@@ -83,18 +115,37 @@ def wait(description, condition):
     raise UpgradeError(f"timed out waiting for {description}")
 
 
-def upgrade_talos(talos, nodes, target, image):
+def matches_install(talos, node, target, schematic_id):
+    version = talos.talos_version(node)
+    if not version:
+        raise UpgradeError(f"could not read the Talos version on {node}")
+    return version == target and talos.schematic(node) == schematic_id
+
+
+def upgrade_talos(talos, nodes, target, image, schematic_id=None):
+    pending = None if schematic_id is None else {
+        node for node in nodes if not matches_install(talos, node, target, schematic_id)
+    }
     for node in nodes:
-        if talos.talos_version(node) == target:
+        ready = f"{node} to run Talos {target}, be Ready and keep etcd healthy"
+        needs_upgrade = talos.talos_version(node) != target if pending is None else node in pending
+        if not needs_upgrade:
+            # NOTE: A first apply can install the schematic before CNI and Kubernetes node readiness.
+            if pending:
+                wait(ready, lambda: talos.ready(node, target, nodes))
             print(f"{node}: already at Talos {target}", flush=True)
             continue
         if not talos.etcd_healthy(nodes):
             raise UpgradeError(f"etcd is not healthy with members {nodes}; not upgrading {node}")
+        boot_id = talos.boot_id(node) if schematic_id is not None else None
         print(f"{node}: upgrading Talos to {target} with {image}", flush=True)
-        # The forward drops while the node reboots, so readiness is polled below, not trusted from --wait.
+        # NOTE: The forward can drop during the reboot.
         talos.run(node, "upgrade", "--image", image, "--wait=false", timeout=300)
-        wait(f"{node} to run Talos {target}, be Ready and keep etcd healthy",
-             lambda: talos.ready(node, target, nodes))
+        wait(ready,
+             lambda: (schematic_id is None or (
+                 (current_boot := talos.boot_id(node, check=False)) is not None
+                 and current_boot != boot_id and talos.schematic(node, check=False) == schematic_id
+             )) and talos.ready(node, target, nodes))
         print(f"{node}: Talos {target} Ready", flush=True)
 
 
@@ -105,6 +156,7 @@ def main(argv=None):
     parser.add_argument("--nodes", required=True, help="comma-separated controller private IPs")
     parser.add_argument("--target", required=True)
     parser.add_argument("--image", required=True)
+    parser.add_argument("--schematic-id")
     args = parser.parse_args(argv)
     nodes = [node for node in args.nodes.split(",") if node]
     if not nodes:
@@ -117,7 +169,7 @@ def main(argv=None):
                 "endpoints": [args.endpoint], "ca": os.environ["TALOS_CA"],
                 "crt": os.environ["TALOS_CRT"], "key": os.environ["TALOS_KEY"]}}}, handle)
         talos = Talos(path, args.endpoint)
-        upgrade_talos(talos, nodes, args.target, args.image)
+        upgrade_talos(talos, nodes, args.target, args.image, args.schematic_id)
     except FileNotFoundError:
         sys.exit("version_upgrade: talosctl not found on PATH")
     except (KeyError, UpgradeError) as exc:

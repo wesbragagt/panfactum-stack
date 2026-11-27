@@ -1,6 +1,8 @@
 // Live
 
 terraform {
+  required_version = ">= 1.12.0"
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -24,31 +26,29 @@ terraform {
 locals {
   # The NLB fronts the private API name, so callers without one get none
   api_lb_enabled = var.api_load_balancer_enabled && var.private_api_dns_name != null
-  # Indexed by position; subnets are append-only once nodes exist
-  control_plane_subnet_list = slice(var.control_plane_subnets, 0, min(var.control_plane_count, length(var.control_plane_subnets)))
-  control_plane_node_count  = length(local.control_plane_subnet_list)
-  bootstrap_subnet          = coalesce(var.bootstrap_control_plane, var.control_plane_subnets[0])
-  bootstrap_index           = try(index(local.control_plane_subnet_list, local.bootstrap_subnet), 0)
+  # Indexed by position; entries are append-only once nodes exist
+  control_plane_node_count = length(var.control_plane)
+  control_plane_ip_set     = anytrue([for n in var.control_plane : n.private_ip != null])
 
   public_ip        = var.control_plane_public_ip_enabled ? aws_eip.api[0].public_ip : null
-  api_host         = var.api_dns != null ? var.api_dns.name : coalesce(local.public_ip, try(var.control_plane_private_ips[0], null), "unset")
+  api_host         = var.api_dns != null ? var.api_dns.name : coalesce(local.public_ip, var.control_plane[0].private_ip, "unset")
   cluster_endpoint = var.private_api_dns_name == null ? "https://${local.api_host}:6443" : "https://${var.private_api_dns_name}:6443"
 
   # Keep the Elastic IP valid in the API server cert so clients pinned to it survive a switch to the DNS name
   api_san_patch = yamlencode({
     apiVersion    = "v1alpha1", kind = "KubeAPIServerConfig"
-    certExtraSANs = compact(distinct(concat([local.api_host, local.public_ip, var.private_api_dns_name, local.bootstrap_public_host], local.legacy_ssm_sans, var.kube_api_extra_sans)))
+    certExtraSANs = compact(distinct(concat([local.api_host, local.public_ip, var.private_api_dns_name, local.bootstrap_public_nlb_host], local.legacy_ssm_sans, var.kube_api_extra_sans)))
   })
 
   configured_talos_api_endpoint = (
     var.talos_access_transport == "bootstrap_public" ? local.bootstrap_public_host :
     var.talos_api_endpoint != "" ? var.talos_api_endpoint :
-    var.talos_access_transport == "vpn" ? try(var.control_plane_private_ips[local.bootstrap_index], null) :
+    var.talos_access_transport == "vpn" ? (local.stable_api_hostname != null ? local.stable_api_hostname : var.control_plane[0].private_ip) :
     "127.0.0.1"
   )
   talos_api_endpoint = var.talos_api_endpoint == null ? aws_eip_association.api[0].public_ip : local.configured_talos_api_endpoint
 
-  talos_api_sans    = distinct(concat(compact([local.bootstrap_public_host]), local.legacy_ssm_sans, var.talos_api_extra_sans))
+  talos_api_sans    = distinct(concat(compact([local.bootstrap_public_nlb_host, local.stable_api_hostname]), local.legacy_ssm_sans, var.talos_api_extra_sans))
   talos_api_patches = local.bootstrap_public_enabled || length(local.talos_api_sans) > 0 ? [yamlencode({ machine = { certSANs = local.talos_api_sans } })] : []
 
   # Panfactum kube_cilium and kube_core_dns own networking and DNS, so Talos never deploys Flannel, kube-proxy or CoreDNS.
@@ -77,13 +77,13 @@ data "aws_ami" "talos" {
   }
 }
 
-# One lookup per node so placement follows control_plane_subnets order, not subnet IDs
+# One lookup per node so placement follows control_plane order, not subnet IDs
 data "aws_subnet" "control_plane" {
   count  = local.control_plane_node_count
   vpc_id = var.vpc_id
   filter {
     name   = "tag:Name"
-    values = [local.control_plane_subnet_list[count.index]]
+    values = [var.control_plane[count.index].subnet]
   }
 }
 
@@ -184,7 +184,7 @@ resource "aws_eip" "api" {
 resource "aws_eip_association" "api" {
   count         = var.control_plane_public_ip_enabled ? 1 : 0
   allocation_id = aws_eip.api[0].id
-  instance_id   = aws_instance.control_plane[local.bootstrap_index].id
+  instance_id   = aws_instance.control_plane[0].id
 }
 
 resource "aws_route53_zone" "private_api" {
@@ -211,13 +211,12 @@ resource "aws_route53_record" "private_api" {
     content {
       name                   = aws_lb.api[0].dns_name
       zone_id                = aws_lb.api[0].zone_id
-      evaluate_target_health = true
+      evaluate_target_health = local.stable_api_hostname == null
     }
   }
 }
 
 # The NLB health-checks /readyz, so clients skip a controller that accepts TCP but is not ready.
-# The Talos API on 50000 stays off the NLB.
 resource "aws_security_group" "api_lb" {
   count       = local.api_lb_enabled ? 1 : 0
   name        = "${var.cluster_name}-api-lb"
@@ -425,14 +424,22 @@ data "talos_machine_configuration" "control_plane_runtime" {
   kubernetes_version = var.kube_version
   docs               = false
   examples           = false
-  config_patches     = concat(local.control_plane_patches, local.backup_config_patches)
+  # NOTE: Stock AMIs lack the ecr-credential-provider binary until talos_machine installs the
+  # Factory image, so the provider config stays out of boot user data.
+  config_patches = concat(local.control_plane_patches, local.backup_config_patches, var.ecr_credential_provider_enabled ? [
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeCredentialProviderConfig", configuration = {
+      apiVersion = "kubelet.config.k8s.io/v1", kind = "CredentialProviderConfig", providers = [{
+        name = "ecr-credential-provider", apiVersion = "credentialprovider.kubelet.k8s.io/v1", defaultCacheDuration = "12h", matchImages = ["*.dkr.ecr.*.amazonaws.com"]
+      }]
+    } }),
+  ] : [])
 }
 
 # Workers reach the bootstrap controller IP only without a private API name. The indirection
 # keeps worker configs free of aws_instance references, so adding controllers does not defer them.
 resource "terraform_data" "worker_endpoint_ip" {
   count = var.private_api_dns_name == null ? 1 : 0
-  input = aws_instance.control_plane[local.bootstrap_index].private_ip
+  input = aws_instance.control_plane[0].private_ip
 }
 
 locals {
@@ -449,9 +456,9 @@ locals {
 resource "aws_instance" "control_plane" {
   count                       = local.control_plane_node_count
   ami                         = data.aws_ami.talos.id
-  instance_type               = length(var.control_plane_instance_types) > 0 ? var.control_plane_instance_types[count.index] : var.control_plane_instance_type
+  instance_type               = var.control_plane[count.index].instance_type
   subnet_id                   = data.aws_subnet.control_plane[count.index].id
-  private_ip                  = length(var.control_plane_private_ips) > 0 ? var.control_plane_private_ips[count.index] : null
+  private_ip                  = var.control_plane[count.index].private_ip
   vpc_security_group_ids      = [aws_security_group.nodes.id]
   associate_public_ip_address = var.control_plane_public_ip_enabled
   user_data                   = data.talos_machine_configuration.control_plane.machine_configuration
@@ -487,20 +494,8 @@ resource "aws_instance" "control_plane" {
     }
     # OpenTofu 1.8 variable validation cannot reference other variables
     precondition {
-      condition     = var.control_plane_count <= length(var.control_plane_subnets)
-      error_message = "control_plane_subnets needs one entry per control plane node."
-    }
-    precondition {
-      condition     = contains(local.control_plane_subnet_list, local.bootstrap_subnet)
-      error_message = "bootstrap_control_plane must be one of the first control_plane_count entries of control_plane_subnets."
-    }
-    precondition {
       condition     = local.control_plane_node_count == 1 || var.private_api_dns_name != null
-      error_message = "control_plane_count above 1 requires private_api_dns_name."
-    }
-    precondition {
-      condition     = length(var.control_plane_private_ips) == 0 || length(var.control_plane_private_ips) == local.control_plane_node_count
-      error_message = "control_plane_private_ips needs one address per control plane node, or none."
+      error_message = "More than one control_plane entry requires private_api_dns_name."
     }
     precondition {
       condition     = var.talos_access_transport != "bootstrap_public" || (local.bootstrap_public_enabled && var.talos_api_endpoint == "")
@@ -511,12 +506,16 @@ resource "aws_instance" "control_plane" {
       error_message = "bootstrap_public requires private controllers and private_api_dns_name."
     }
     precondition {
-      condition     = var.talos_access_transport != "vpn" || var.talos_api_endpoint != "" || length(var.control_plane_private_ips) > 0
-      error_message = "VPN access requires control_plane_private_ips or an explicit talos_api_endpoint."
+      condition     = local.bootstrap_public_dns_zone_id == null || try(length(local.stable_api_hostname) <= 253 && can(regex("^([[:alnum:]]([[:alnum:]-]{0,61}[[:alnum:]])?\\.){2,}[[:alpha:]]([[:alnum:]-]{0,61}[[:alnum:]])?$", local.stable_api_hostname)), false)
+      error_message = "bootstrap_public.dns_zone_id requires a private_api_dns_name with at least three DNS labels."
     }
     precondition {
-      condition     = var.control_plane_public_ip_enabled || (var.talos_api_endpoint != null && var.api_dns == null && (var.private_api_dns_name != null || length(var.control_plane_private_ips) > 0))
-      error_message = "control_plane_public_ip_enabled = false requires talos_api_endpoint, private_api_dns_name or control_plane_private_ips, and no api_dns."
+      condition     = var.talos_access_transport != "vpn" || var.talos_api_endpoint != "" || local.stable_api_hostname != null || local.control_plane_ip_set
+      error_message = "VPN access requires a control_plane private_ip, bootstrap_public.dns_zone_id, or an explicit talos_api_endpoint."
+    }
+    precondition {
+      condition     = var.control_plane_public_ip_enabled || (var.talos_api_endpoint != null && var.api_dns == null && (var.private_api_dns_name != null || local.control_plane_ip_set))
+      error_message = "control_plane_public_ip_enabled = false requires talos_api_endpoint, private_api_dns_name or a control_plane private_ip, and no api_dns."
     }
   }
 }
@@ -552,6 +551,7 @@ resource "talos_machine" "control_plane" {
   depends_on = [
     aws_route53_record.api,
     aws_route53_record.private_api,
+    aws_route53_record.bootstrap_public,
     aws_vpc_security_group_ingress_rule.talos_api,
     aws_vpc_security_group_ingress_rule.talos_api_source,
     aws_vpc_security_group_ingress_rule.operator_tunnel,
@@ -562,6 +562,12 @@ resource "talos_machine" "control_plane" {
     aws_vpc_security_group_ingress_rule.bootstrap_public_operator,
     aws_vpc_security_group_ingress_rule.bootstrap_public_nodes,
     aws_vpc_security_group_egress_rule.bootstrap_public_nodes,
+    aws_lb_listener.private_talos,
+    aws_lb_target_group_attachment.private_talos,
+    aws_vpc_security_group_ingress_rule.private_talos_source,
+    aws_vpc_security_group_ingress_rule.private_talos_cidr,
+    aws_vpc_security_group_ingress_rule.private_talos_nodes,
+    aws_vpc_security_group_egress_rule.private_talos_nodes,
     # NOTE: The OS wrapper sequences controller upgrades before the provider reconciles the installer.
     terraform_data.talos_upgrade,
   ]
@@ -581,7 +587,7 @@ resource "talos_machine" "control_plane" {
 }
 
 locals {
-  bootstrap_node = aws_instance.control_plane[local.bootstrap_index].private_ip
+  bootstrap_node = aws_instance.control_plane[0].private_ip
 }
 
 resource "talos_cluster" "this" {
@@ -618,9 +624,10 @@ data "talos_client_configuration" "this" {
 
 locals {
   # Gated like pre_membership_snapshot: a new cluster has no running controllers to upgrade.
-  version_upgrades_needed = var.version_upgrades_enabled && length(data.aws_instances.existing_control_plane.ids) > 0
-  # Official AMIs ship the vanilla Image Factory schematic; a custom installer_image carries its own.
-  upgrade_installer_image         = coalesce(var.installer_image, "factory.talos.dev/aws-installer/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba:${var.talos_version}")
+  version_upgrades_needed    = var.version_upgrades_enabled && length(data.aws_instances.existing_control_plane.ids) > 0
+  configured_installer_image = var.image_factory_schematic_id == null ? var.installer_image : "factory.talos.dev/aws-installer/${var.image_factory_schematic_id}:${var.talos_version}"
+  # NOTE: Official AMIs ship the vanilla Image Factory schematic.
+  upgrade_installer_image         = coalesce(local.configured_installer_image, "factory.talos.dev/aws-installer/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba:${var.talos_version}")
   installer_image_matches_version = endswith(local.upgrade_installer_image, ":${var.talos_version}")
   upgrade_args                    = "--endpoint '${local.talos_api_endpoint}' --nodes '${join(",", sort(data.aws_instances.existing_control_plane.private_ips))}'"
   upgrade_environment = {
@@ -630,15 +637,15 @@ locals {
   }
 }
 
-# Creation also runs the script, which exits 0 when every controller is already at the target.
+# NOTE: Legacy callers keep the version trigger. A schematic can change without a version change.
 resource "terraform_data" "talos_upgrade" {
   count            = local.version_upgrades_needed ? 1 : 0
-  triggers_replace = [var.talos_version]
+  triggers_replace = [var.image_factory_schematic_id == null ? var.talos_version : local.upgrade_installer_image]
 
   provisioner "local-exec" {
     interpreter = ["bash", "-c"]
     environment = local.upgrade_environment
-    command     = "python3 '${path.module}/scripts/version_upgrade.py' talos ${local.upgrade_args} --target '${var.talos_version}' --image '${local.upgrade_installer_image}'"
+    command     = "python3 '${path.module}/scripts/version_upgrade.py' talos ${local.upgrade_args} --target '${var.talos_version}' --image '${local.upgrade_installer_image}'${var.image_factory_schematic_id == null ? "" : " --schematic-id '${var.image_factory_schematic_id}'"}"
   }
 
   lifecycle {

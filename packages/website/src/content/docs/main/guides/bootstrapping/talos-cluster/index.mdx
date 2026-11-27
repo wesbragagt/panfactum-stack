@@ -7,14 +7,21 @@ Use `aws_kube_talos` for the control plane and `kube_aws_ccm` for the AWS cloud 
 1. Choose a private subnet and a fixed controller IP. Reserve a private API DNS name.
 2. Verify that the VPC has a tagged public subnet in the bootstrap controller's Availability Zone.
 3. Generate a new Talos secrets bundle. Encrypt the file with SOPS. Use a separate state key for the cluster.
-4. Pass the VPC, subnet, IP, API DNS name, and encrypted secrets to `aws_kube_talos`. Keep controller public IPs disabled.
+4. Pass the VPC, API DNS name, and encrypted secrets to `aws_kube_talos`. Describe the controllers with one `control_plane` list. Keep controller public IPs disabled.
+
+```hcl
+control_plane = [{ subnet = "PRIVATE_A", private_ip = "10.0.128.10", instance_type = "t4g.medium" }]
+```
+
+Each entry sets `subnet`, an optional fixed `private_ip`, and an optional `instance_type`. The first entry bootstraps the cluster. Use 1, 3, or 5 entries and append new ones only. This list replaces `control_plane_count`, `control_plane_subnets`, `control_plane_private_ips`, `control_plane_instance_type(s)`, and `bootstrap_control_plane`.
 
 ## 2. Apply Talos with temporary public access
 
 Set `talos_access_transport = "bootstrap_public"`. The module detects the runner's public IPv4 address and opens the two API ports to its `/32`. Set `bootstrap_public.operator_cidr` if the runner uses a different egress address.
 
 1. Review and apply the Talos plan. Save `kubeconfig` and `talosconfig` in private files.
-2. Use `bootstrap_public_kube_url` and `bootstrap_public_talos_endpoint` to check `/readyz` and the etcd members.
+2. Register the cluster with `pf-bootstrap-talos register --cluster NAME --module CALLER --region REGION --profile AWS_PROFILE`. It only appends the module to `.kube/config.talos.yaml` and the cluster to `.kube/config.talos.user.yaml`. It makes no AWS calls and writes no outputs. Run `pf-update-kube-talos --build` after each apply that changes outputs.
+3. Use `bootstrap_public_kube_url` and `bootstrap_public_talos_endpoint` to check `/readyz` and the etcd members.
 
 ## 3. Install networking and switch to private access
 
@@ -22,10 +29,28 @@ Set `talos_access_transport = "bootstrap_public"`. The module detects the runner
 2. Apply `kube_aws_ccm`. Pass the `cluster` and `controller_provider_ids` outputs of `aws_kube_talos`. It sets the controller provider IDs and installs CCM. Kubernetes `1.36` defaults to CCM `v1.36.1`. Set `image_version` to override it. Use the same Kubernetes major and the target minor or the previous minor. During an upgrade, keep CCM at or below the oldest API server minor that it can reach. [AWS CCM compatibility](https://cloud-provider-aws.sigs.k8s.io/#compatibility-with-kubernetes) · [Kubernetes version skew](https://kubernetes.io/releases/version-skew-policy/#kube-controller-manager-kube-scheduler-and-cloud-controller-manager)
 3. Apply `kube_core_dns`. Set `service_ip` from the Talos `dns_service_ip` output. Check DNS from a Pod.
 4. Configure Headscale or Tailscale. Route the private controller subnets and make the private API name resolvable from the runner.
-5. Verify authenticated Kubernetes and Talos API requests over the private path. Set `talos_access_transport = "vpn"`. Plan and apply with the public load balancer still available.
+5. Verify authenticated Kubernetes and Talos API requests over the private path. Run `pf-update-kube-talos --build`, then `pf-update-kube-talos`. Set `talos_access_transport = "vpn"`. An omitted `transport` in `.kube/config.talos.user.yaml` also means `vpn`. Plan and apply with the public load balancer still available.
 6. Repeat those checks. Set `bootstrap_public = { enabled = false }`. Review the removal plan and apply it. Verify that the private APIs still work.
 
 Use separate plans for the transport change and the load balancer removal.
+
+### Kubeconfig files
+
+Talos clusters use three files in `.kube`, separate from the Panfactum files, because `pf-update-kube` rewrites the Panfactum user entries to a token command that Talos rejects.
+
+| File | Contents |
+| --- | --- |
+| `config.talos.yaml` (committed) | `- module:` paths relative to `environments/`, the same schema as `config.yaml`. |
+| `config.talos.user.yaml` (not committed) | `- name:`, `aws_profile:`, and optional `transport` (`vpn`, `ssm`, or `bootstrap_public`; default `vpn`). |
+| `cluster_info.talos` (committed) | Region, API URL, CA, and endpoints that `--build` reads from the module outputs, under `clusters`. |
+
+`pf-update-kube-talos` replaces `pf-update-talos` and never calls `pf-update-kube`.
+
+| Command | Effect |
+| --- | --- |
+| `pf-update-kube-talos --build` | Rebuilds `cluster_info.talos` from module outputs, then writes the contexts. |
+| `pf-update-kube-talos` | Writes the contexts from the committed `cluster_info.talos`. |
+| `pf-update-kube-talos --talosconfig [CONTEXT]` | Prints the protected Talos config path. |
 
 ## 4. Install Karpenter
 

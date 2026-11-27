@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+"""Merge Talos contexts into the shared project kubeconfig without touching Panfactum files."""
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+
+def main():
+    args = sys.argv[1:]
+    if args in (["-h"], ["--help"]):
+        print("Usage: pf-update-kube-talos            merge Talos contexts into the project kubeconfig\n"
+              "       pf-update-kube-talos -b|--build  rebuild .kube/cluster_info.talos, then merge\n"
+              "       pf-update-kube-talos --talosconfig [CONTEXT]\n"
+              "                                        print the protected Talos config path")
+        return 0
+    common_dir = subprocess.check_output(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], text=True
+    ).strip()
+    root = Path(common_dir).parent
+    variables = json.loads(subprocess.check_output(["pf-get-repo-variables"], cwd=root, text=True))
+    kube_dir = Path(variables["kube_dir"])
+    env = os.environ.copy()
+    env["KUBE_DIR"] = str(kube_dir)
+    env["KUBECONFIG"] = str(kube_dir / "config")
+    # NOTE: The project's kubectl wrapper opens transport for the current context.
+    env["PATH"] = os.pathsep.join(
+        directory for directory in env["PATH"].split(os.pathsep)
+        if (Path(directory) / "kubectl").resolve().name != "cluster-command.py"
+    )
+    helper = Path(__file__).resolve().with_name("pf-bootstrap-talos")
+    if args[:1] == ["--talosconfig"]:
+        return subprocess.run([sys.executable, str(helper), "talosconfig", *args[1:]],
+                              cwd=root, env=env).returncode
+    if args[:1] in (["-b"], ["--build"]):
+        built = subprocess.run([sys.executable, str(helper), "build"], cwd=root, env=env).returncode
+        if built:
+            return built
+    elif not (kube_dir / "cluster_info.talos").is_file():
+        print("run pf-update-kube-talos --build", file=sys.stderr)
+        return 1
+    return subprocess.run([sys.executable, str(helper), "merge"], cwd=root, env=env).returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main())

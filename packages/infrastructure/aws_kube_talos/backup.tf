@@ -4,11 +4,11 @@ data "aws_partition" "backup" {}
 
 resource "aws_s3_bucket" "etcd_backup" {
   bucket_prefix = "${var.cluster_name}-etcd-"
-  force_destroy = false
+  force_destroy = !var.lifecycle_lock
   tags          = data.pf_aws_tags.tags.tags
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = var.lifecycle_lock
   }
 }
 
@@ -41,7 +41,7 @@ resource "aws_kms_key" "etcd_backup" {
   tags                    = data.pf_aws_tags.tags.tags
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = var.lifecycle_lock
   }
 }
 

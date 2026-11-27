@@ -21,11 +21,16 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts/pf-bootstrap-talos"
 # The tests only write JSON, which kubectl also reads, so the fake prints the file.
 FAKE_KUBECTL = '#!/bin/sh\nexec cat "$2"\n'
 FAKE_TERRAGRUNT = '''#!/bin/sh
+if [ "$2" = -json ] && [ -z "$3" ]; then
+  cat "$PWD/outputs.json" || exit 1
+  exit 0
+fi
 case "$3" in
   cluster_url) printf '%s' "${TEST_PRIVATE_URL:-https://api.example.internal:6443}" ;;
   control_plane_private_ips) printf '%s' '["10.0.0.5","10.0.1.5"]' ;;
   bootstrap_public_host) printf '%s' "${TEST_PUBLIC_HOST:-talos-1.elb.amazonaws.com}" ;;
   bootstrap_public_node) printf '%s' '10.0.1.5' ;;
+  stable_api_hostname) test -n "$TEST_STABLE_HOST" && printf '"%s"' "$TEST_STABLE_HOST" || exit 1 ;;
   *) cat "$TEST_KUBECONFIG" ;;
 esac
 '''
@@ -51,7 +56,7 @@ class PfBootstrapTalosTests(unittest.TestCase):
         self.kube = self.root / ".kube"
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         for name in ("a", "b"):
-            (self.root / f"env/{name}").mkdir(parents=True)
+            (self.root / f"environments/{name}").mkdir(parents=True)
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()
         for name, body in (("kubectl", FAKE_KUBECTL), ("terragrunt", FAKE_TERRAGRUNT)):
@@ -75,29 +80,56 @@ class PfBootstrapTalosTests(unittest.TestCase):
         return subprocess.run(["python3", str(SCRIPT), *argv], cwd=self.root, env=self.env,
                               capture_output=True, text=True, timeout=60)
 
-    def register(self, *options, name="a", env="a", kube_port="16443", talos_port="50000", profile="prof-a"):
-        return self.run_cli("register", "--cluster", name, "--module", str(self.root / "env" / env),
-                            "--region", "us-east-2", "--kube-port", kube_port,
-                            "--talos-port", talos_port, "--profile", profile, *options)
+    def register(self, *options, name="a", env="a", profile="prof-a"):
+        """Register, then build and merge from fake outputs, as the apply hook and pf-update-kube-talos do."""
+        result = self.run_cli("register", "--cluster", name, "--module", str(self.root / "environments" / env),
+                              "--region", "us-east-2", "--profile", profile, *options)
+        if result.returncode:
+            return result
+        public = "--bootstrap-public" in options
+        self.write_outputs(env, name,
+                           bootstrap_public_host=self.env.get("TEST_PUBLIC_HOST", "talos-1.elb.amazonaws.com")
+                           if public else None,
+                           bootstrap_public_node="10.0.1.5" if public else None)
+        built = self.run_cli("build")
+        return built if built.returncode else self.run_cli("merge")
 
     def config(self):
         return json.loads((self.kube / "config").read_text())
 
-    def test_register_writes_both_files_and_merges(self):
-        result = self.register()
+    def test_register_writes_only_module_and_user_entries(self):
+        # The stub records any call; register must not run terragrunt.
+        (self.tmp / "bin/terragrunt").write_text('#!/bin/sh\ntouch "$0.called"\nexit 1\n')
+        result = self.run_cli("register", "--cluster", "a", "--module", str(self.root / "environments/a"),
+                              "--region", "us-east-2", "--profile", "prof-a")
         self.assertEqual(result.returncode, 0, result.stderr)
-        committed = json.loads((self.kube / "config.talos.yaml").read_text())["clusters"]["a"]
-        self.assertEqual(committed, {"region": "us-east-2", "kube_port": 16443, "talos_port": 50000,
-                                     "module": "env/a", "ca_data": self.ca})
-        self.assertEqual((self.kube / "config.talos.user.yaml").read_text(),
-                         "clusters:\n  - name: a\n    aws_profile: prof-a\n")
-        config = self.config()
-        self.assertEqual(config["clusters"][0]["cluster"]["server"], "https://127.0.0.1:16443")
-        self.assertEqual((self.kube / "config").stat().st_mode & 0o777, 0o600)
-        # A second register keeps the user's existing profile entry.
-        self.register(profile="other")
-        self.assertEqual((self.kube / "config.talos.user.yaml").read_text(),
-                         "clusters:\n  - name: a\n    aws_profile: prof-a\n")
+        self.assertIn("pf-update-kube-talos --build to add a", result.stdout)
+        self.assertEqual((self.kube / "config.talos.yaml").read_text(), "clusters:\n  - module: a\n")
+        self.assertEqual(self.user_file().read_text(), "clusters:\n  - name: a\n    aws_profile: prof-a\n")
+        self.assertFalse((self.tmp / "bin/terragrunt.called").exists())
+        self.assertFalse((self.kube / "cluster_info.talos").exists())
+        self.assertFalse((self.kube / "config").exists())
+
+    def test_register_rerun_changes_no_files(self):
+        self.assertEqual(self.run_cli("register", "--cluster", "a", "--module", str(self.root / "environments/a"),
+                                      "--region", "us-east-2", "--profile", "prof-a").returncode, 0)
+        before = {path.name: (path.read_bytes(), path.stat().st_mtime_ns)
+                  for path in (self.kube / "config.talos.yaml", self.user_file())}
+        time.sleep(0.05)
+        result = self.run_cli("register", "--cluster", "a", "--module", str(self.root / "environments/a"),
+                              "--region", "us-east-2", "--profile", "other")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        after = {path.name: (path.read_bytes(), path.stat().st_mtime_ns)
+                 for path in (self.kube / "config.talos.yaml", self.user_file())}
+        self.assertEqual(before, after)
+
+    def test_register_rejects_module_outside_environments(self):
+        (self.root / "other").mkdir()
+        result = self.run_cli("register", "--cluster", "a", "--module", str(self.root / "other"),
+                              "--region", "us-east-2")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("must be under", result.stderr)
+        self.assertFalse((self.kube / "config.talos.yaml").exists())
 
     def user_file(self):
         return self.kube / "config.talos.user.yaml"
@@ -139,10 +171,10 @@ class PfBootstrapTalosTests(unittest.TestCase):
     def test_default_kube_dir_is_repo_root_from_subdirectory(self):
         # Terragrunt hooks run from a nested cache directory without KUBE_DIR.
         del self.env["KUBE_DIR"]
-        nested = self.root / "env/a/.terragrunt-cache/x"
+        nested = self.root / "environments/a/.terragrunt-cache/x"
         nested.mkdir(parents=True)
         result = subprocess.run(["python3", str(SCRIPT), "register", "--cluster", "a",
-                                 "--module", str(self.root / "env/a"), "--region", "us-east-2",
+                                 "--module", str(self.root / "environments/a"), "--region", "us-east-2",
                                  "--profile", "prof-a"], cwd=nested, env=self.env,
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -160,29 +192,26 @@ class PfBootstrapTalosTests(unittest.TestCase):
             scripts.mkdir()
             for source in (SCRIPT, SCRIPT.with_name("cluster_access.py")):
                 shutil.copy2(source, scripts / source.name)
-        module = linked / "env/a"
+        module = linked / "environments/a"
         module.mkdir(parents=True)
         result = subprocess.run(["python3", str(linked / "scripts/pf-bootstrap-talos"), "register", "--cluster", "a",
                                  "--module", str(module), "--region", "us-east-2"], cwd=module,
                                 env=self.env, capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((linked / ".kube").exists())
+        self.write_outputs("a", "a")
+        for command in ("build", "merge"):
+            result = subprocess.run(["python3", str(self.root / "scripts/pf-bootstrap-talos"), command], cwd=self.root,
+                                    env=self.env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
         args = self.config()["users"][0]["user"]["exec"]["args"]
         self.assertEqual(args[0], str(self.root / "scripts/cluster_access.py"))
-        self.assertEqual(args[args.index("--module") + 1], str(self.root / "env/a"))
+        self.assertEqual(args[args.index("--module") + 1], str(self.root / "environments/a"))
         before = (self.kube / "config").read_bytes()
         result = subprocess.run(["python3", str(self.root / "scripts/pf-bootstrap-talos"), "merge"], cwd=self.root,
                                 env=self.env, capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.kube / "config").read_bytes(), before)
-
-    def test_register_rejects_duplicate_ports(self):
-        self.assertEqual(self.register().returncode, 0)
-        for kube, talos in (("16443", "50001"), ("16444", "50000")):
-            result = self.register(name="b", env="b", kube_port=kube, talos_port=talos)
-            self.assertEqual(result.returncode, 1)
-            self.assertIn("already used by cluster a", result.stderr)
-        self.assertNotIn("b", json.loads((self.kube / "config.talos.yaml").read_text())["clusters"])
 
     def test_public_registration_creates_a_verified_context_and_stages_private_endpoints(self):
         result = self.register("--bootstrap-public")
@@ -193,9 +222,9 @@ class PfBootstrapTalosTests(unittest.TestCase):
         self.assertEqual(config["users"][0]["user"]["exec"]["args"][-2:], ["--transport", "bootstrap_public"])
         self.assertNotIn("client-key-data", json.dumps(config))
         self.assertEqual(self.user_file().read_text().splitlines()[-1], "    transport: bootstrap_public")
-        entry = json.loads((self.kube / "config.talos.yaml").read_text())["clusters"]["a"]
+        entry = json.loads((self.kube / "cluster_info.talos").read_text())["clusters"]["a"]
         self.assertEqual(entry["bootstrap_public_node"], "10.0.1.5")
-        self.assertEqual(entry["talos_endpoints"], ["10.0.0.5", "10.0.1.5"])
+        self.assertEqual(entry["talos_endpoints"], ["10.0.0.5"])
 
         self.user_file().write_text(self.user_file().read_text().replace("bootstrap_public", "vpn"))
         result = self.run_cli("merge")
@@ -204,15 +233,32 @@ class PfBootstrapTalosTests(unittest.TestCase):
         self.assertEqual(config["clusters"][0]["cluster"]["server"], "https://api.example.internal:6443")
         self.assertEqual(config["users"][0]["user"]["exec"]["args"][-2:], ["--transport", "vpn"])
 
-    def test_invalid_public_hostname_changes_neither_registry_nor_context(self):
+    def test_invalid_public_hostname_changes_no_context(self):
         self.env["TEST_PUBLIC_HOST"] = "https://example.com"
         result = self.register("--bootstrap-public")
         self.assertEqual(result.returncode, 1)
         self.assertIn("load balancer hostname", result.stderr)
-        self.assertFalse((self.kube / "config.talos.yaml").exists())
         self.assertFalse((self.kube / "config").exists())
 
+    def test_split_dns_keeps_kubernetes_and_talos_hostnames_on_cutover(self):
+        host = "api.a.example.com"
+        server = f"https://{host}:6443"
+        self.env.update(TEST_PUBLIC_HOST=host, TEST_PRIVATE_URL=server, TEST_STABLE_HOST=host)
+        result = self.register("--bootstrap-public")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.config()["clusters"][0]["cluster"]["server"], server)
+        self.user_file().write_text(self.user_file().read_text().replace("bootstrap_public", "vpn"))
+        (self.kube / "cluster_info.talos").unlink()
+        result = self.register()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.config()["clusters"][0]["cluster"]["server"], server)
+        entry = json.loads((self.kube / "cluster_info.talos").read_text())["clusters"]["a"]
+        self.assertEqual(entry["stable_api_hostname"], host)
+        self.assertNotIn("bootstrap_public_host", entry)
+
     def test_merge_preserves_other_entries_and_replaces_same_name(self):
+        self.kube.mkdir(exist_ok=True)
+        self.user_file().write_text("clusters:\n  - name: a\n    aws_profile: prof-a\n    transport: ssm\n")
         self.assertEqual(self.register().returncode, 0)
         config = self.config()
         config["clusters"].append({"name": "keep", "cluster": {"server": "https://keep"}})
@@ -241,7 +287,7 @@ class PfBootstrapTalosTests(unittest.TestCase):
         args = exec_config["args"]
         self.assertEqual(args[0], str(SCRIPT.parent / "cluster_access.py"))
         self.assertEqual(args[1], "--exec-credential")
-        self.assertEqual(args[args.index("--module") + 1], str(self.root / "env/a"))
+        self.assertEqual(args[args.index("--module") + 1], str(self.root / "environments/a"))
         self.assertEqual(args[args.index("--profile") + 1], "prof-a")
         self.assertEqual(args[args.index("--kube-port") + 1], "16443")
 
@@ -274,7 +320,7 @@ class PfBootstrapTalosTests(unittest.TestCase):
     def test_vpn_register_and_merge_keep_transport_context_and_recovery(self):
         self.kube.mkdir()
         self.user_file().write_text("- name: a\n  aws_profile: vpn-profile\n  transport: vpn\n")
-        result = self.register("--vpn-endpoints")
+        result = self.register()
         self.assertEqual(result.returncode, 0, result.stderr)
         output = self.config()
         output["current-context"] = "a-ssm"
@@ -303,7 +349,9 @@ class PfBootstrapTalosTests(unittest.TestCase):
         self.assertIn("transport: vpn", self.user_file().read_text())
 
     def test_vpn_merge_rejects_unrelated_recovery_name(self):
-        self.assertEqual(self.register("--vpn-endpoints").returncode, 0)
+        self.kube.mkdir(exist_ok=True)
+        self.user_file().write_text("clusters:\n  - name: a\n    aws_profile: prof-a\n    transport: ssm\n")
+        self.assertEqual(self.register().returncode, 0)
         self.user_file().write_text("- name: a\n  transport: vpn\n")
         saved = self.config()
         saved["contexts"].append({"name": "a-ssm", "context": {"cluster": "external", "user": "external"}})
@@ -316,11 +364,65 @@ class PfBootstrapTalosTests(unittest.TestCase):
 
     def test_invalid_vpn_transport_or_endpoint_fails_without_rewriting(self):
         self.assertEqual(self.register().returncode, 0)
+        info_path = self.kube / "cluster_info.talos"
+        info = json.loads(info_path.read_text())
+        del info["clusters"]["a"]["kube_api_server"]
+        info_path.write_text(json.dumps(info))
         for transport, message in (("invalid", "transport"), ("vpn", "kube_api_server")):
             self.user_file().write_text(f"- name: a\n  transport: {transport}\n")
             result = self.run_cli("merge")
             self.assertEqual(result.returncode, 1)
             self.assertIn(message, result.stderr)
+
+    def write_outputs(self, env, name, **extra):
+        outputs = {"cluster_name": name, "cluster_region": "us-east-2", "cluster_ca_data": self.ca,
+                   "cluster_url": self.env.get("TEST_PRIVATE_URL", "https://api.example.internal:6443"),
+                   "control_plane_private_ips": ["10.0.0.5"],
+                   "stable_api_hostname": self.env.get("TEST_STABLE_HOST") or None,
+                   "bootstrap_public_host": None, **extra}
+        (self.root / "environments" / env / "outputs.json").write_text(
+            json.dumps({key: {"value": value} for key, value in outputs.items()}))
+
+    def test_build_writes_cluster_info_from_module_outputs(self):
+        self.write_outputs("a", "one", stable_api_hostname="api.example.internal")
+        self.write_outputs("b", "two")
+        self.kube.mkdir(exist_ok=True)
+        (self.kube / "config.talos.yaml").write_text("clusters:\n  - module: a\n  - module: b\n")
+        (self.kube / "cluster_info.talos").write_text(json.dumps({"clusters": {"gone": {}}}))
+        result = self.run_cli("build")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        info = json.loads((self.kube / "cluster_info.talos").read_text())["clusters"]
+        self.assertEqual(info["one"], {
+            "region": "us-east-2", "kube_api_server": "https://api.example.internal:6443",
+            "ca_data": self.ca, "talos_endpoints": ["10.0.0.5"], "module": "environments/a",
+            "stable_api_hostname": "api.example.internal"})
+        self.assertEqual(sorted(info), ["one", "two"])
+        self.assertNotIn("bootstrap_public_host", info["two"])
+
+    def test_build_failure_keeps_the_old_file(self):
+        self.write_outputs("a", "one")
+        self.kube.mkdir(exist_ok=True)
+        (self.kube / "config.talos.yaml").write_text("clusters:\n  - module: a\n  - module: b\n")
+        old = json.dumps({"clusters": {"old": {}}})
+        (self.kube / "cluster_info.talos").write_text(old)
+        result = self.run_cli("build")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual((self.kube / "cluster_info.talos").read_text(), old)
+
+    def test_reader_fills_default_ports_and_user_transport_defaults_to_vpn(self):
+        self.kube.mkdir(exist_ok=True)
+        (self.kube / "cluster_info.talos").write_text(json.dumps({"clusters": {"a": {"module": "m"}}}))
+        (self.kube / "config.talos.user.yaml").write_text("clusters:\n  - name: a\n")
+        spec = importlib.util.spec_from_loader(
+            "pf_bootstrap_talos", importlib.machinery.SourceFileLoader("pf_bootstrap_talos", str(SCRIPT)))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        entry = module.read_committed(self.kube / "cluster_info.talos")["a"]
+        self.assertEqual((entry["kube_port"], entry["talos_port"]), (16443, 50000))
+        self.assertEqual(module.read_user(self.kube / "config.talos.user.yaml")["a"].get("transport", "vpn"), "vpn")
+        (self.kube / "cluster_info.talos").write_text("{bad")
+        with self.assertRaises(module.SetupError):
+            module.read_committed(self.kube / "cluster_info.talos")
 
     def test_help_exits_zero(self):
         self.assertEqual(self.run_cli("--help").returncode, 0)
