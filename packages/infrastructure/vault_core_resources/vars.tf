@@ -3,13 +3,6 @@ variable "vault_secrets_operator_replicas" {
   default = 1
 }
 
-variable "vault_api_namespace" {
-  description = "Vault API namespace used by VSO cache encryption and default authentication; independent of the Kubernetes namespace. Set to an empty string for the OpenBao root namespace."
-  type        = string
-  default     = "vault"
-  nullable    = false
-}
-
 variable "vault_secrets_operator_helm_version" {
   description = "The version of the vault-secrets-operator helm chart to deploy"
   type        = string
@@ -80,6 +73,18 @@ variable "aws_secrets_use_workload_identity" {
 
 variable "kubernetes_issuer" {
   description = "Explicit issuer of projected Kubernetes tokens for self-managed clusters. Null retains the provider default."
+  type        = string
+  default     = null
+}
+
+variable "aws_endpoint" {
+  description = "Development simulators only: IAM/STS endpoint the OpenBao AWS secrets engine calls, reachable from the OpenBao Pod. Null keeps the AWS defaults."
+  type        = string
+  default     = null
+}
+
+variable "vault_api_namespace" {
+  description = "API namespace the Vault Secrets Operator sends with requests. Null keeps the Kubernetes namespace name (vault); OpenBao's root namespace is the empty string."
   type        = string
   default     = null
 }

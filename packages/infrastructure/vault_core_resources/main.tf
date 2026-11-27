@@ -32,7 +32,9 @@ terraform {
 }
 
 locals {
-  namespace                              = "vault"
+  namespace = "vault"
+  # OpenBao API namespace; distinct from the Kubernetes namespace. OpenBao's root namespace is "".
+  vault_api_namespace                    = var.vault_api_namespace == null ? local.namespace : var.vault_api_namespace
   vault_secrets_operator_service_account = "vault-secrets-operator-controller-manager"
 }
 
@@ -146,6 +148,9 @@ resource "vault_aws_secret_backend" "aws" {
   access_key                = var.aws_secrets_use_workload_identity ? null : aws_iam_access_key.vault[0].id
   secret_key                = var.aws_secrets_use_workload_identity ? null : aws_iam_access_key.vault[0].secret
   default_lease_ttl_seconds = 60 * 60 * 16
+  iam_endpoint              = var.aws_endpoint
+  sts_endpoint              = var.aws_endpoint
+  sts_region                = var.aws_endpoint == null ? null : data.aws_region.current.region
 }
 
 /***************************************
@@ -262,7 +267,7 @@ resource "helm_release" "vault_secrets_operator" {
               enabled      = true
               transitMount = vault_mount.transit.path
               keyName      = vault_transit_secret_backend_key.secrets_operator.name
-              namespace    = var.vault_api_namespace
+              namespace    = local.vault_api_namespace
               method       = "kubernetes"
               mount        = vault_auth_backend.kubernetes.path
               kubernetes = {
@@ -279,7 +284,7 @@ resource "helm_release" "vault_secrets_operator" {
 
       defaultAuthMethod = {
         enabled   = true
-        namespace = var.vault_api_namespace
+        namespace = local.vault_api_namespace
         method    = "kubernetes"
         mount     = vault_auth_backend.kubernetes.path
       }

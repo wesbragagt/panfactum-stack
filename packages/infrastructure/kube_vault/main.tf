@@ -34,6 +34,27 @@ locals {
   cluster_name = data.pf_metadata.metadata.kube_cluster_name
 }
 
+# Published OpenBao plugin release assets per architecture: archive suffix, then archive and binary SHA256.
+locals {
+  openbao_plugins = {
+    arm64 = {
+      suffix      = "arm64_v8"
+      kms_archive = "8f173d8590d3df52c3501dd3af79b5f90fbc8ae4386b04abb706ca8b82a55b23"
+      kms_binary  = "986487f17d30123b4730cf412ad2267f7ef4cfe637c75252ed6d13294673bae2"
+      aws_archive = "549d72a9570920cb07be425a4487a4e7abc78d311b3e6ca85b3e4ee9bfbf4931"
+      aws_binary  = "670aa9c3f1cff789826ab8c00845760034d8f82afd2cdd57ecf794863e8c7127"
+    }
+    amd64 = {
+      suffix      = "amd64_v1"
+      kms_archive = "f00ebed7fa1cbec080e0fed908e167125bc14b266df7e4af845f82aa4650ed4e"
+      kms_binary  = "0dffe0a159a5bdbeb147a892595fe517de858f48a99a64f33fabc775af0eec76"
+      aws_archive = "468030d8462a154e3e66c9b7e7df951c8e37973aec0e6ab3df37af567c4af825"
+      aws_binary  = "2de810eadea3d5fb65fe055a1fdd2f13889056605502d467928ef4cacd458f2b"
+    }
+  }
+  openbao_plugin = local.openbao_plugins[var.openbao_plugin_arch]
+}
+
 data "pf_kube_labels" "labels" {
   module = "kube_vault"
 }
@@ -59,7 +80,7 @@ module "util_server" {
   # (as the checksums change depending on whether the binary was compiled for amd64 or arm64).
   # We have chosen to run on arm64 nodes as that is the cheaper architecture on AWS.
   node_requirements = {
-    "kubernetes.io/arch" = ["arm64"]
+    "kubernetes.io/arch" = [var.openbao_plugin_arch]
   }
 }
 
@@ -135,6 +156,8 @@ module "aws_permissions" {
   oidc_issuer_url           = var.oidc_issuer_url
   cluster_subnet_ids        = var.cluster_subnet_ids
   ip_restrictions_enabled   = var.ip_restrictions_enabled
+
+  local_static_credentials_enabled = var.aws_local_endpoint != null
 }
 
 /***************************************
@@ -282,6 +305,12 @@ resource "helm_release" "vault" {
               aws_region     = data.aws_region.region.region
               kms_key_id     = module.unseal_key.id
               aws_role_arn   = module.aws_permissions.role_arn
+              aws_endpoint   = var.aws_local_endpoint
+              plugin_arch    = var.openbao_plugin_arch
+              kms_sha256     = local.openbao_plugin.kms_binary
+              aws_sha256     = local.openbao_plugin.aws_binary
+              # Proxies whose X-Forwarded-For OpenBao trusts (the ingress or gateway Pod network).
+              x_forwarded_for_authorized_addrs = var.x_forwarded_for_authorized_addrs
             })
           }
         }
@@ -317,8 +346,8 @@ resource "helm_release" "vault" {
             trap 'rm -rf "$work"' EXIT
             install_plugin() {
               release="$1"; name="$2"; archive_sha="$3"; binary_sha="$4"
-              archive="$name"_linux_arm64_v8.tar.gz
-              member="$name"_linux_arm64_v8
+              archive="$name"_linux_${local.openbao_plugin.suffix}.tar.gz
+              member="$name"_linux_${local.openbao_plugin.suffix}
               wget -T 60 -O "$work/$archive" "https://github.com/openbao/openbao-plugins/releases/download/$release/$archive"
               echo "$archive_sha  $work/$archive" | sha256sum -c -
               tar -xzf "$work/$archive" -C "$work" "$member"
@@ -326,8 +355,8 @@ resource "helm_release" "vault" {
               cp -f "$work/$member" "/vault/plugins/$name"
               chmod 0555 "/vault/plugins/$name"
             }
-            install_plugin kms-aws-v0.1.1 openbao-plugin-kms-aws 8f173d8590d3df52c3501dd3af79b5f90fbc8ae4386b04abb706ca8b82a55b23 986487f17d30123b4730cf412ad2267f7ef4cfe637c75252ed6d13294673bae2
-            install_plugin secrets-aws-v0.3.3 openbao-plugin-secrets-aws 549d72a9570920cb07be425a4487a4e7abc78d311b3e6ca85b3e4ee9bfbf4931 670aa9c3f1cff789826ab8c00845760034d8f82afd2cdd57ecf794863e8c7127
+            install_plugin kms-aws-v0.1.1 openbao-plugin-kms-aws ${local.openbao_plugin.kms_archive} ${local.openbao_plugin.kms_binary}
+            install_plugin secrets-aws-v0.3.3 openbao-plugin-secrets-aws ${local.openbao_plugin.aws_archive} ${local.openbao_plugin.aws_binary}
             ln -sf /bin/bao /compat/vault
           SCRIPT
           ]
@@ -347,7 +376,23 @@ resource "helm_release" "vault" {
           ]
         }]
       }
-    })] : [], [
+      })] : [], var.aws_local_endpoint == null ? [] : [yamlencode({
+      # Local simulator only: static IAM-user keys from a Secret, explicit endpoint, no IRSA or metadata.
+      server = {
+        extraEnvironmentVars = {
+          AWS_ROLE_ARN              = ""
+          AWS_ENDPOINT_URL          = var.aws_local_endpoint
+          AWS_EC2_METADATA_DISABLED = "true"
+        }
+        extraSecretEnvironmentVars = [
+          for key in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"] : {
+            envName    = key
+            secretName = module.aws_permissions.local_credentials_secret_name
+            secretKey  = key
+          }
+        ]
+      }
+    })], [
     yamlencode(var.extra_helm_values)
   ])
 
@@ -374,7 +419,9 @@ module "pvc_annotator" {
   kyverno_cel_policies_enabled = var.kyverno_cel_policies_enabled
   source                       = "../kube_pvc_annotator"
 
-  namespace = local.namespace
+  # Implicit ordering after the release: a module depends_on defers its data sources on every release update,
+  # which made yaml_body unknown and replaced the Kyverno Policy whenever helm_release.vault changed.
+  namespace = helm_release.vault.namespace
   config = {
     "${local.namespace}.vault" = {
       annotations = {
@@ -385,8 +432,6 @@ module "pvc_annotator" {
       labels = module.util_server.labels
     }
   }
-
-  depends_on = [helm_release.vault]
 }
 
 /***************************************

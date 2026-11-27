@@ -18,7 +18,7 @@ listener "tcp" {
   # Our ingress system allows adding a x-forwarded-for header that vault
   # can then read to derive the actual source IP.
   # If the header isn't present, that means it came from inside the cluster.
-  x_forwarded_for_authorized_addrs = "10.0.0.0/16" #TODO: This should be an input
+  x_forwarded_for_authorized_addrs = "${x_forwarded_for_authorized_addrs}" #TODO: This should be an input
   x_forwarded_for_reject_not_authorized = "true"
   x_forwarded_for_reject_not_present = "false"
 
@@ -47,16 +47,20 @@ plugin_auto_download = false
 plugin_auto_register = true
 
 # OpenBao's AWS integrations are external plugins. Register the exact preinstalled
-# ARM64 binaries before resolving the seal; never download plugins at server start.
+# ${upper(plugin_arch)} binaries before resolving the seal; never download plugins at server start.
 plugin "kms" "awskms" {
   command = "openbao-plugin-kms-aws"
   version = "v0.1.1"
-  sha256sum = "986487f17d30123b4730cf412ad2267f7ef4cfe637c75252ed6d13294673bae2"
+  sha256sum = "${kms_sha256}"
   env = [
     "AWS_REGION=${aws_region}",
     "AWS_DEFAULT_REGION=${aws_region}",
+%{ if aws_endpoint == null ~}
     "AWS_ROLE_ARN=${aws_role_arn}",
     "AWS_WEB_IDENTITY_TOKEN_FILE=/var/run/secrets/eks.amazonaws.com/serviceaccount/token",
+%{ else ~}
+    "AWS_ENDPOINT_URL=${aws_endpoint}",
+%{ endif ~}
     "AWS_EC2_METADATA_DISABLED=true",
     "AWS_STS_REGIONAL_ENDPOINTS=regional"
   ]
@@ -65,12 +69,16 @@ plugin "kms" "awskms" {
 plugin "secret" "aws" {
   command = "openbao-plugin-secrets-aws"
   version = "v0.3.3"
-  sha256sum = "670aa9c3f1cff789826ab8c00845760034d8f82afd2cdd57ecf794863e8c7127"
+  sha256sum = "${aws_sha256}"
   env = [
     "AWS_REGION=${aws_region}",
     "AWS_DEFAULT_REGION=${aws_region}",
+%{ if aws_endpoint == null ~}
     "AWS_ROLE_ARN=${aws_role_arn}",
     "AWS_WEB_IDENTITY_TOKEN_FILE=/var/run/secrets/eks.amazonaws.com/serviceaccount/token",
+%{ else ~}
+    "AWS_ENDPOINT_URL=${aws_endpoint}",
+%{ endif ~}
     "AWS_EC2_METADATA_DISABLED=true",
     "AWS_STS_REGIONAL_ENDPOINTS=regional"
   ]
@@ -83,6 +91,9 @@ plugin "secret" "aws" {
 seal "awskms" {
   region = "${aws_region}"
   kms_key_id = "${kms_key_id}"
+%{ if aws_endpoint != null ~}
+  endpoint = "${aws_endpoint}"
+%{ endif ~}
 
 }
 

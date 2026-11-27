@@ -18,7 +18,7 @@ listener "tcp" {
   # Our ingress system allows adding a x-forwarded-for header that vault
   # can then read to derive the actual source IP.
   # If the header isn't present, that means it came from inside the cluster.
-  x_forwarded_for_authorized_addrs = "10.0.0.0/16" #TODO: This should be an input
+  x_forwarded_for_authorized_addrs = "${x_forwarded_for_authorized_addrs}" #TODO: This should be an input
   x_forwarded_for_reject_not_authorized = "true"
   x_forwarded_for_reject_not_present = "false"
 

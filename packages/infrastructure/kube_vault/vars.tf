@@ -238,3 +238,25 @@ variable "kyverno_cel_policies_enabled" {
   type        = bool
   default     = false
 }
+
+variable "aws_local_endpoint" {
+  description = "Development simulators only: Pod-reachable AWS endpoint for KMS unseal and the AWS plugins. Enables static IAM-user credentials instead of IRSA. Null keeps AWS and IRSA."
+  type        = string
+  default     = null
+}
+
+variable "openbao_plugin_arch" {
+  description = "CPU architecture of the OpenBao server nodes and its AWS plugin binaries. OpenBao pins one binary checksum per plugin, so the server runs only on this architecture."
+  type        = string
+  default     = "arm64"
+  validation {
+    condition     = contains(["arm64", "amd64"], var.openbao_plugin_arch)
+    error_message = "openbao_plugin_arch must be arm64 or amd64."
+  }
+}
+
+variable "x_forwarded_for_authorized_addrs" {
+  description = "CIDRs of the proxies whose X-Forwarded-For header the server trusts; requests through any other proxy are rejected"
+  type        = string
+  default     = "10.0.0.0/16"
+}

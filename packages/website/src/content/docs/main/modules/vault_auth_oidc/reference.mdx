@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### admin_groups
+### admin\_groups
 
 Description: Groups that should have read and write access to this Vault
 
@@ -14,7 +14,7 @@ Type: `list(string)`
 
 Default: `[]`
 
-### client_id
+### client\_id
 
 Description: The client id for the OIDC authentication
 
@@ -22,7 +22,7 @@ Type: `string`
 
 Default: n/a
 
-### client_secret
+### client\_secret
 
 Description: The client secret for the OIDC authentication
 
@@ -30,7 +30,15 @@ Type: `string`
 
 Default: n/a
 
-### oidc_discovery_url
+### oidc\_discovery\_ca\_pem
+
+Description: PEM CA bundle for OIDC discovery when the issuer uses a private CA. Null uses the server trust store.
+
+Type: `string`
+
+Default: `null`
+
+### oidc\_discovery\_url
 
 Description: The discover url for OIDC authentication
 
@@ -38,7 +46,7 @@ Type: `string`
 
 Default: n/a
 
-### oidc_issuer
+### oidc\_issuer
 
 Description: The bound issuer for OIDC authentication to Vault
 
@@ -46,7 +54,7 @@ Type: `string`
 
 Default: n/a
 
-### oidc_redirect_uris
+### oidc\_redirect\_uris
 
 Description: The allowed redirect URIs for OIDC authentication
 
@@ -54,7 +62,23 @@ Type: `list(string)`
 
 Default: n/a
 
-### reader_groups
+### oidc\_scopes
+
+Description: OIDC scopes requested during login. Include groups when required by the identity provider.
+
+Type: `list(string)`
+
+Default:
+
+```json
+[
+  "openid",
+  "profile",
+  "email"
+]
+```
+
+### reader\_groups
 
 Description: Groups that should have read-only access to this Vault
 
@@ -62,7 +86,7 @@ Type: `list(string)`
 
 Default: `[]`
 
-### restricted_reader_groups
+### restricted\_reader\_groups
 
 Description: Groups that should have restricted read-only access to this Vault
 
@@ -70,7 +94,7 @@ Type: `list(string)`
 
 Default: `[]`
 
-### superuser_groups
+### superuser\_groups
 
 Description: Groups that should have superuser access to this Vault
 
@@ -78,7 +102,7 @@ Type: `list(string)`
 
 Default: `[]`
 
-### token_lifetime_hours
+### token\_lifetime\_hours
 
 Description: Number of hours before generated tokens expire
 
@@ -94,7 +118,7 @@ No outputs.
 
 The following providers are needed by this module:
 
-- [vault](https://registry.terraform.io/providers/hashicorp/vault/4.8.0/docs) (4.8.0)
+- [vault](https://registry.terraform.io/providers/hashicorp/vault/5.13.0/docs) (5.13.0)
 
 {/* eslint-enable import-x/order */}
 

@@ -15,13 +15,12 @@ class OpenBaoContractTests(unittest.TestCase):
             Path(directory, 'main.tf').write_text(configuration)
             result = subprocess.run(['tofu', 'console'], cwd=directory,
                                     input=expression + '\n', text=True,
-                                    capture_output=True)
-            if result.returncode:
-                raise AssertionError(result.stderr)
+                                    capture_output=True, check=True)
         return json.loads(json.loads(result.stdout.strip()))
 
-    def values(self, engine):
+    def values(self, engine, arch='arm64'):
         source = (ROOT / 'main.tf').read_text()
+        plugins = re.search(r'\nlocals \{\n  openbao_plugins = .*?\n\}\n', source, re.S).group(0)
         start = source.index('  values = ') + len('  values = ')
         end = source.index('\n\n  timeout', start)
         expression = source[start:end]
@@ -35,9 +34,23 @@ class OpenBaoContractTests(unittest.TestCase):
                       + expression[common_end:])
         expression = expression.replace('yamlencode(var.extra_helm_values)',
                                         'jsonencode({extra="unchanged"})')
+        # The local-simulator overlay (aws_local_endpoint) is null by default; stub its module output.
+        expression = expression.replace('module.aws_permissions.local_credentials_secret_name', '"local-static"')
         configuration = ('variable "secrets_engine" { default = ' + json.dumps(engine) + ' }\n'
+                         'variable "openbao_plugin_arch" { default = ' + json.dumps(arch) + ' }\n' + plugins +
+                         'variable "aws_local_endpoint" { default = null }\n' +
                          'locals {\n  values = ' + expression + '\n}\n')
         return self.console(configuration, 'jsonencode([for value in local.values : yamldecode(value)])')
+
+    def test_amd64_downloads_and_checks_amd64_assets(self):
+        default = self.values('openbao')[1]['server']['extraInitContainers'][0]['args'][0]
+        amd64 = self.values('openbao', 'amd64')[1]['server']['extraInitContainers'][0]['args'][0]
+        self.assertIn('_linux_arm64_v8.tar.gz', default)
+        self.assertNotIn('amd64', default)
+        self.assertIn('_linux_amd64_v1.tar.gz', amd64)
+        self.assertNotIn('arm64', amd64)
+        self.assertIn('f00ebed7fa1cbec080e0fed908e167125bc14b266df7e4af845f82aa4650ed4e', amd64)
+        self.assertIn('2de810eadea3d5fb65fe055a1fdd2f13889056605502d467928ef4cacd458f2b', amd64)
 
     def overlay(self, engine):
         return self.values(engine)[1]
@@ -67,7 +80,10 @@ class OpenBaoContractTests(unittest.TestCase):
 
     def test_openbao_seal_has_plugins_and_workload_identity(self):
         params = dict(vault_replicas=3, disable_mlock=True, aws_region='us-east-2',
-                      kms_key_id='test-key', aws_role_arn='arn:aws:iam::111122223333:role/test')
+                      kms_key_id='test-key', aws_role_arn='arn:aws:iam::111122223333:role/test',
+                      aws_endpoint=None, plugin_arch='arm64',
+                      kms_sha256='986487f17d30123b4730cf412ad2267f7ef4cfe637c75252ed6d13294673bae2',
+                      aws_sha256='670aa9c3f1cff789826ab8c00845760034d8f82afd2cdd57ecf794863e8c7127')
         expression = ('jsonencode(templatefile(' + json.dumps(str(ROOT / 'ha-openbao.hcl'))
                       + ', ' + json.dumps(params) + '))')
         config = self.console('', expression)
