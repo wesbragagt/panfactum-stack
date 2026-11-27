@@ -60,9 +60,9 @@ variable "control_plane_workloads_enabled" {
 }
 
 variable "control_plane_register_with_fqdn" {
-  description = "Whether controllers register Nodes under the EC2 private DNS name so the external cloud provider can resolve them and set spec.providerID. Changing it on an existing cluster renames controller Nodes, so set it only on new clusters."
+  description = "Whether controllers register Nodes under the EC2 private DNS name so the external cloud provider can resolve them and set spec.providerID. New clusters register under it by default. Clusters created with the old default must set this to false explicitly, because changing it renames controller Nodes."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "bootstrap_mode_enabled" {
@@ -303,11 +303,11 @@ variable "service_subnets" {
 }
 
 variable "controller_identity" {
-  description = "IAM naming and ECR access settings for the optional Talos controller identity."
+  description = "IAM naming and ECR access settings for the Talos controller identity. The controller instance profile is on by default because the kubelet ECR credential provider needs instance credentials."
   type = object({
     name_prefix                            = optional(string)
     ecr_cache_prefixes                     = optional(set(string), [])
-    controller_instance_profile_enabled    = optional(bool, false)
+    controller_instance_profile_enabled    = optional(bool, true)
     controller_additional_ecr_repositories = optional(set(string), [])
   })
   default  = {}

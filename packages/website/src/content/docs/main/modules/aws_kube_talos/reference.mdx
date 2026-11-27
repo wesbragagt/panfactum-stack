@@ -143,7 +143,7 @@ Default: `true`
 
 ### controller\_identity
 
-Description: IAM naming and ECR access settings for the optional Talos controller identity.
+Description: IAM naming and ECR access settings for the Talos controller identity. The controller instance profile is on by default because the kubelet ECR credential provider needs instance credentials.
 
 Type:
 
@@ -151,7 +151,7 @@ Type:
 object({
     name_prefix                            = optional(string)
     ecr_cache_prefixes                     = optional(set(string), [])
-    controller_instance_profile_enabled    = optional(bool, false)
+    controller_instance_profile_enabled    = optional(bool, true)
     controller_additional_ecr_repositories = optional(set(string), [])
   })
 ```

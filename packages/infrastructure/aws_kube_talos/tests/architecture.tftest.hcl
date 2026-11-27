@@ -879,20 +879,20 @@ run "api_lb_skipped_without_private_dns" {
   }
 }
 
-run "controller_short_hostname_by_default" {
+run "controller_short_hostname_when_fqdn_disabled" {
   command = plan
+  variables {
+    control_plane_register_with_fqdn = false
+  }
   assert {
     condition     = !strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "registerWithFQDN")
-    error_message = "Controllers must keep the short hostname unless control_plane_register_with_fqdn is set."
+    error_message = "Controllers must keep the short hostname when control_plane_register_with_fqdn is false."
   }
 }
 
 # Must be in the data source patches (user data), not only the later apply, so the first registration uses the FQDN.
 run "controller_registers_with_fqdn_in_user_data" {
   command = plan
-  variables {
-    control_plane_register_with_fqdn = true
-  }
   assert {
     condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"registerWithFQDN\": true")
     error_message = "control_plane_register_with_fqdn must put registerWithFQDN in the controller machine config."
@@ -1101,7 +1101,7 @@ run "controller_identity_null_settings" {
   command = plan
   variables { controller_identity = null }
   assert {
-    condition     = length(aws_iam_instance_profile.controller) == 0
+    condition     = length(aws_iam_instance_profile.controller) == 1
     error_message = "Null identity settings must select the defaults."
   }
 }
