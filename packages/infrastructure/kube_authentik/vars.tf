@@ -246,3 +246,85 @@ variable "redis_controller_nodes_required" {
   type        = bool
   default     = false
 }
+
+variable "redis_enabled" {
+  description = "Whether to deploy Redis; Authentik 2025.10 and later do not use it."
+  type        = bool
+  default     = true
+}
+
+variable "db_storage_class_name" {
+  description = "StorageClass for the database PVCs. Null uses the kube_pg_cluster default."
+  type        = string
+  default     = null
+}
+
+variable "db_volume_snapshot_backups_enabled" {
+  description = "Whether the database uses CSI VolumeSnapshot backups. Disable on storage without a snapshot driver. Null uses the kube_pg_cluster default."
+  type        = bool
+  default     = null
+}
+
+variable "db_storage_auto_resize_enabled" {
+  description = "Whether the database PVCs get the topolvm autoresize annotations. Disable on storage that cannot expand volumes. Null uses the kube_pg_cluster default."
+  type        = bool
+  default     = null
+}
+
+variable "db_wal_keep_size_gb" {
+  description = "Database wal_keep_size in GB. Null uses the kube_pg_cluster default."
+  type        = number
+  default     = null
+}
+
+variable "db_max_slot_wal_keep_size_gb" {
+  description = "Database max_slot_wal_keep_size in GB; also added to the PVC size. Null uses the kube_pg_cluster default."
+  type        = number
+  default     = null
+}
+
+variable "db_kyverno_cel_policies_enabled" {
+  description = "Whether the database uses Kyverno CEL policies instead of the legacy Kyverno policies. Null uses the kube_pg_cluster default."
+  type        = bool
+  default     = null
+}
+
+variable "db_aws_local_endpoint" {
+  description = "Development simulators only: Pod-reachable S3 endpoint for database backups with static keys instead of IRSA. Null keeps AWS and IRSA."
+  type        = string
+  default     = null
+}
+
+variable "smtp_port" {
+  description = "The SMTP server port for email sending."
+  type        = number
+  default     = 587
+}
+
+variable "smtp_use_tls" {
+  description = "Whether Authentik uses STARTTLS to the SMTP server. Disable only for a local plaintext mail sink."
+  type        = bool
+  default     = true
+}
+
+variable "local_gateway" {
+  description = "Local development only: attach an HTTPRoute for var.domain to this Gateway listener instead of using kube_ingress. Null creates no route."
+  type = object({
+    name         = string
+    namespace    = string
+    section_name = string
+  })
+  default = null
+}
+
+variable "db_connection_pooler_enabled" {
+  description = "Whether Authentik connects through the transaction-mode PgBouncer pooler. False connects to the read-write Service directly, so migrations keep session semantics (advisory lock, search_path, prepared statements)."
+  type        = bool
+  default     = true
+}
+
+variable "media_reload_enabled" {
+  description = "Whether Reloader rolls Authentik when the media ConfigMap changes. False annotates the ConfigMap with reloader.stakater.com/ignore; the directory volume still receives updates through the kubelet, so dependent modules can write media without restarting a single-replica server mid-apply."
+  type        = bool
+  default     = true
+}

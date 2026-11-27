@@ -32,6 +32,15 @@ terraform {
 }
 
 locals {
+  # Local simulator only: explicit S3 endpoint and static keys from the kube_sa_auth_aws Secret; empty otherwise.
+  backup_local_s3 = { for k, v in {
+    endpointURL = var.aws_local_endpoint
+    s3Credentials = {
+      accessKeyId     = { name = module.irsa.local_credentials_secret_name, key = "AWS_ACCESS_KEY_ID" }
+      secretAccessKey = { name = module.irsa.local_credentials_secret_name, key = "AWS_SECRET_ACCESS_KEY" }
+    }
+  } : k => v if var.aws_local_endpoint != null }
+
   cluster-label = "${var.pg_cluster_namespace}-${local.cluster_name}"
 
   cluster_name = random_id.cluster_id.hex
@@ -256,6 +265,8 @@ module "irsa" {
   cluster_subnet_ids       = var.cluster_subnet_ids
   ip_restrictions_enabled  = var.ip_restrictions_enabled
 
+  local_static_credentials_enabled = var.aws_local_endpoint != null
+
 }
 
 moved {
@@ -396,13 +407,14 @@ resource "kubernetes_manifest" "postgres_cluster" {
             pg-cluster = local.cluster-label
           }
         )
-        annotations = {
+        annotations = merge({
           "linkerd.io/inject"                    = var.linkerd_enabled ? "enabled" : "disabled"
           "config.linkerd.io/skip-inbound-ports" = "5432" # Postgres communication is already tls-secured by CNPG
-          "resize.topolvm.io/storage_limit"      = "${(var.pg_storage_limit_gb != null ? var.pg_storage_limit_gb : max(100, 10 * var.pg_initial_storage_gb)) + var.pg_max_slot_wal_keep_size_gb}Gi"
-          "resize.topolvm.io/increase"           = "${var.pg_storage_increase_gb}Gi"
-          "resize.topolvm.io/threshold"          = "${var.pg_storage_increase_threshold_percent}%"
-        }
+          }, var.pg_storage_auto_resize_enabled ? {
+          "resize.topolvm.io/storage_limit" = "${(var.pg_storage_limit_gb != null ? var.pg_storage_limit_gb : max(100, 10 * var.pg_initial_storage_gb)) + var.pg_max_slot_wal_keep_size_gb}Gi"
+          "resize.topolvm.io/increase"      = "${var.pg_storage_increase_gb}Gi"
+          "resize.topolvm.io/threshold"     = "${var.pg_storage_increase_threshold_percent}%"
+        } : {})
       }
 
       startDelay = 60 * 10
@@ -560,7 +572,7 @@ resource "kubernetes_manifest" "postgres_cluster" {
 
       externalClusters = var.pg_recovery_mode_enabled ? [{
         name = var.pg_recovery_directory
-        barmanObjectStore = {
+        barmanObjectStore = merge({
           destinationPath = "s3://${var.pg_recovery_bucket != null ? var.pg_recovery_bucket : module.s3_bucket.bucket_name}/"
           serverName      = var.pg_recovery_directory
           s3Credentials = {
@@ -572,7 +584,7 @@ resource "kubernetes_manifest" "postgres_cluster" {
           wal = {
             maxParallel = 8
           }
-        }
+        }, local.backup_local_s3)
       }] : null
 
       priorityClassName = module.constants.workload_important_priority_class_name
@@ -600,19 +612,20 @@ resource "kubernetes_manifest" "postgres_cluster" {
               storage = "${var.pg_initial_storage_gb + var.pg_max_slot_wal_keep_size_gb}Gi"
             }
           }
-          storageClassName = "ebs-standard"
+          storageClassName = var.pg_storage_class_name
         }
       }
       serviceAccountTemplate = {
         metadata = {
-          annotations = {
+          // Local simulators use static keys, so no IRSA role annotation.
+          annotations = var.aws_local_endpoint != null ? {} : {
             "eks.amazonaws.com/role-arn" = module.irsa.role_arn
           }
         }
       }
-      backup = {
+      backup = { for k, v in {
         target = "prefer-standby"
-        volumeSnapshot = {
+        volumeSnapshot = !var.pg_volume_snapshot_backups_enabled ? null : {
           className              = "cnpg"
           snapshotOwnerReference = "backup"
           online                 = true
@@ -621,7 +634,7 @@ resource "kubernetes_manifest" "postgres_cluster" {
             waitForArchive      = true
           }
         }
-        barmanObjectStore = {
+        barmanObjectStore = merge({
           destinationPath = "s3://${module.s3_bucket.bucket_name}/"
           serverName      = var.pg_backup_directory
           s3Credentials = {
@@ -640,9 +653,9 @@ resource "kubernetes_manifest" "postgres_cluster" {
             compression = "snappy"
             maxParallel = 8
           }
-        }
+        }, local.backup_local_s3)
         retentionPolicy = "${var.backups_retention_days}d"
-      }
+      } : k => v if v != null }
     } : k => v if v != null }
   }
 

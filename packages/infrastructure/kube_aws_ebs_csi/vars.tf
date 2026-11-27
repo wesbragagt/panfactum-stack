@@ -143,3 +143,14 @@ variable "namespace_labels" {
   type        = map(string)
   default     = {}
 }
+
+variable "node_extra_tolerations" {
+  description = "Additional tolerations for the EBS CSI node DaemonSet."
+  type = list(object({
+    key      = optional(string)
+    operator = string
+    value    = optional(string)
+    effect   = optional(string)
+  }))
+  default = []
+}

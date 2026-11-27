@@ -82,3 +82,9 @@ variable "kyverno_cel_policies_enabled" {
   type        = bool
   default     = false
 }
+
+variable "public_issuer_enabled" {
+  description = "Create the public Let's Encrypt ClusterIssuer and the ingress-tls Certificate. Disable for clusters without public DNS; the internal Vault issuers are unaffected."
+  type        = bool
+  default     = true
+}

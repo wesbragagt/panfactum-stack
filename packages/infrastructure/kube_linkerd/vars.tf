@@ -1,3 +1,14 @@
+variable "cni_extra_tolerations" {
+  description = "Additional tolerations for the Linkerd CNI DaemonSet."
+  type = list(object({
+    key      = optional(string)
+    operator = string
+    value    = optional(string)
+    effect   = optional(string)
+  }))
+  default = []
+}
+
 variable "namespace_labels" {
   description = "Additional namespace labels; defaults preserve existing namespace security policy"
   type        = map(string)

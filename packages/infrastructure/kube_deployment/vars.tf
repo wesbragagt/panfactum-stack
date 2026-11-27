@@ -183,6 +183,17 @@ variable "mount_owner" {
   default     = 1000
 }
 
+variable "volume_mounts" {
+  description = "Opt-in PersistentVolumeClaims that this module creates and mounts into every container. Keys are claim name suffixes. Requires update_type Recreate for ReadWriteOnce claims."
+  type = map(object({
+    mount_path    = string                                    # Where in the containers to mount the volume
+    storage_class = string                                    # StorageClass of the claim
+    size_mb       = number                                    # Requested size in MB
+    access_modes  = optional(list(string), ["ReadWriteOnce"]) # Access modes of the claim
+  }))
+  default = {}
+}
+
 variable "tmp_directories" {
   description = "A mapping of temporary directory names (arbitrary) to their configuration"
   type = map(object({

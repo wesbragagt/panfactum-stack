@@ -115,6 +115,14 @@ module "database" {
   pg_recovery_directory    = var.db_recovery_directory
   pg_recovery_target_time  = var.db_recovery_target_time
   vpa_enabled              = var.vpa_enabled
+
+  pg_storage_class_name              = var.db_storage_class_name
+  pg_volume_snapshot_backups_enabled = var.db_volume_snapshot_backups_enabled
+  pg_storage_auto_resize_enabled     = var.db_storage_auto_resize_enabled
+  pg_wal_keep_size_gb                = var.db_wal_keep_size_gb
+  pg_max_slot_wal_keep_size_gb       = var.db_max_slot_wal_keep_size_gb
+  kyverno_cel_policies_enabled       = var.db_kyverno_cel_policies_enabled
+  aws_local_endpoint                 = var.db_aws_local_endpoint
 }
 
 
@@ -122,7 +130,13 @@ module "database" {
 * Redis Backend
 ***************************************/
 
+moved {
+  from = module.redis
+  to   = module.redis[0]
+}
+
 module "redis" {
+  count  = var.redis_enabled ? 1 : 0
   source = "../kube_redis_sentinel"
 
   namespace                            = local.namespace
@@ -137,6 +151,8 @@ module "redis" {
   monitoring_enabled                   = var.monitoring_enabled
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   instance_type_anti_affinity_required = false // Not needed; a small chance of disruption is entirely fine
+  // Authentik uses the root user; Vault-issued ACL users vanish on every Redis restart.
+  creds_syncer_enabled = false
 }
 
 /***************************************
@@ -173,6 +189,8 @@ resource "kubernetes_config_map" "media" {
     name      = "media"
     namespace = local.namespace
     labels    = module.util_server.labels
+    # Reloader's autoReloadAll would otherwise roll the server on every media write by authentik_* callers.
+    annotations = var.media_reload_enabled ? null : { "reloader.stakater.com/ignore" = "true" }
   }
   lifecycle {
     ignore_changes = [data]
@@ -238,7 +256,8 @@ resource "helm_release" "authentik" {
         serviceAccount = {
           create = true
         }
-        env = [
+        // Authentik 2025.10+ keeps cache, tasks and websockets in Postgres.
+        env = [for e in [
           // Authentik Settings
           {
             name  = "AUTHENTIK_COOKIE_DOMAIN"
@@ -260,23 +279,17 @@ resource "helm_release" "authentik" {
           },
           {
             name  = "AUTHENTIK_REDIS__HOST"
-            value = module.redis.redis_master_host
+            value = try(module.redis[0].redis_master_host, "")
           },
           {
-            name = "AUTHENTIK_REDIS__USERNAME"
-            valueFrom = {
-              secretKeyRef = {
-                name     = module.redis.superuser_creds_secret
-                key      = "username"
-                optional = false
-              }
-            }
+            name  = "AUTHENTIK_REDIS__USERNAME"
+            value = try(module.redis[0].root_name, "")
           },
           {
             name = "AUTHENTIK_REDIS__PASSWORD"
             valueFrom = {
               secretKeyRef = {
-                name     = module.redis.superuser_creds_secret
+                name     = try(module.redis[0].root_creds_secret, "")
                 key      = "password"
                 optional = false
               }
@@ -344,7 +357,7 @@ resource "helm_release" "authentik" {
               }
             }
           }
-        ]
+        ] : e if var.redis_enabled || !startswith(e.name, "AUTHENTIK_REDIS__")]
       }
 
       authentik = {
@@ -355,15 +368,15 @@ resource "helm_release" "authentik" {
         }
         postgresql = {
           name = module.database.database
-          host = module.database.pooler_rw_service_name
-          port = module.database.pooler_rw_service_port
+          host = var.db_connection_pooler_enabled ? module.database.pooler_rw_service_name : module.database.rw_service_name
+          port = var.db_connection_pooler_enabled ? module.database.pooler_rw_service_port : 5432
         }
         email = {
           host     = var.smtp_host
-          port     = 587
+          port     = var.smtp_port
           username = var.smtp_user
           password = var.smtp_password
-          use_tls  = true
+          use_tls  = var.smtp_use_tls
           timeout  = 30
           from     = var.email_from_address
         }
@@ -764,6 +777,23 @@ module "ingress" {
   permissions_policy_publickey_credentials_get    = "(self \"https://*.${var.domain}\")"
 
   depends_on = [helm_release.authentik]
+}
+
+// Local development: route var.domain through an existing Gateway listener (no nginx, CDN or TLS).
+resource "kubectl_manifest" "local_route" {
+  count = var.local_gateway == null ? 0 : 1
+  yaml_body = yamlencode({
+    apiVersion = "gateway.networking.k8s.io/v1"
+    kind       = "HTTPRoute"
+    metadata   = { name = "authentik", namespace = local.namespace, labels = module.util_server.labels }
+    spec = {
+      parentRefs = [{ name = var.local_gateway.name, namespace = var.local_gateway.namespace, sectionName = var.local_gateway.section_name }]
+      hostnames  = [var.domain]
+      rules      = [{ backendRefs = [{ name = "authentik-server", port = 80 }] }]
+    }
+  })
+  server_side_apply = true
+  depends_on        = [helm_release.authentik]
 }
 
 module "cdn" {

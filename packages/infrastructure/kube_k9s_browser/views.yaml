@@ -3,12 +3,22 @@ views:
     columns:
       - NAME
       - STATUS
-      - CLASS:.metadata.labels.panfactum\.com/class
-      - CAPACITY:.metadata.labels.node\.kubernetes\.io/lifecycle
+      # Karpenter sets capacity-type; Talos-managed nodes set lifecycle.
+      - CAPACITY:.metadata.labels['karpenter\.sh/capacity-type','node\.kubernetes\.io/lifecycle']
+      - ROLE:.metadata.labels.node\.kubernetes\.io/role
       - INSTANCE:.metadata.labels.node\.kubernetes\.io/instance-type
       - ZONE:.metadata.labels.topology\.kubernetes\.io/zone
+      - CPU
+      - CPU/A
+      - "%CPU"
+      - MEM
+      - MEM/A
+      - "%MEM"
       - VERSION
       - PODS
       - AGE
       # k9s appends unlisted default columns; |H hides one.
-      - ROLE|H
+      - GPU/A|H
+      - GPU/C|H
+      - SH-GPU/A|H
+      - SH-GPU/C|H

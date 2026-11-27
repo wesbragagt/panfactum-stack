@@ -300,6 +300,18 @@ words:
     "clientconfig",
     "IMDS",
     "readyz",
+    "kgateway",
+    "rustybouncer",
+    "unmutated",
+    "autoresize",
+    "topolvm",
+    "logfmt",
+    "vimrc",
+    "catppuccin",
+    "ttyd",
+    "unmeshed",
+    "netem",
+    "preauthorized",
   ]
 languageSettings:
   - languageId:

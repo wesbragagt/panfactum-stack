@@ -6,16 +6,15 @@
 
 The following input variables are supported:
 
-### akadmin_email
+### akadmin\_email
 
-Description: The email address to use for the root authentik administrator. Warning: must be changed manually once
-applied.
+Description: The email address to use for the root authentik administrator. Warning: must be changed manually once applied.
 
 Type: `string`
 
 Default: n/a
 
-### authentik_helm_version
+### authentik\_helm\_version
 
 Description: The version of the Authentik helm chart to deploy
 
@@ -23,7 +22,7 @@ Type: `string`
 
 Default: `"2024.10.5"`
 
-### aws_iam_ip_allow_list
+### aws\_iam\_ip\_allow\_list
 
 Description: A list of IPs that can use the service account token to authenticate with AWS API
 
@@ -31,7 +30,7 @@ Type: `list(string)`
 
 Default: `[]`
 
-### burstable_nodes_enabled
+### burstable\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on burstable nodes
 
@@ -39,7 +38,7 @@ Type: `bool`
 
 Default: `true`
 
-### cdn_mode_enabled
+### cdn\_mode\_enabled
 
 Description: Whether to enable CDN mode for the Vault ingress
 
@@ -47,7 +46,15 @@ Type: `bool`
 
 Default: `true`
 
-### controller_nodes_enabled
+### cluster\_subnet\_ids
+
+Description: Optional cluster subnet ids override; preserves the existing deployment default.
+
+Type: `list(string)`
+
+Default: `null`
+
+### controller\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on EKS Node Group nodes (controller nodes)
 
@@ -55,7 +62,23 @@ Type: `bool`
 
 Default: `true`
 
-### db_backup_directory
+### db\_aws\_local\_endpoint
+
+Description: Development simulators only: Pod-reachable S3 endpoint for database backups with static keys instead of IRSA. Null keeps AWS and IRSA.
+
+Type: `string`
+
+Default: `null`
+
+### db\_az\_spread\_required
+
+Description: Optional db az spread required override; preserves the existing deployment default.
+
+Type: `bool`
+
+Default: `true`
+
+### db\_backup\_directory
 
 Description: The name of the directory in the backup bucket containing the backups files.
 
@@ -63,7 +86,71 @@ Type: `string`
 
 Default: `"initial"`
 
-### db_recovery_directory
+### db\_connection\_pooler\_enabled
+
+Description: Whether Authentik connects through the transaction-mode PgBouncer pooler. False connects to the read-write Service directly, so migrations keep session semantics (advisory lock, search\_path, prepared statements).
+
+Type: `bool`
+
+Default: `true`
+
+### db\_controller\_nodes\_enabled
+
+Description: Optional db controller nodes enabled override; preserves the existing deployment default.
+
+Type: `bool`
+
+Default: `false`
+
+### db\_initial\_storage\_gb
+
+Description: Optional db initial storage gb override; preserves the existing deployment default.
+
+Type: `number`
+
+Default: `10`
+
+### db\_instances
+
+Description: Optional db instances override; preserves the existing deployment default.
+
+Type: `number`
+
+Default: `2`
+
+### db\_kyverno\_cel\_policies\_enabled
+
+Description: Whether the database uses Kyverno CEL policies instead of the legacy Kyverno policies. Null uses the kube\_pg\_cluster default.
+
+Type: `bool`
+
+Default: `null`
+
+### db\_max\_slot\_wal\_keep\_size\_gb
+
+Description: Database max\_slot\_wal\_keep\_size in GB; also added to the PVC size. Null uses the kube\_pg\_cluster default.
+
+Type: `number`
+
+Default: `null`
+
+### db\_minimum\_memory\_mb
+
+Description: Optional db minimum memory mb override; preserves the existing deployment default.
+
+Type: `number`
+
+Default: `1000`
+
+### db\_node\_selector
+
+Description: Required labels for database placement.
+
+Type: `map(string)`
+
+Default: `{}`
+
+### db\_recovery\_directory
 
 Description: The name of the directory in the backup bucket that contains the PostgreSQL backups and WAL archives
 
@@ -71,7 +158,7 @@ Type: `string`
 
 Default: `null`
 
-### db_recovery_mode_enabled
+### db\_recovery\_mode\_enabled
 
 Description: Whether to enable recovery mode for the PostgreSQL database
 
@@ -79,12 +166,43 @@ Type: `bool`
 
 Default: `false`
 
-### db_recovery_target_time
+### db\_recovery\_target\_time
 
-Description: If provided, will recover the PostgreSQL database to the indicated target time in RFC 3339 format rather
-than to the latest data.
+Description: If provided, will recover the PostgreSQL database to the indicated target time in RFC 3339 format rather than to the latest data.
 
 Type: `string`
+
+Default: `null`
+
+### db\_storage\_auto\_resize\_enabled
+
+Description: Whether the database PVCs get the topolvm autoresize annotations. Disable on storage that cannot expand volumes. Null uses the kube\_pg\_cluster default.
+
+Type: `bool`
+
+Default: `null`
+
+### db\_storage\_class\_name
+
+Description: StorageClass for the database PVCs. Null uses the kube\_pg\_cluster default.
+
+Type: `string`
+
+Default: `null`
+
+### db\_volume\_snapshot\_backups\_enabled
+
+Description: Whether the database uses CSI VolumeSnapshot backups. Disable on storage without a snapshot driver. Null uses the kube\_pg\_cluster default.
+
+Type: `bool`
+
+Default: `null`
+
+### db\_wal\_keep\_size\_gb
+
+Description: Database wal\_keep\_size in GB. Null uses the kube\_pg\_cluster default.
+
+Type: `number`
 
 Default: `null`
 
@@ -96,7 +214,7 @@ Type: `string`
 
 Default: `null`
 
-### email_from_address
+### email\_from\_address
 
 Description: The 'from' address to use for sent emails
 
@@ -104,7 +222,7 @@ Type: `string`
 
 Default: n/a
 
-### error_reporting_enabled
+### error\_reporting\_enabled
 
 Description: True iff errors should be reported to Authentik for telemetry purposes
 
@@ -112,7 +230,7 @@ Type: `bool`
 
 Default: `true`
 
-### ingress_enabled
+### ingress\_enabled
 
 Description: Whether to enable ingress to the Authentik server
 
@@ -120,7 +238,31 @@ Type: `bool`
 
 Default: `false`
 
-### log_level
+### ip\_restrictions\_enabled
+
+Description: Optional ip restrictions enabled override; preserves the existing deployment default.
+
+Type: `bool`
+
+Default: `true`
+
+### local\_gateway
+
+Description: Local development only: attach an HTTPRoute for var.domain to this Gateway listener instead of using kube\_ingress. Null creates no route.
+
+Type:
+
+```hcl
+object({
+    name         = string
+    namespace    = string
+    section_name = string
+  })
+```
+
+Default: `null`
+
+### log\_level
 
 Description: The log level for the Authentik pods
 
@@ -128,7 +270,15 @@ Type: `string`
 
 Default: `"debug"`
 
-### monitoring_enabled
+### media\_reload\_enabled
+
+Description: Whether Reloader rolls Authentik when the media ConfigMap changes. False annotates the ConfigMap with reloader.stakater.com/ignore; the directory volume still receives updates through the kubelet, so dependent modules can write media without restarting a single-replica server mid-apply.
+
+Type: `bool`
+
+Default: `true`
+
+### monitoring\_enabled
 
 Description: Whether to add active monitoring to the deployed systems
 
@@ -144,7 +294,23 @@ Type: `string`
 
 Default: `"authentik"`
 
-### organization_name
+### oidc\_issuer\_url
+
+Description: Optional oidc issuer url override; preserves the existing deployment default.
+
+Type: `string`
+
+Default: `null`
+
+### oidc\_provider\_arn
+
+Description: Optional oidc provider arn override; preserves the existing deployment default.
+
+Type: `string`
+
+Default: `null`
+
+### organization\_name
 
 Description: The name of the organization for which Authentik serves as the IdP
 
@@ -152,7 +318,7 @@ Type: `string`
 
 Default: n/a
 
-### panfactum_scheduler_enabled
+### panfactum\_scheduler\_enabled
 
 Description: Whether to use the Panfactum pod scheduler with enhanced bin-packing
 
@@ -160,7 +326,7 @@ Type: `bool`
 
 Default: `true`
 
-### pull_through_cache_enabled
+### pull\_through\_cache\_enabled
 
 Description: Whether to use the ECR pull through cache for the deployed images
 
@@ -168,16 +334,55 @@ Type: `bool`
 
 Default: `true`
 
-### sla_target
+### redis\_allow\_single\_node
 
-Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest
-uptime (99.999%), highest Cost
+Description: Optional redis allow single node override; preserves the existing deployment default.
+
+Type: `bool`
+
+Default: `false`
+
+### redis\_controller\_nodes\_required
+
+Description: Require retained controller placement for Redis.
+
+Type: `bool`
+
+Default: `false`
+
+### redis\_enabled
+
+Description: Whether to deploy Redis; Authentik 2025.10 and later do not use it.
+
+Type: `bool`
+
+Default: `true`
+
+### redis\_replicas
+
+Description: Optional redis replicas override; preserves the existing deployment default.
 
 Type: `number`
 
 Default: `3`
 
-### smtp_host
+### server\_replicas
+
+Description: Optional server replicas override; preserves the existing deployment default.
+
+Type: `number`
+
+Default: `2`
+
+### sla\_target
+
+Description: The Panfactum SLA level for the module deployment. 1 = lowest uptime (99.9%), lowest cost -- 3 = highest uptime (99.999%), highest Cost
+
+Type: `number`
+
+Default: `3`
+
+### smtp\_host
 
 Description: The SMTP server for email sending
 
@@ -185,7 +390,7 @@ Type: `string`
 
 Default: n/a
 
-### smtp_password
+### smtp\_password
 
 Description: The password to use for SMTP authentication for email sending
 
@@ -193,7 +398,23 @@ Type: `string`
 
 Default: n/a
 
-### smtp_user
+### smtp\_port
+
+Description: The SMTP server port for email sending.
+
+Type: `number`
+
+Default: `587`
+
+### smtp\_use\_tls
+
+Description: Whether Authentik uses STARTTLS to the SMTP server. Disable only for a local plaintext mail sink.
+
+Type: `bool`
+
+Default: `true`
+
+### smtp\_user
 
 Description: The user to use for SMTP authentication for email sending
 
@@ -201,7 +422,7 @@ Type: `string`
 
 Default: n/a
 
-### spot_nodes_enabled
+### spot\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on spot nodes
 
@@ -209,7 +430,7 @@ Type: `bool`
 
 Default: `true`
 
-### vpa_enabled
+### vpa\_enabled
 
 Description: Whether the VPA resources should be enabled
 
@@ -219,9 +440,7 @@ Default: `true`
 
 ### wait
 
-Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to
-proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment
-failures.
+Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment failures.
 
 Type: `bool`
 
@@ -231,39 +450,39 @@ Default: `true`
 
 The following outputs are exported:
 
-### akadmin_bootstrap_password
+### akadmin\_bootstrap\_password
 
 Description: The initial password for the root akadmin user. Only used on initial bootstrapping.
 
-### akadmin_bootstrap_token
+### akadmin\_bootstrap\_token
 
 Description: The initial API token for the root akadmin user. Only used on initial bootstrapping.
 
-### akadmin_email
+### akadmin\_email
 
 Description: The email for the root akadmin user.
 
-### authentik_url
+### authentik\_url
 
 Description: n/a
 
-### db_admin_role
+### db\_admin\_role
 
 Description: n/a
 
-### db_backup_bucket
+### db\_backup\_bucket
 
 Description: The name of the S3 bucket that contains the PostgreSQL backups and WAL archives
 
-### db_backup_directory
+### db\_backup\_directory
 
 Description: The name of the directory in the backup bucket that contains the PostgreSQL backups and WAL archives
 
-### db_reader_role
+### db\_reader\_role
 
 Description: n/a
 
-### db_superuser_role
+### db\_superuser\_role
 
 Description: n/a
 
@@ -271,11 +490,11 @@ Description: n/a
 
 Description: n/a
 
-### email_templates_configmap
+### email\_templates\_configmap
 
 Description: n/a
 
-### media_configmap
+### media\_configmap
 
 Description: n/a
 
@@ -283,19 +502,19 @@ Description: n/a
 
 Description: n/a
 
-### organization_name
+### organization\_name
 
 Description: The name of the organization for which Authentik serves as the IdP
 
-### redis_admin_role
+### redis\_admin\_role
 
 Description: n/a
 
-### redis_reader_role
+### redis\_reader\_role
 
 Description: n/a
 
-### redis_superuser_role
+### redis\_superuser\_role
 
 Description: n/a
 
@@ -303,19 +522,19 @@ Description: n/a
 
 The following providers are needed by this module:
 
-- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.40.0/docs) (6.40.0)
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
 
-- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.1.1/docs) (3.1.1)
+- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.3.0/docs) (3.3.0)
 
-- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
 
-- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/2.35.0/docs) (2.35.0)
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 
-- [random](https://registry.terraform.io/providers/hashicorp/random/3.8.1/docs) (3.8.1)
+- [random](https://registry.terraform.io/providers/hashicorp/random/3.9.1/docs) (3.9.1)
 
-- [vault](https://registry.terraform.io/providers/hashicorp/vault/4.8.0/docs) (4.8.0)
+- [vault](https://registry.terraform.io/providers/hashicorp/vault/5.13.0/docs) (5.13.0)
 
 {/* eslint-enable import-x/order */}
 

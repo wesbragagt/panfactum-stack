@@ -348,6 +348,11 @@ resource "kubernetes_secret" "common" {
     labels    = data.pf_kube_labels.labels.labels
   }
   data = var.common_secrets
+
+  # Kyverno adds this label when it clones the secret, so drop it from the diff.
+  lifecycle {
+    ignore_changes = [metadata[0].labels["generate.kyverno.io/clone-source"]]
+  }
 }
 
 module "secret_sync" {

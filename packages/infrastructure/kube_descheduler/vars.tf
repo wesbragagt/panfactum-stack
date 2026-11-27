@@ -79,3 +79,9 @@ variable "dry_run" {
   type        = bool
   default     = false
 }
+
+variable "unmutated_pod_excluded_namespaces" {
+  description = "Namespaces excluded from the unmutated pod lifetime policy"
+  type        = list(string)
+  default     = []
+}

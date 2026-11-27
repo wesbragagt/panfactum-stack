@@ -128,7 +128,7 @@ module "aws_permissions" {
 
   oidc_provider_arn         = local.oidc_provider_arn
   oidc_issuer_url           = local.oidc_issuer_url
-  ip_restrictions_enabled   = !local.scoped_eni && var.aws_iam_ip_restrictions_enabled
+  ip_restrictions_enabled   = !local.scoped_eni
   annotate_service_account  = false // The helm chart creates the service account
   service_account           = "cilium-operator"
   service_account_namespace = local.namespace
@@ -171,10 +171,6 @@ resource "helm_release" "cilium" {
   depends_on = [aws_iam_role_policy.eni_scope]
 
   lifecycle {
-    precondition {
-      condition     = local.eni_enabled || local.routing_mode != "native" || var.ipv4_native_routing_cidr != null
-      error_message = "Native routing outside ENI IPAM requires ipv4_native_routing_cidr."
-    }
     precondition {
       condition = var.cluster == null ? true : (
         (var.cluster_type == null || var.cluster_type == (var.cluster.type == "aws_eks" ? "eks" : var.cluster.type)) &&
@@ -327,7 +323,8 @@ resource "helm_release" "cilium" {
           }
         ],
         module.util_agent.tolerations,
-        local.platform_tolerations
+        local.platform_tolerations,
+        var.agent_extra_tolerations
       )
 
       prometheus = {
@@ -436,18 +433,16 @@ resource "helm_release" "cilium" {
       }, local.operator_web_identity)
 
       envoy = {
-        enabled = var.envoy_enabled == null ? local.talos_enabled : var.envoy_enabled
+        enabled = local.talos_enabled
       }
 
       gatewayAPI = {
         enabled = false
       }
-      }, local.scoped_eni ? {} : {
-      l7Proxy = coalesce(var.l7_proxy_enabled, true)
     }))
     ], local.scoped_eni ? [yamlencode({
-      envoy   = { enabled = coalesce(var.envoy_enabled, false) }
-      l7Proxy = coalesce(var.l7_proxy_enabled, false)
+      envoy   = { enabled = false }
+      l7Proxy = false
   })] : [], var.values_overrides)
 }
 

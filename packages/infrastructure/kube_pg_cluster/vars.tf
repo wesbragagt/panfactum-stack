@@ -619,12 +619,14 @@ variable "pg_wal_keep_size_gb" {
   description = "The number of gigabytes of WAL files to keep for the cluster"
   type        = number
   default     = 2
+  nullable    = false
 }
 
 variable "pg_max_slot_wal_keep_size_gb" {
   description = "Maximum size in gigabytes of WAL files that replication slots can retain before old segments are removed."
   type        = number
   default     = 10
+  nullable    = false
 }
 
 variable "gc_failed_backups" {
@@ -695,4 +697,32 @@ variable "kyverno_cel_policies_enabled" {
   description = "Use policies.kyverno.io/v1 CEL policies, required by Kyverno 1.20+. Existing legacy policies must be migrated with a reviewed replacement plan."
   type        = bool
   default     = false
+  nullable    = false
+}
+
+variable "aws_local_endpoint" {
+  description = "Development simulators only: Pod-reachable S3 endpoint for barmanObjectStore backups and recovery, using static IAM-user keys instead of IRSA. Null keeps AWS and IRSA."
+  type        = string
+  default     = null
+}
+
+variable "pg_storage_class_name" {
+  description = "StorageClass for the database PVCs."
+  type        = string
+  default     = "ebs-standard"
+  nullable    = false
+}
+
+variable "pg_volume_snapshot_backups_enabled" {
+  description = "Whether to configure CSI VolumeSnapshot backups (needs the cnpg VolumeSnapshotClass). Disable on storage without a snapshot driver."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
+variable "pg_storage_auto_resize_enabled" {
+  description = "Whether to add the resize.topolvm.io PVC autoresize annotations. Disable on storage that cannot expand volumes."
+  type        = bool
+  default     = true
+  nullable    = false
 }

@@ -37,3 +37,15 @@ variable "default_storage_class_enabled" {
   type        = bool
   default     = true
 }
+
+variable "namespace_labels" {
+  description = "Additional labels on the local-path-storage namespace, e.g. Pod Security for the hostPath helper pods"
+  type        = map(string)
+  default     = {}
+}
+
+variable "kyverno_cel_policies_enabled" {
+  description = "Use the CEL policy required by Kyverno 1.20 and later."
+  type        = bool
+  default     = false
+}

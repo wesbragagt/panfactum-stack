@@ -1,0 +1,170 @@
+{/* lint disable no-duplicate-headings */}
+
+{/* eslint-disable import-x/order */}
+
+## Inputs
+
+The following input variables are supported:
+
+### controller\_replicas
+
+Description: n/a
+
+Type: `number`
+
+Default: `1`
+
+### crd\_drift\_engine
+
+Description: kubectl\_manifest drift\_engine for the kgateway CRDs. null keeps the provider default (client); "server" compares against an SSA dry-run, so int64 schema maximums stop showing as drift on every plan.
+
+Type: `string`
+
+Default: `null`
+
+### dns\_hostnames
+
+Description: Hostnames external-dns publishes for the NLB.
+
+Type: `list(string)`
+
+Default: n/a
+
+### domain
+
+Description: The listener accepts *.<domain>.
+
+Type: `string`
+
+Default: n/a
+
+### enable\_public\_load\_balancer
+
+Description: Provision an AWS Network Load Balancer for the HTTPS Gateway. Disable to serve HTTPS through a ClusterIP Service.
+
+Type: `bool`
+
+Default: `true`
+
+### gateway\_name
+
+Description: n/a
+
+Type: `string`
+
+Default: `"public"`
+
+### load\_balancer\_name
+
+Description: n/a
+
+Type: `string`
+
+Default: n/a
+
+### local\_http\_port
+
+Description: Local clusters only: serve plain HTTP on this port from a ClusterIP Service instead of HTTPS behind an NLB
+
+Type: `number`
+
+Default: `null`
+
+### local\_routes
+
+Description: Local mode only: HTTPRoutes attached to the gateway, keyed by route name
+
+Type:
+
+```hcl
+map(object({
+    hostname  = string
+    namespace = string
+    service   = string
+    port      = number
+  }))
+```
+
+Default: `{}`
+
+### namespace
+
+Description: n/a
+
+Type: `string`
+
+Default: `"kgateway-system"`
+
+### node\_selector
+
+Description: n/a
+
+Type: `map(string)`
+
+Default: `{}`
+
+### proxy\_replicas
+
+Description: n/a
+
+Type: `number`
+
+Default: `2`
+
+### public\_subnet\_ids
+
+Description: n/a
+
+Type: `list(string)`
+
+Default: n/a
+
+### tls\_secret\_name
+
+Description: n/a
+
+Type: `string`
+
+Default: `"ingress-tls"`
+
+### tls\_secret\_namespace
+
+Description: n/a
+
+Type: `string`
+
+Default: `"cert-manager"`
+
+### tolerations
+
+Description: Tolerations for the kgateway controller and gateway proxy pods
+
+Type: `list(map(string))`
+
+Default: `[]`
+
+## Outputs
+
+The following outputs are exported:
+
+### gateway\_name
+
+Description: n/a
+
+### gateway\_namespace
+
+Description: n/a
+
+## Providers
+
+The following providers are needed by this module:
+
+- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.3.0/docs) (3.3.0)
+
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
+
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
+
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

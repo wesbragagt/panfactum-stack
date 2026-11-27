@@ -5,7 +5,6 @@ locals {
   eks_enabled   = contains(["eks", "aws_eks"], local.cluster_type)
   ipam_mode     = coalesce(var.ipam_mode, local.eks_enabled || (local.talos_enabled && var.cluster != null) ? "eni" : "cluster-pool")
   eni_enabled   = local.ipam_mode == "eni"
-  routing_mode  = var.routing_mode != null ? var.routing_mode : (local.eni_enabled ? "native" : "tunnel")
 
   scoped_eni                 = local.talos_enabled && local.eni_enabled && var.cluster != null
   eni_iam_enabled            = local.eni_enabled && (local.eks_enabled || (local.talos_enabled && (local.scoped_eni || (var.oidc_provider_arn != null && var.oidc_issuer_url != null))))
@@ -32,9 +31,7 @@ locals {
     } : {})
     enableIPv4Masquerade       = !local.eni_enabled
     egressMasqueradeInterfaces = "eth0"
-    routingMode                = local.routing_mode
-    }, var.ipv4_native_routing_cidr == null ? {} : {
-    ipv4NativeRoutingCIDR = var.ipv4_native_routing_cidr
+    routingMode                = local.eni_enabled ? "native" : "tunnel"
     }, { for key, value in {
       securityContext = {
         capabilities = {

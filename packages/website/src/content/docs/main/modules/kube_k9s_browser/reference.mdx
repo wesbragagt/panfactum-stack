@@ -1,0 +1,137 @@
+{/* lint disable no-duplicate-headings */}
+
+{/* eslint-disable import-x/order */}
+
+## Inputs
+
+The following input variables are supported:
+
+### context\_name
+
+Description: The context name that k9s shows in its header
+
+Type: `string`
+
+Default: `"in-cluster"`
+
+### controller\_nodes\_enabled
+
+Description: Whether the oauth2-proxy pods may run on controller nodes
+
+Type: `bool`
+
+Default: `true`
+
+### gateway\_api
+
+Description: The Gateway that serves the domain
+
+Type:
+
+```hcl
+object({
+    parent_name      = string
+    parent_namespace = string
+  })
+```
+
+Default: n/a
+
+### instance\_type\_anti\_affinity\_required
+
+Description: Whether the oauth2-proxy replicas must run on different instance types
+
+Type: `bool`
+
+Default: `true`
+
+### instances
+
+Description: The k9s instances to deploy, keyed by a short name. Each gets its own namespace and domain. read\_only true runs k9s with --readonly and binds the view ClusterRole plus read access to nodes; false binds cluster-admin. allowed\_vault\_roles are the Vault groups whose members may open the instance.
+
+Type:
+
+```hcl
+map(object({
+    namespace           = string
+    domain              = string
+    read_only           = bool
+    allowed_vault_roles = list(string)
+  }))
+```
+
+Default: n/a
+
+### node\_selector
+
+Description: Node selector for the k9s pod
+
+Type: `map(string)`
+
+Default: `{}`
+
+### panfactum\_scheduler\_enabled
+
+Description: Whether the oauth2-proxy pods use the Panfactum bin-packing scheduler
+
+Type: `bool`
+
+Default: `true`
+
+### pull\_through\_cache\_enabled
+
+Description: Whether the oauth2-proxy images are pulled through the ECR pull-through cache
+
+Type: `bool`
+
+Default: `true`
+
+### tolerations
+
+Description: Tolerations for the k9s pod
+
+Type: `list(map(string))`
+
+Default: `[]`
+
+### vault\_domain
+
+Description: The domain of the Vault or OpenBao instance that users log in through
+
+Type: `string`
+
+Default: n/a
+
+### vpa\_enabled
+
+Description: Whether the VPA is enabled for the oauth2-proxy pods
+
+Type: `bool`
+
+Default: `true`
+
+## Outputs
+
+The following outputs are exported:
+
+### service\_account
+
+Description: The ServiceAccount that each k9s instance uses, keyed like var.instances; its RBAC decides what users can do
+
+### url
+
+Description: The URL of each k9s instance, keyed like var.instances
+
+## Providers
+
+The following providers are needed by this module:
+
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
+
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
+
+- [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
+
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

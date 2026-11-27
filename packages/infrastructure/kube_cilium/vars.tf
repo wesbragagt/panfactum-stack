@@ -1,19 +1,7 @@
 variable "namespace_labels" {
-  description = "Additional labels for the managed namespace, including Pod Security Admission labels."
+  description = "Additional namespace labels; defaults preserve existing namespace security policy"
   type        = map(string)
   default     = {}
-}
-
-variable "envoy_enabled" {
-  description = "Enable the standalone Envoy DaemonSet. Defaults to false for scoped Talos ENI and non-Talos deployments."
-  type        = bool
-  default     = null
-}
-
-variable "l7_proxy_enabled" {
-  description = "Enable Cilium application-layer policies and visibility. Defaults to false on scoped Talos ENI clusters and true otherwise."
-  type        = bool
-  default     = null
 }
 
 variable "cilium_helm_version" {
@@ -131,22 +119,6 @@ variable "ipam_mode" {
   }
 }
 
-variable "routing_mode" {
-  description = "Optional Cilium routing mode override. Defaults to native with ENI IPAM and tunnel otherwise."
-  type        = string
-  default     = null
-  validation {
-    condition     = var.routing_mode == null ? true : contains(["tunnel", "native"], var.routing_mode)
-    error_message = "routing_mode must be tunnel, native or null."
-  }
-}
-
-variable "ipv4_native_routing_cidr" {
-  description = "CIDR reachable without masquerading or tunnelling. Required by Cilium for native routing outside ENI IPAM."
-  type        = string
-  default     = null
-}
-
 variable "cluster_pool_ipv4_cidrs" {
   description = "Pod CIDRs used only by cluster-pool IPAM. Must match the installed cluster during adoption."
   type        = list(string)
@@ -231,14 +203,19 @@ variable "eni_cluster_tag" {
   default     = null
 }
 
-variable "aws_iam_ip_restrictions_enabled" {
-  description = "Enable source-IP restrictions for legacy deployments. The scoped Talos ENI path uses ENI policy and OIDC restrictions."
-  type        = bool
-  default     = true
-}
-
 variable "cluster_name" {
   description = "Operator cluster name override. Null uses the Panfactum metadata cluster name; local clusters have none, so they set it."
   type        = string
   default     = null
+}
+
+variable "agent_extra_tolerations" {
+  description = "Additional tolerations for the Cilium agent DaemonSet."
+  type = list(object({
+    key      = optional(string)
+    operator = string
+    value    = optional(string)
+    effect   = optional(string)
+  }))
+  default = []
 }

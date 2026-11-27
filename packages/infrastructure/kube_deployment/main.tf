@@ -70,6 +70,9 @@ module "pod_template" {
   tmp_directories   = var.tmp_directories
   mount_owner       = var.mount_owner
 
+  extra_volume_claims = { for name, config in var.volume_mounts : "pvc-${name}" => "${var.name}-${name}" }
+  extra_volume_mounts = { for name, config in var.volume_mounts : "pvc-${name}" => { mount_path = config.mount_path } }
+
   # Scheduling params
   priority_class_name                  = var.priority_class_name
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -99,6 +102,27 @@ resource "kubernetes_service_account" "service_account" {
     namespace = var.namespace
     labels    = module.pod_template.labels
   }
+}
+
+// The claim outlives Pod replacement, so data survives a Recreate rollout.
+resource "kubernetes_persistent_volume_claim_v1" "volumes" {
+  for_each = var.volume_mounts
+  metadata {
+    name      = "${var.name}-${each.key}"
+    namespace = var.namespace
+    labels    = module.pod_template.labels
+  }
+  spec {
+    access_modes       = each.value.access_modes
+    storage_class_name = each.value.storage_class
+    resources {
+      requests = {
+        storage = "${each.value.size_mb}Mi"
+      }
+    }
+  }
+  // WaitForFirstConsumer classes bind only after the Deployment schedules a Pod.
+  wait_until_bound = false
 }
 
 data "kubernetes_resources" "deployment" {
@@ -141,6 +165,7 @@ resource "kubectl_manifest" "deployment" {
       template = module.pod_template.pod_template
     }
   })
+  depends_on        = [kubernetes_persistent_volume_claim_v1.volumes]
   server_side_apply = true
   force_conflicts   = true
   ignore_fields = var.ignore_replica_count ? [

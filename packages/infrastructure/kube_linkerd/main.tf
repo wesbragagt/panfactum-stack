@@ -57,7 +57,7 @@ module "util_cni" {
   cilium_required                      = false
   linkerd_required                     = false
 
-  extra_tolerations = [
+  extra_tolerations = concat([
     {
       effect   = "NoSchedule"
       key      = "node.kubernetes.io/not-ready"
@@ -75,7 +75,7 @@ module "util_cni" {
       value    = module.constants.workflow_taint.value
       effect   = module.constants.workflow_taint.effect
     }
-  ]
+  ], var.cni_extra_tolerations)
 }
 
 module "aws_pull_through" {

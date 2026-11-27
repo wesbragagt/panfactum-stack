@@ -323,7 +323,7 @@ resource "helm_release" "descheduler" {
                 local.default_evictor_config,
                 {
                   name = "PodLifeTime"
-                  args = {
+                  args = merge({
                     maxPodLifeTimeSeconds = 60 * 15
                     labelSelector = {
                       matchExpressions = [{
@@ -332,7 +332,9 @@ resource "helm_release" "descheduler" {
                         values   = ["true", "1"]
                       }]
                     }
-                  }
+                    }, length(var.unmutated_pod_excluded_namespaces) > 0 ? {
+                    namespaces = { exclude = var.unmutated_pod_excluded_namespaces }
+                  } : {})
                 },
               ]
               plugins = {

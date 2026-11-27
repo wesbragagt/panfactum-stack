@@ -122,6 +122,7 @@ resource "kubernetes_secret" "cloudflare_api_token" {
 
 // the default issuer for PUBLIC tls certs in the default DNS zone for the env
 resource "kubectl_manifest" "cluster_issuer" {
+  count = var.public_issuer_enabled ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "cert-manager.io/v1"
     kind       = "ClusterIssuer"
@@ -526,6 +527,7 @@ resource "kubectl_manifest" "internal_ca_ci" {
 //////////////////////////////////
 
 resource "kubectl_manifest" "ingress_cert" {
+  count = var.public_issuer_enabled ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "cert-manager.io/v1"
     kind       = "Certificate"
@@ -567,4 +569,14 @@ resource "kubectl_manifest" "ingress_cert" {
   }
 
   depends_on = [kubectl_manifest.cluster_issuer]
+}
+
+# Existing callers keep their public issuer and ingress certificate when count was introduced.
+moved {
+  from = kubectl_manifest.cluster_issuer
+  to   = kubectl_manifest.cluster_issuer[0]
+}
+moved {
+  from = kubectl_manifest.ingress_cert
+  to   = kubectl_manifest.ingress_cert[0]
 }

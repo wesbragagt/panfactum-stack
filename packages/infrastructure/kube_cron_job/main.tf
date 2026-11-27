@@ -175,13 +175,17 @@ resource "kubectl_manifest" "pdb" {
       namespace = var.namespace
       labels    = module.pod_template.labels
     }
-    spec = {
+    spec = merge({
       selector = {
         matchLabels = module.pod_template.match_labels
       }
-      maxUnavailable             = var.disruptions_enabled ? 1 : 0
       unhealthyPodEvictionPolicy = "AlwaysAllow"
-    }
+      }, var.concurrency_policy == "Forbid" ? {
+      # Jobs have no scale subresource. Non-overlapping executions use their parallelism as the integer floor.
+      minAvailable = max(0, var.pod_parallelism - (var.disruptions_enabled ? 1 : 0))
+      } : {
+      maxUnavailable = var.disruptions_enabled ? 1 : 0
+    })
   })
   force_conflicts   = true
   server_side_apply = true

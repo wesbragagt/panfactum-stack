@@ -2,7 +2,7 @@ terraform {
   required_providers {
     authentik = {
       source  = "goauthentik/authentik"
-      version = "2024.10.2"
+      version = "2026.8.2"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
@@ -29,14 +29,16 @@ terraform {
 
 
 locals {
+  vault_url     = coalesce(var.vault_url, "https://${var.vault_domain}")
+  authentik_url = coalesce(var.authentik_url, "https://${var.authentik_domain}")
   redirect_uris = [
     {
       matching_mode = "strict"
-      url           = "https://${var.vault_domain}/ui/vault/auth/oidc/oidc/callback"
+      url           = "${local.vault_url}/ui/vault/auth/oidc/oidc/callback"
     },
     {
       matching_mode = "strict"
-      url           = "https://${var.vault_domain}/oidc/callback"
+      url           = "${local.vault_url}/oidc/callback"
     },
     {
       matching_mode = "regex"
@@ -136,7 +138,8 @@ resource "authentik_provider_oauth2" "vault" {
   invalidation_flow     = data.authentik_flow.default-invalidation-flow.id
   client_id             = random_id.client_id.hex
   signing_key           = authentik_certificate_key_pair.signing.id
-  allowed_redirect_uris = local.redirect_uris
+  allowed_redirect_uris = var.redirect_uri_type == null ? local.redirect_uris : [for uri in local.redirect_uris : merge(uri, { redirect_uri_type = var.redirect_uri_type })]
+  grant_types           = var.grant_types
   property_mappings = sort([
     data.authentik_property_mapping_provider_scope.profile.id,
     data.authentik_property_mapping_provider_scope.email.id,
@@ -148,10 +151,10 @@ resource "authentik_application" "vault" {
   name              = var.vault_name
   slug              = var.vault_name
   protocol_provider = authentik_provider_oauth2.vault.id
-  meta_launch_url   = "https://${var.vault_domain}/ui/vault/auth?with=oidc"
+  meta_launch_url   = "${local.vault_url}/ui/vault/auth?with=oidc"
   meta_description  = var.ui_description
   meta_publisher    = "Panfactum"
-  meta_icon         = "https://${var.authentik_domain}/media/public/${random_id.logo.hex}.svg"
+  meta_icon         = "${random_id.logo.hex}.svg"
   group             = var.ui_group
   open_in_new_tab   = true
 }

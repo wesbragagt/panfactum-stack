@@ -147,6 +147,12 @@ variable "extra_volume_mounts" {
   default = {}
 }
 
+variable "extra_volume_claims" {
+  description = "A mapping of volume names to existing PersistentVolumeClaim names to add as Pod volumes. Mount them with extra_volume_mounts."
+  type        = map(string)
+  default     = {}
+}
+
 variable "mount_owner" {
   description = "The ID of the group that owns the mounted volumes"
   type        = number

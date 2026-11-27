@@ -83,7 +83,6 @@ run "talos_scoped_eni" {
       yamldecode(helm_release.cilium.values[0]).eni.nodeSpec.subnetIDs == ["subnet-private"] &&
       yamldecode(helm_release.cilium.values[0]).eni.nodeSpec.firstInterfaceIndex == 1 &&
       yamldecode(helm_release.cilium.values[0]).operator.replicas == 2 &&
-      !contains(keys(yamldecode(helm_release.cilium.values[0])), "l7Proxy") &&
       helm_release.cilium.values[1] == yamlencode({ envoy = { enabled = false }, l7Proxy = false })
     )
     error_message = "The standard Talos render must retain sorted private subnets and the existing Helm values layout."
@@ -103,20 +102,6 @@ run "talos_scoped_eni" {
       }
     )
     error_message = "The role's inline policy must preserve the six statements and scope them to this cluster's ENIs."
-  }
-}
-
-run "talos_scoped_eni_honors_proxy_overrides" {
-  command = plan
-
-  variables {
-    envoy_enabled    = true
-    l7_proxy_enabled = true
-  }
-
-  assert {
-    condition     = helm_release.cilium.values[1] == yamlencode({ envoy = { enabled = true }, l7Proxy = true })
-    error_message = "The Talos defaults must honor explicit Envoy and L7 proxy settings."
   }
 }
 

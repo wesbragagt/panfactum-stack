@@ -96,7 +96,12 @@ resource "kubernetes_config_map" "config" {
     labels    = module.core_dns.labels
   }
   data = {
-    Corefile = file("${path.module}/Corefile")
+    # Exact-name rewrites to cluster Services; with none, the Corefile is the file unchanged.
+    Corefile = length(var.name_rewrites) == 0 ? file("${path.module}/Corefile") : replace(
+      file("${path.module}/Corefile"),
+      "    kubernetes cluster.local",
+      "${join("", [for name, target in var.name_rewrites : "    rewrite name exact ${name} ${target}\n"])}    kubernetes cluster.local"
+    )
   }
 }
 
@@ -226,7 +231,7 @@ module "core_dns" {
   } : {})
 
   service_ip   = var.service_ip
-  service_name = "kube-dns"
+  service_name = "kube-dns" // Kubelet resolves DNS by service_ip, so the namespace does not matter
 
   vpa_enabled = var.vpa_enabled
 

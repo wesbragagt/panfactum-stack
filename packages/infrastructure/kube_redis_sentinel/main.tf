@@ -561,10 +561,11 @@ resource "vault_database_secret_backend_connection" "redis" {
 ***************************************/
 
 resource "kubernetes_config_map" "creds_syncer" {
+  count = var.creds_syncer_enabled ? 1 : 0
   metadata {
     name      = "${random_id.id.hex}-creds-syncer-scripts"
     namespace = var.namespace
-    labels    = module.secrets_sync.labels
+    labels    = module.secrets_sync[0].labels
   }
   data = {
     "creds-sync.sh" = file("${path.module}/creds-sync.sh")
@@ -572,10 +573,11 @@ resource "kubernetes_config_map" "creds_syncer" {
 }
 
 resource "kubernetes_role" "creds_syncer" {
+  count = var.creds_syncer_enabled ? 1 : 0
   metadata {
     name      = "${random_id.id.hex}-creds-syncer"
     namespace = var.namespace
-    labels    = module.secrets_sync.labels
+    labels    = module.secrets_sync[0].labels
   }
   rule {
     api_groups     = [""]
@@ -596,24 +598,26 @@ resource "kubernetes_role" "creds_syncer" {
 }
 
 resource "kubernetes_role_binding" "creds_syncer" {
+  count = var.creds_syncer_enabled ? 1 : 0
   metadata {
     name      = "${random_id.id.hex}-creds-syncer"
     namespace = var.namespace
-    labels    = module.secrets_sync.labels
+    labels    = module.secrets_sync[0].labels
   }
   subject {
     kind      = "ServiceAccount"
-    name      = module.secrets_sync.service_account_name
+    name      = module.secrets_sync[0].service_account_name
     namespace = var.namespace
   }
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "Role"
-    name      = kubernetes_role.creds_syncer.metadata[0].name
+    name      = kubernetes_role.creds_syncer[0].metadata[0].name
   }
 }
 
 module "secrets_sync" {
+  count  = var.creds_syncer_enabled ? 1 : 0
   source = "../kube_deployment"
 
   linkerd_enabled             = var.linkerd_enabled
@@ -652,7 +656,7 @@ module "secrets_sync" {
   }
 
   config_map_mounts = {
-    "${kubernetes_config_map.creds_syncer.metadata[0].name}" = {
+    "${kubernetes_config_map.creds_syncer[0].metadata[0].name}" = {
       mount_path = "/scripts"
     }
   }
@@ -673,6 +677,7 @@ module "secrets_sync" {
 ***************************************/
 
 data "vault_policy_document" "vault_secrets" {
+  count = var.creds_syncer_enabled ? 1 : 0
   rule {
     path         = "db/creds/${vault_database_secret_backend_role.reader.name}"
     capabilities = ["read", "list"]
@@ -691,14 +696,16 @@ data "vault_policy_document" "vault_secrets" {
 }
 
 module "vault_auth_vault_secrets" {
+  count                     = var.creds_syncer_enabled ? 1 : 0
   source                    = "../kube_sa_auth_vault"
   service_account           = random_id.id.hex
   service_account_namespace = var.namespace
-  vault_policy_hcl          = data.vault_policy_document.vault_secrets.hcl
+  vault_policy_hcl          = data.vault_policy_document.vault_secrets[0].hcl
   audience                  = "vault"
 }
 
 resource "kubectl_manifest" "vault_connection" {
+  count = var.creds_syncer_enabled ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "secrets.hashicorp.com/v1beta1"
     kind       = "VaultConnection"
@@ -716,6 +723,7 @@ resource "kubectl_manifest" "vault_connection" {
 }
 
 resource "kubectl_manifest" "vault_auth" {
+  count = var.creds_syncer_enabled ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "secrets.hashicorp.com/v1beta1"
     kind       = "VaultAuth"
@@ -730,7 +738,7 @@ resource "kubectl_manifest" "vault_auth" {
       mount              = "kubernetes"
       allowedNamespaces  = [var.namespace]
       kubernetes = {
-        role           = module.vault_auth_vault_secrets.role_name
+        role           = module.vault_auth_vault_secrets[0].role_name
         serviceAccount = random_id.id.hex
         audiences      = ["vault"]
       }
@@ -742,11 +750,11 @@ resource "kubectl_manifest" "vault_auth" {
 }
 
 resource "kubectl_manifest" "vault_secrets" {
-  for_each = {
+  for_each = var.creds_syncer_enabled ? {
     admin     = "creds/${vault_database_secret_backend_role.admin.name}"
     reader    = "creds/${vault_database_secret_backend_role.reader.name}"
     superuser = "creds/${vault_database_secret_backend_role.superuser.name}"
-  }
+  } : {}
   yaml_body = yamlencode({
     apiVersion = "secrets.hashicorp.com/v1beta1"
     kind       = "VaultDynamicSecret"

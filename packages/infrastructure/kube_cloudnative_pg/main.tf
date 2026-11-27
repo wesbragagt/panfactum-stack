@@ -217,6 +217,7 @@ resource "kubectl_manifest" "pdb" {
 ***************************************/
 
 resource "kubectl_manifest" "snapshot_class" {
+  count = var.volume_snapshot_class_enabled ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "snapshot.storage.k8s.io/v1"
     kind       = "VolumeSnapshotClass"
@@ -260,13 +261,8 @@ resource "kubernetes_cluster_role" "kyverno_roles" {
 * See: https://github.com/cloudnative-pg/cloudnative-pg/issues/2574
 ***************************************/
 
-moved {
-  from = kubectl_manifest.cnpg_scale_selector
-  to   = kubectl_manifest.cnpg_scale_selector[0]
-}
-
 resource "kubectl_manifest" "cnpg_scale_selector" {
-  count = var.kyverno_cel_policies_enabled ? 0 : 1
+  count = var.vpa_scale_selector_policy_enabled && !var.kyverno_cel_policies_enabled ? 1 : 0
   yaml_body = yamlencode({
     apiVersion = "kyverno.io/v1"
     kind       = "ClusterPolicy"
@@ -431,4 +427,14 @@ resource "kubectl_manifest" "cnpg_scale_selector" {
     helm_release.cnpg,
     kubernetes_cluster_role.kyverno_roles
   ]
+}
+
+moved {
+  from = kubectl_manifest.snapshot_class
+  to   = kubectl_manifest.snapshot_class[0]
+}
+
+moved {
+  from = kubectl_manifest.cnpg_scale_selector
+  to   = kubectl_manifest.cnpg_scale_selector[0]
 }

@@ -2,7 +2,7 @@ terraform {
   required_providers {
     authentik = {
       source  = "goauthentik/authentik"
-      version = "2024.10.2"
+      version = "2026.8.2"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
@@ -52,8 +52,8 @@ resource "authentik_brand" "custom" {
   count               = var.brand_enabled ? 1 : 0
   branding_title      = var.organization_name
   domain              = var.organization_domain
-  branding_logo       = "/media/public/logo.svg"
-  branding_favicon    = "/media/public/favicon.ico"
+  branding_logo       = "logo.svg"
+  branding_favicon    = "favicon.ico"
   flow_recovery       = authentik_flow.recovery.uuid
   flow_authentication = authentik_flow.authentication.uuid
   default             = true
@@ -73,7 +73,7 @@ resource "authentik_group" "rbac" {
 resource "authentik_group" "superusers" {
   name         = "superusers"
   is_superuser = true
-  parent       = authentik_group.rbac.id
+  parents      = [authentik_group.rbac.id]
   lifecycle {
     ignore_changes = [users]
   }
@@ -86,8 +86,8 @@ resource "authentik_group" "default_groups" {
     "engineers",
     "restricted_engineers"
   ] : [])
-  name   = each.key
-  parent = authentik_group.rbac.id
+  name    = each.key
+  parents = [authentik_group.rbac.id]
   lifecycle {
     ignore_changes = [users]
   }
@@ -104,7 +104,7 @@ resource "authentik_group" "extra_groups_root" {
 resource "authentik_group" "extra_groups_children" {
   for_each = local.child_extra_groups
   name     = each.key
-  parent   = each.value.parent == "rbac" ? authentik_group.rbac.id : authentik_group.extra_groups_root[each.value.parent].id
+  parents  = [each.value.parent == "rbac" ? authentik_group.rbac.id : authentik_group.extra_groups_root[each.value.parent].id]
   lifecycle {
     ignore_changes = [users]
   }
@@ -114,7 +114,7 @@ resource "authentik_group" "extra_groups_children" {
 resource "authentik_group" "extra_groups_grandchildren" {
   for_each = local.grandchild_extra_groups
   name     = each.key
-  parent   = authentik_group.extra_groups_children[each.value.parent].id
+  parents  = [authentik_group.extra_groups_children[each.value.parent].id]
   lifecycle {
     ignore_changes = [users]
   }
@@ -123,7 +123,7 @@ resource "authentik_group" "extra_groups_grandchildren" {
 resource "authentik_group" "extra_groups_great_grandchildren" {
   for_each = local.great_grandchild_extra_groups
   name     = each.key
-  parent   = authentik_group.extra_groups_grandchildren[each.value.parent].id
+  parents  = [authentik_group.extra_groups_grandchildren[each.value.parent].id]
   lifecycle {
     ignore_changes = [users]
   }
@@ -221,7 +221,7 @@ resource "authentik_stage_email" "email" {
   use_global_settings      = true
   activate_user_on_success = true
   timeout                  = 60 * 24
-  token_expiry             = 60 * 24
+  token_expiry             = "minutes=1440"
   template                 = "recovery.html"
   subject                  = "Reset your ${var.organization_name} account!"
 }
@@ -312,9 +312,10 @@ resource "authentik_flow_stage_binding" "recovery_email" {
 }
 
 resource "authentik_flow_stage_binding" "recovery_password" {
-  target                  = authentik_flow.recovery.uuid
-  stage                   = authentik_stage_prompt.password.id
-  order                   = 20
+  target = authentik_flow.recovery.uuid
+  stage  = authentik_stage_prompt.password.id
+  # Equal orders tie-break on the random binding pk, so the password prompt can run before the recovery email.
+  order                   = var.recovery_email_stage_first ? 25 : 20
   evaluate_on_plan        = true
   re_evaluate_policies    = false
   policy_engine_mode      = "any"
@@ -355,12 +356,13 @@ resource "authentik_flow_stage_binding" "recovery_login" {
 ## Authentication
 ###########################################################################
 
+# OIDC clients send max_age (Vault: 12h); re-auth of a logged-in user 404s if this requires unauthenticated.
 resource "authentik_flow" "authentication" {
   designation    = "authentication"
   name           = "Panfactum authentication flow"
   slug           = "panfactum-authentication-flow"
   title          = "${var.organization_name} Login"
-  authentication = "require_unauthenticated"
+  authentication = "none"
 }
 
 data "authentik_source" "inbuilt" {
@@ -406,6 +408,20 @@ resource "authentik_policy_binding" "require_mfa" {
   target = authentik_flow_stage_binding.authenticate_mfa.id
   policy = authentik_policy_expression.is_superuser.id
   negate = true
+}
+
+// Lets shared demo accounts log in with only a password.
+resource "authentik_policy_expression" "not_mfa_exempt" {
+  count      = length(var.mfa_exempt_groups) > 0 ? 1 : 0
+  expression = "return not any(ak_is_group_member(context.get(\"pending_user\"), name=g) for g in ${jsonencode(var.mfa_exempt_groups)})"
+  name       = "test_not_mfa_exempt"
+}
+
+resource "authentik_policy_binding" "skip_mfa_for_exempt_groups" {
+  count  = length(var.mfa_exempt_groups) > 0 ? 1 : 0
+  order  = 20
+  target = authentik_flow_stage_binding.authenticate_mfa.id
+  policy = authentik_policy_expression.not_mfa_exempt[0].id
 }
 
 resource "authentik_policy_binding" "require_webauthn_for_superuser" {

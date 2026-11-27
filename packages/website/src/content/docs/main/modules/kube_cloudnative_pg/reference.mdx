@@ -86,9 +86,25 @@ Type: `bool`
 
 Default: `true`
 
+### volume\_snapshot\_class\_enabled
+
+Description: Whether to create the cnpg VolumeSnapshotClass (EBS CSI driver). Disable where no snapshot CRDs or driver exist.
+
+Type: `bool`
+
+Default: `true`
+
 ### vpa\_enabled
 
 Description: Whether the VPA resources should be enabled
+
+Type: `bool`
+
+Default: `true`
+
+### vpa\_scale\_selector\_policy\_enabled
+
+Description: Whether to create the Kyverno policy that adds VPA scale selectors to the CNPG CRDs and removes a CNPG mutating webhook. Only needed with the VPA.
 
 Type: `bool`
 

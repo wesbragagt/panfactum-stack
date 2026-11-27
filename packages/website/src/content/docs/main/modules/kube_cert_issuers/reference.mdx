@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### alert_email
+### alert\_email
 
 Description: An email that will receive certificate alerts.
 
@@ -14,7 +14,7 @@ Type: `string`
 
 Default: n/a
 
-### aws_iam_ip_allow_list
+### aws\_iam\_ip\_allow\_list
 
 Description: A list of IPs that can use the service account token to authenticate with AWS API
 
@@ -22,7 +22,7 @@ Type: `list(string)`
 
 Default: `[]`
 
-### cloudflare_api_token
+### cloudflare\_api\_token
 
 Description: Cloudflare API Token
 
@@ -30,22 +30,45 @@ Type: `string`
 
 Default: `null`
 
-### cloudflare_zones
+### cloudflare\_zones
 
-Description: A list of public DNS domains managed by Cloudflare; cert-manager uses this to issue public-facing
-certificates.
+Description: A list of public DNS domains managed by Cloudflare; cert-manager uses this to issue public-facing certificates.
 
 Type: `list(string)`
 
 Default: `[]`
 
-### kube_domain
+### cluster\_subnet\_ids
+
+Description: Explicit subnets for source-IP policy discovery.
+
+Type: `set(string)`
+
+Default: `null`
+
+### ip\_restrictions\_enabled
+
+Description: Enable source-IP deny policies.
+
+Type: `bool`
+
+Default: `true`
+
+### kube\_domain
 
 Description: The domain under which cluster utilities have subdomains registered.
 
 Type: `string`
 
 Default: n/a
+
+### kyverno\_cel\_policies\_enabled
+
+Description: Use policies.kyverno.io/v1 CEL policies, required by Kyverno 1.20+. Existing legacy policies must be migrated with a reviewed replacement plan.
+
+Type: `bool`
+
+Default: `false`
 
 ### namespace
 
@@ -55,10 +78,33 @@ Type: `string`
 
 Default: `"cert-manager"`
 
-### route53_zones
+### oidc\_issuer\_url
 
-Description: A mapping of public DNS domains managed by AWS to their configuration; cert-manager uses this to issue
-public-facing certificates.
+Description: Existing OIDC issuer URL paired with its ARN.
+
+Type: `string`
+
+Default: `null`
+
+### oidc\_provider\_arn
+
+Description: Existing OIDC provider ARN; null retains EKS discovery.
+
+Type: `string`
+
+Default: `null`
+
+### public\_issuer\_enabled
+
+Description: Create the public Let's Encrypt ClusterIssuer and the ingress-tls Certificate. Disable for clusters without public DNS; the internal Vault issuers are unaffected.
+
+Type: `bool`
+
+Default: `true`
+
+### route53\_zones
+
+Description: A mapping of public DNS domains managed by AWS to their configuration; cert-manager uses this to issue public-facing certificates.
 
 Type:
 
@@ -71,7 +117,7 @@ map(object({
 
 Default: `{}`
 
-### service_account
+### service\_account
 
 Description: The name of the cert-manager service account.
 
@@ -79,7 +125,7 @@ Type: `string`
 
 Default: `"cert-manager"`
 
-### vault_internal_url
+### vault\_internal\_url
 
 Description: The url to the vault instance for internal cert issuance
 
@@ -91,15 +137,19 @@ Default: n/a
 
 The following outputs are exported:
 
-### cloudflare_zones
+### cloudflare\_zones
 
 Description: The cloudflare DNS names provided as an input
 
-### route53_zones
+### kyverno\_cel\_policy\_documents
+
+Description: CEL policy manifests for migration validation.
+
+### route53\_zones
 
 Description: The route53 zone configuration provided as an input
 
-### vault_ca_crt
+### vault\_ca\_crt
 
 Description: The public certificate of the root vault certificate authority
 
@@ -107,15 +157,15 @@ Description: The public certificate of the root vault certificate authority
 
 The following providers are needed by this module:
 
-- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.40.0/docs) (6.40.0)
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
 
-- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
 
-- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/2.35.0/docs) (2.35.0)
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 
-- [vault](https://registry.terraform.io/providers/hashicorp/vault/4.8.0/docs) (4.8.0)
+- [vault](https://registry.terraform.io/providers/hashicorp/vault/5.13.0/docs) (5.13.0)
 
 {/* eslint-enable import-x/order */}
 

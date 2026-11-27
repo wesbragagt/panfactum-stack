@@ -277,7 +277,8 @@ resource "helm_release" "ebs_csi_driver" {
               value    = module.constants.workflow_taint.value
               effect   = module.constants.workflow_taint.effect
             }
-          ]
+          ],
+          var.node_extra_tolerations
         )
         volumes = [
           {

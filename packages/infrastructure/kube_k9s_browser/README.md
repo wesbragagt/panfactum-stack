@@ -78,6 +78,8 @@ inputs = {
 
 Every other input applies to all instances. The outputs `url` and `service_account` are maps keyed like `instances`. Each instance's resources live in the nested `instance/` module at `module.instance["<key>"]`, so renaming a key destroys and recreates that instance.
 
+The homelab caller is `environments/homelab/us-east-2/kube_k9s_browser`.
+
 ## Gotchas
 
 - The first plan of a new caller fails with `metadata.0.labels ("<null>")`. `panfactum.hcl` generates the `pf` provider only after `.terraform.lock.hcl` lists `panfactum/pf`, and the first run writes that lock file. Plan again.

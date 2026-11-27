@@ -46,3 +46,27 @@ variable "authentik_namespace" {
   type        = string
 }
 
+
+variable "vault_url" {
+  description = "Origin (scheme, host and optional port) of the Vault instance. Null uses https://<vault_domain>."
+  type        = string
+  default     = null
+}
+
+variable "authentik_url" {
+  description = "Origin (scheme, host and optional port) of the Authentik instance. Null uses https://<authentik_domain>."
+  type        = string
+  default     = null
+}
+
+variable "grant_types" {
+  description = "OAuth2 grant types allowed for the Vault client. Authentik 2026.8 rejects authorization_code when the provider has none. Null leaves the attribute unset."
+  type        = list(string)
+  default     = null
+}
+
+variable "redirect_uri_type" {
+  description = "Set redirect_uri_type on every allowed redirect URI. Provider 2026.8 reads back \"authorization\", so leaving it unset replans an update forever. Null leaves the attribute unset."
+  type        = string
+  default     = "authorization"
+}

@@ -1,0 +1,41 @@
+{/* lint disable no-duplicate-headings */}
+
+{/* eslint-disable import-x/order */}
+
+## Inputs
+
+The following input variables are supported:
+
+### container\_runtime\_socket
+
+Description: Host containerd CRI socket used by workload containers.
+
+Type: `string`
+
+Default: `"/run/containerd/containerd.sock"`
+
+### helm\_version
+
+Description: Pinned Chaos Mesh chart version.
+
+Type: `string`
+
+Default: `"2.8.8"`
+
+## Outputs
+
+No outputs.
+
+## Providers
+
+The following providers are needed by this module:
+
+- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.1.1/docs) (3.1.1)
+
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
+
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
+
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

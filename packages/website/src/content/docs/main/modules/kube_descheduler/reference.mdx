@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### burstable_nodes_enabled
+### burstable\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on burstable nodes
 
@@ -14,7 +14,7 @@ Type: `bool`
 
 Default: `true`
 
-### controller_nodes_enabled
+### controller\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on EKS Node Group nodes (controller nodes)
 
@@ -22,7 +22,7 @@ Type: `bool`
 
 Default: `true`
 
-### descheduler_helm_version
+### descheduler\_helm\_version
 
 Description: The version of the descheduler helm chart to deploy
 
@@ -30,7 +30,15 @@ Type: `string`
 
 Default: `"0.35.1"`
 
-### log_verbosity
+### dry\_run
+
+Description: Simulate descheduling decisions without evicting Pods. Enable for observation-only rollouts.
+
+Type: `bool`
+
+Default: `false`
+
+### log\_verbosity
 
 Description: The log verbosity (1-9) for the descheduler pods
 
@@ -38,16 +46,15 @@ Type: `number`
 
 Default: `1`
 
-### max_pod_lifetime_seconds
+### max\_pod\_lifetime\_seconds
 
-Description: The maximum time that a pod can live before being replaced (unless lifetime evictions are disabled for the
-pod)
+Description: The maximum time that a pod can live before being replaced (unless lifetime evictions are disabled for the pod)
 
 Type: `number`
 
 Default: `14400`
 
-### monitoring_enabled
+### monitoring\_enabled
 
 Description: Whether to add active monitoring to the deployed systems
 
@@ -55,7 +62,7 @@ Type: `bool`
 
 Default: `false`
 
-### panfactum_scheduler_enabled
+### panfactum\_scheduler\_enabled
 
 Description: Whether to use the Panfactum pod scheduler with enhanced bin-packing
 
@@ -63,7 +70,7 @@ Type: `bool`
 
 Default: `true`
 
-### pull_through_cache_enabled
+### pull\_through\_cache\_enabled
 
 Description: Whether to use the ECR pull through cache for the deployed images
 
@@ -71,7 +78,7 @@ Type: `bool`
 
 Default: `true`
 
-### spot_nodes_enabled
+### spot\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on spot nodes
 
@@ -79,7 +86,15 @@ Type: `bool`
 
 Default: `true`
 
-### vpa_enabled
+### unmutated\_pod\_excluded\_namespaces
+
+Description: Namespaces excluded from the unmutated pod lifetime policy
+
+Type: `list(string)`
+
+Default: `[]`
+
+### vpa\_enabled
 
 Description: Whether the VPA resources should be enabled
 
@@ -89,9 +104,7 @@ Default: `true`
 
 ### wait
 
-Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to
-proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment
-failures.
+Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment failures.
 
 Type: `bool`
 
@@ -115,4 +128,6 @@ The following providers are needed by this module:
 
 - [random](https://registry.terraform.io/providers/hashicorp/random/3.8.1/docs) (3.8.1)
 
-{/* eslint-enable import-x/order */} {/* lint enable no-duplicate-headings */}
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

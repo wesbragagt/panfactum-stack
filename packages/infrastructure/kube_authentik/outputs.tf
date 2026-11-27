@@ -11,15 +11,15 @@ output "db_reader_role" {
 }
 
 output "redis_admin_role" {
-  value = module.redis.admin_role
+  value = try(module.redis[0].admin_role, null)
 }
 
 output "redis_superuser_role" {
-  value = module.redis.superuser_role
+  value = try(module.redis[0].superuser_role, null)
 }
 
 output "redis_reader_role" {
-  value = module.redis.reader_role
+  value = try(module.redis[0].reader_role, null)
 }
 
 output "akadmin_email" {

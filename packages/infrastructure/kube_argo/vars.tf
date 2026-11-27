@@ -273,6 +273,12 @@ variable "db_node_selector" {
   default     = {}
 }
 
+variable "db_instances" {
+  description = "Postgres instance count; null derives it from sla_target."
+  type        = number
+  default     = null
+}
+
 variable "db_az_spread_required" {
   description = "Explicit db az spread required override; defaults preserve existing deployments."
   type        = bool

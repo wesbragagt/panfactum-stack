@@ -76,7 +76,7 @@ locals {
 resource "kubectl_manifest" "cel_scale_selector" {
   for_each = {
     for name, policy in local.cel_scale_selector_policies : name => policy
-    if var.kyverno_cel_policies_enabled
+    if var.vpa_scale_selector_policy_enabled && var.kyverno_cel_policies_enabled
   }
   yaml_body         = yamlencode(each.value)
   force_conflicts   = true
@@ -91,6 +91,6 @@ output "kyverno_cel_policy_documents" {
   description = "CEL policies managed by this module."
   value = [
     for policy in local.cel_scale_selector_policies : policy
-    if var.kyverno_cel_policies_enabled
+    if var.vpa_scale_selector_policy_enabled && var.kyverno_cel_policies_enabled
   ]
 }

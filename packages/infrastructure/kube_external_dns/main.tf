@@ -74,7 +74,7 @@ locals {
       [
         "--aws-assume-role=${role}"
       ],
-      [for zone_id in [for domain, config in var.route53_zones : config.zone_id if config.record_manager_role_arn == role] : "--zone-id-filter=${zone_id}"],
+      [for zone_id in distinct([for domain, config in var.route53_zones : config.zone_id if config.record_manager_role_arn == role]) : "--zone-id-filter=${zone_id}"],
       var.aws_zone_match_parent ? ["--aws-zone-match-parent"] : []
     )
   } }

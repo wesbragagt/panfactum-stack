@@ -48,11 +48,53 @@ host, remote TCP port and optional description for each forward. Session
 Manager callers can choose only `localPortNumber`. Use the `document_names`
 output to look up AWS document names by the keys you passed.
 
-For Talos, set the host from the same caller configuration used for the
-bootstrap controller's private IP. Apply this module before planning the
-cluster so its caller hook can use the documents as soon as the controller
-starts. Keep existing AWS names and descriptions when moving the documents
-between states.
+For a new Talos deployment, `talos_bootstrap` supplies the standard ports and
+document names. Use `port_forwarding_documents` for custom destinations or
+when preserving existing document names during a state transfer.
+
+The following example configures documents for two controllers.
+
+```hcl
+port_forwarding_documents = {
+  kube = {
+    name = "canary-kube-forward"
+    host = "api.canary.internal"
+    port = 6443
+  }
+  talos-a = {
+    name = "canary-talos-a-forward"
+    host = "10.0.128.20"
+    port = 50000
+  }
+  talos-b = {
+    name = "canary-talos-b-forward"
+    host = "10.0.192.20"
+    port = 50000
+  }
+}
+```
+
+Apply this module before planning the cluster so the hook can use the initial
+controller's document as soon as the controller starts. If bootstrap needs
+direct Kubernetes access before the load balancer is ready, configure a
+separate TCP 6443 document for the initial controller and pass its name as a
+privileged recovery document. Use `document_destinations` to pass each
+document's `name`, `host` and `port` to the client. Documents are shared by
+both jump hosts.
+
+For an Identity Center caller, set `talos_operator_access.jump_host_id` from
+`instance_id`, and set `additional_jump_host_ids` from the remaining
+`instance_ids`. Set `kube_document_name` from the ordinary Kubernetes
+document's name and list every Talos and bootstrap-only document name in
+`recovery_document_names`. Ordinary operators get session access to the
+specified Kubernetes document on the approved jump hosts. The existing
+Superuser path covers Talos recovery, including explicit NAT selection.
+The Admin, Reader and RestrictedReader base policies already grant
+`ssm:GetDocument` for client-side document verification. Custom roles can
+grant that action on the specific approved document ARN.
+
+Keep existing AWS names and descriptions when moving the documents between
+states.
 
 ## Transfer existing documents from cluster state
 

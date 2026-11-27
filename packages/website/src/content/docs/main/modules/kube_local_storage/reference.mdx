@@ -1,0 +1,93 @@
+{/* lint disable no-duplicate-headings */}
+
+{/* eslint-disable import-x/order */}
+
+## Inputs
+
+The following input variables are supported:
+
+### default\_storage\_class\_enabled
+
+Description: Mark the StorageClass as the cluster default.
+
+Type: `bool`
+
+Default: `true`
+
+### helper\_image
+
+Description: Digest-pinned helper image used to create and remove volume directories.
+
+Type: `string`
+
+Default: `"docker.io/library/busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec"`
+
+### host\_path
+
+Description: Node directory for volumes. /var is writable on both kind and Talos nodes.
+
+Type: `string`
+
+Default: `"/var/local-path-provisioner"`
+
+### kyverno\_cel\_policies\_enabled
+
+Description: Use the CEL policy required by Kyverno 1.20 and later.
+
+Type: `bool`
+
+Default: `false`
+
+### namespace\_labels
+
+Description: Additional labels on the local-path-storage namespace, e.g. Pod Security for the hostPath helper pods
+
+Type: `map(string)`
+
+Default: `{}`
+
+### provisioner\_image
+
+Description: Digest-pinned local-path-provisioner image.
+
+Type: `string`
+
+Default: `"docker.io/rancher/local-path-provisioner:v0.0.37@sha256:e757967a5ec338f6a9b371c5a9688bedaa8c3578ea3dd4db329ea0084be0a86f"`
+
+### reclaim\_policy
+
+Description: StorageClass reclaim policy. Retain keeps volume data when a PVC is deleted.
+
+Type: `string`
+
+Default: `"Retain"`
+
+### storage\_class\_name
+
+Description: Name of the StorageClass.
+
+Type: `string`
+
+Default: `"local-path"`
+
+## Outputs
+
+The following outputs are exported:
+
+### kyverno\_cel\_policy\_documents
+
+Description: CEL policy managed by this module.
+
+### storage\_class\_name
+
+Description: n/a
+
+## Providers
+
+The following providers are needed by this module:
+
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
+
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

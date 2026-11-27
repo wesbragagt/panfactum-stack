@@ -11,7 +11,7 @@ output "client_secret" {
 
 output "oidc_discovery_url" {
   description = "The OIDC discovery url to use for the auth/oidc auth method in Vault"
-  value       = "https://${var.authentik_domain}/application/o/${var.vault_name}/"
+  value       = "${local.authentik_url}/application/o/${var.vault_name}/"
 }
 
 output "oidc_redirect_uris" {
@@ -26,5 +26,5 @@ output "oidc_redirect_uris_including_regexes" {
 
 output "oidc_issuer" {
   description = "The issuer to use for the auth/oidc auth method in Vault"
-  value       = "https://${var.authentik_domain}/application/o/${var.vault_name}/"
+  value       = "${local.authentik_url}/application/o/${var.vault_name}/"
 }

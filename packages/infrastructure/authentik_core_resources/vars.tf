@@ -74,3 +74,15 @@ variable "brand_enabled" {
   type        = bool
   default     = true
 }
+
+variable "mfa_exempt_groups" {
+  description = "Names of groups whose members skip MFA at login. Use only for shared demo accounts."
+  type        = list(string)
+  default     = []
+}
+
+variable "recovery_email_stage_first" {
+  description = "Order the recovery password prompt after the recovery email stage. false keeps both at order 20, where Authentik breaks the tie by the random binding pk."
+  type        = bool
+  default     = false
+}

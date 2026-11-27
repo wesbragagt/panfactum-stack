@@ -1,4 +1,5 @@
-# Gateway behind an NLB owned by the AWS Load Balancer Controller, TLS from a cert-manager Secret.
+# HTTPS uses a cert-manager Secret, with an optional NLB owned by the AWS Load Balancer Controller.
+# Setting local_http_port serves plain HTTP from a ClusterIP Service.
 terraform {
   required_providers {
     kubernetes = {
@@ -16,12 +17,18 @@ terraform {
   }
 }
 
+locals {
+  local_mode = var.local_http_port != null
+}
+
 # Deleting a CRD deletes every Gateway and route, so destroy forgets CRDs instead of deleting them.
 resource "kubectl_manifest" "crds" {
   for_each          = fileset(path.module, "manifests/*.yaml")
   yaml_body         = file("${path.module}/${each.key}")
   apply_only        = true
   server_side_apply = true
+  # The client engine reports false drift on int64 schema maximums the apiserver stores as rounded floats.
+  drift_engine = var.crd_drift_engine
   lifecycle {
     prevent_destroy = true
   }
@@ -75,7 +82,7 @@ resource "kubectl_manifest" "gateway_parameters" {
     metadata   = { name = var.gateway_name, namespace = var.namespace }
     spec = {
       kube = {
-        service = {
+        service = [{ type = "ClusterIP" }, {
           type = "LoadBalancer"
           extraAnnotations = {
             # "external" makes the AWS LB Controller own the NLB; the CCM runs only cloud-node.
@@ -88,7 +95,7 @@ resource "kubectl_manifest" "gateway_parameters" {
             "service.beta.kubernetes.io/aws-load-balancer-name"    = var.load_balancer_name
             "external-dns.alpha.kubernetes.io/hostname"            = join(",", var.dns_hostnames)
           }
-        }
+        }][var.enable_public_load_balancer && !local.local_mode ? 1 : 0]
         deployment = { replicas = var.proxy_replicas }
         podTemplate = {
           extraAnnotations = { "linkerd.io/inject" = "disabled" }
@@ -130,7 +137,13 @@ resource "kubectl_manifest" "gateway" {
       infrastructure = {
         parametersRef = { group = "gateway.kgateway.dev", kind = "GatewayParameters", name = var.gateway_name }
       }
-      listeners = [{
+      listeners = [[{
+        name          = "http"
+        protocol      = "HTTP"
+        port          = var.local_http_port
+        hostname      = "*.${var.domain}"
+        allowedRoutes = { namespaces = { from = "All" } }
+        }], [{
         name     = "https"
         protocol = "HTTPS"
         port     = 443
@@ -140,14 +153,21 @@ resource "kubectl_manifest" "gateway" {
           certificateRefs = [{ name = var.tls_secret_name, namespace = var.tls_secret_namespace }]
         }
         allowedRoutes = { namespaces = { from = "All" } }
-      }]
+      }]][local.local_mode ? 0 : 1]
     }
   })
   server_side_apply = true
   depends_on        = [kubectl_manifest.gateway_parameters, kubectl_manifest.reference_grant]
+  lifecycle {
+    precondition {
+      condition     = local.local_mode || length(var.local_routes) == 0
+      error_message = "local_routes requires local_http_port."
+    }
+  }
 }
 
 resource "kubectl_manifest" "reference_grant" {
+  count = local.local_mode ? 0 : 1
   yaml_body = yamlencode({
     apiVersion = "gateway.networking.k8s.io/v1beta1"
     kind       = "ReferenceGrant"
@@ -174,4 +194,26 @@ resource "kubectl_manifest" "listener_policy" {
   })
   server_side_apply = true
   depends_on        = [helm_release.kgateway]
+}
+
+moved {
+  from = kubectl_manifest.reference_grant
+  to   = kubectl_manifest.reference_grant[0]
+}
+
+# Local mode only: the gateway owner also owns the routes for the instance origins.
+resource "kubectl_manifest" "local_route" {
+  for_each = local.local_mode ? var.local_routes : {}
+  yaml_body = yamlencode({
+    apiVersion = "gateway.networking.k8s.io/v1"
+    kind       = "HTTPRoute"
+    metadata   = { name = each.key, namespace = each.value.namespace }
+    spec = {
+      parentRefs = [{ name = var.gateway_name, namespace = var.namespace, sectionName = "http" }]
+      hostnames  = [each.value.hostname]
+      rules      = [{ backendRefs = [{ name = each.value.service, port = each.value.port }] }]
+    }
+  })
+  server_side_apply = true
+  depends_on        = [kubectl_manifest.gateway]
 }

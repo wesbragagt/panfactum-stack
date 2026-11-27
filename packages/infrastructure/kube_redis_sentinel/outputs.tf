@@ -9,6 +9,11 @@ output "root_password" {
   sensitive   = true
 }
 
+output "root_creds_secret" {
+  description = "The name of the Kubernetes Secret holding the root user's password (key: password); the root user name is root_name"
+  value       = kubernetes_secret.root_creds.metadata[0].name
+}
+
 output "superuser_creds_secret" {
   description = "The name of the Kubernetes Secret holding credentials for the superuser role in the Redis database"
   value       = "${random_id.id.hex}-superuser-creds"

@@ -280,7 +280,7 @@ module "database" {
   linkerd_enabled                      = var.linkerd_enabled
   pg_cluster_namespace                 = local.namespace
   pg_initial_storage_gb                = 2
-  pg_instances                         = var.sla_target >= 2 ? 2 : 1
+  pg_instances                         = coalesce(var.db_instances, var.sla_target >= 2 ? 2 : 1)
   pg_smart_shutdown_timeout            = 2
   aws_iam_ip_allow_list                = var.aws_iam_ip_allow_list
   pull_through_cache_enabled           = var.pull_through_cache_enabled

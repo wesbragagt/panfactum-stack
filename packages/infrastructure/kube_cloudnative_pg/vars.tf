@@ -78,3 +78,14 @@ variable "controller_nodes_enabled" {
   type        = bool
   default     = true
 }
+variable "volume_snapshot_class_enabled" {
+  description = "Whether to create the cnpg VolumeSnapshotClass (EBS CSI driver). Disable where no snapshot CRDs or driver exist."
+  type        = bool
+  default     = true
+}
+
+variable "vpa_scale_selector_policy_enabled" {
+  description = "Whether to create the Kyverno policy that adds VPA scale selectors to the CNPG CRDs and removes a CNPG mutating webhook. Only needed with the VPA."
+  type        = bool
+  default     = true
+}

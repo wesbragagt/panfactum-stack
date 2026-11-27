@@ -167,6 +167,12 @@ variable "vault_credential_lifetime_hours" {
   default     = 16
 }
 
+variable "creds_syncer_enabled" {
+  description = "Whether to create the Vault-issued superuser, admin and reader creds Secrets and the creds-syncer that keeps their ACL users alive. Consumers that use root_creds_secret can disable it."
+  type        = bool
+  default     = true
+}
+
 variable "creds_syncer_logging_enabled" {
   description = "Whether to enable logging for the creds-syncer pods"
   type        = bool

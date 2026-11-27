@@ -141,6 +141,12 @@ locals {
         optional    = config.optional
       }
     }],
+    [for name, claim in var.extra_volume_claims : {
+      name = name
+      persistentVolumeClaim = {
+        claimName = claim
+      }
+    }],
     [{
       name = "podinfo",
       downwardAPI = {

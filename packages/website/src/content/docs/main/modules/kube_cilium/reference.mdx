@@ -6,6 +6,23 @@
 
 The following input variables are supported:
 
+### agent\_extra\_tolerations
+
+Description: Additional tolerations for the Cilium agent DaemonSet.
+
+Type:
+
+```hcl
+list(object({
+    key      = optional(string)
+    operator = string
+    value    = optional(string)
+    effect   = optional(string)
+  }))
+```
+
+Default: `[]`
+
 ### aws\_iam\_ip\_allow\_list
 
 Description: A list of IPs that can use the service account token to authenticate with AWS API
@@ -13,14 +30,6 @@ Description: A list of IPs that can use the service account token to authenticat
 Type: `list(string)`
 
 Default: `[]`
-
-### aws\_iam\_ip\_restrictions\_enabled
-
-Description: Enable source-IP restrictions for legacy deployments. The scoped Talos ENI path uses ENI policy and OIDC restrictions.
-
-Type: `bool`
-
-Default: `true`
 
 ### burstable\_nodes\_enabled
 
@@ -115,14 +124,6 @@ Type: `list(string)`
 
 Default: `[]`
 
-### envoy\_enabled
-
-Description: Enable the standalone Envoy DaemonSet. Defaults to false for scoped Talos ENI and non-Talos deployments.
-
-Type: `bool`
-
-Default: `null`
-
 ### hubble\_enabled
 
 Description: Whether to enable hubble for network debugging
@@ -134,14 +135,6 @@ Default: `false`
 ### ipam\_mode
 
 Description: Optional IPAM override. Defaults to eni on EKS and on Talos when using the cluster object. Legacy Talos and local default to cluster-pool.
-
-Type: `string`
-
-Default: `null`
-
-### ipv4\_native\_routing\_cidr
-
-Description: CIDR reachable without masquerading or tunnelling. Required by Cilium for native routing outside ENI IPAM.
 
 Type: `string`
 
@@ -160,14 +153,6 @@ Default: `null`
 Description: Agent API port override. Defaults to 443 for EKS and 7445 for Talos KubePrism.
 
 Type: `number`
-
-Default: `null`
-
-### l7\_proxy\_enabled
-
-Description: Enable Cilium application-layer policies and visibility. Defaults to false on scoped Talos ENI clusters and true otherwise.
-
-Type: `bool`
 
 Default: `null`
 
@@ -205,7 +190,7 @@ Default: `true`
 
 ### namespace\_labels
 
-Description: Additional labels for the managed namespace, including Pod Security Admission labels.
+Description: Additional namespace labels; defaults preserve existing namespace security policy
 
 Type: `map(string)`
 
@@ -240,14 +225,6 @@ Default: `null`
 Description: Whether to use the ECR pull through cache for the deployed images
 
 Type: `bool`
-
-Default: `null`
-
-### routing\_mode
-
-Description: Optional Cilium routing mode override. Defaults to native with ENI IPAM and tunnel otherwise.
-
-Type: `string`
 
 Default: `null`
 

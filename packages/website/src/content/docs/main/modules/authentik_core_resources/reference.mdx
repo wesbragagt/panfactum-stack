@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### authentik_namespace
+### authentik\_namespace
 
 Description: The kubernetes namespace where Authentik is deployed
 
@@ -14,7 +14,15 @@ Type: `string`
 
 Default: n/a
 
-### default_groups_enabled
+### brand\_enabled
+
+Description: Create and activate the custom default brand. Set false to provision flows and groups while retaining the existing login brand until operator MFA and recovery are verified.
+
+Type: `bool`
+
+Default: `true`
+
+### default\_groups\_enabled
 
 Description: Whether to create the default Panfactum RBAC groups
 
@@ -22,7 +30,7 @@ Type: `bool`
 
 Default: `true`
 
-### email_templates_configmap
+### email\_templates\_configmap
 
 Description: The configmap holding the email templates that Authentik will use
 
@@ -30,7 +38,7 @@ Type: `string`
 
 Default: n/a
 
-### extra_groups
+### extra\_groups
 
 Description: Whether to create the default Panfactum RBAC groups
 
@@ -45,7 +53,7 @@ map(object({
 
 Default: `{}`
 
-### favicon_ico_b64
+### favicon\_ico\_b64
 
 Description: A stringified ico image for displaying on the Authentik web UI (base64 encoded)
 
@@ -53,7 +61,7 @@ Type: `string`
 
 Default: `null`
 
-### logo_svg_b64
+### logo\_svg\_b64
 
 Description: A stringified svg logo for displaying on the Authentik UI (base64 encoded)
 
@@ -61,7 +69,7 @@ Type: `string`
 
 Default: `null`
 
-### media_configmap
+### media\_configmap
 
 Description: The configmap holding the static media that Authentik will use
 
@@ -69,7 +77,15 @@ Type: `string`
 
 Default: n/a
 
-### organization_domain
+### mfa\_exempt\_groups
+
+Description: Names of groups whose members skip MFA at login. Use only for shared demo accounts.
+
+Type: `list(string)`
+
+Default: `[]`
+
+### organization\_domain
 
 Description: The domain name of the organization for which Authentik serves as the IdP
 
@@ -77,7 +93,7 @@ Type: `string`
 
 Default: n/a
 
-### organization_name
+### organization\_name
 
 Description: The name of the organization for which Authentik serves as the IdP
 
@@ -85,7 +101,15 @@ Type: `string`
 
 Default: n/a
 
-### recovery_session_duration
+### recovery\_email\_stage\_first
+
+Description: Order the recovery password prompt after the recovery email stage. false keeps both at order 20, where Authentik breaks the tie by the random binding pk.
+
+Type: `bool`
+
+Default: `false`
+
+### recovery\_session\_duration
 
 Description: The session duration for recovery flow logins. See https://docs.goauthentik.io/docs/flow/stages/user_login/
 
@@ -93,7 +117,7 @@ Type: `string`
 
 Default: `"hours=8;minutes=0;seconds=0"`
 
-### session_duration
+### session\_duration
 
 Description: The session duration for user logins. See https://docs.goauthentik.io/docs/flow/stages/user_login/
 
@@ -101,7 +125,7 @@ Type: `string`
 
 Default: `"days=30;hours=0;minutes=0;seconds=0"`
 
-### superusers_require_webauthn
+### superusers\_require\_webauthn
 
 Description: True iff superusers must use webauthn MFA to authenticate
 
@@ -117,7 +141,7 @@ The following outputs are exported:
 
 Description: n/a
 
-### organization_name
+### organization\_name
 
 Description: n/a
 
@@ -125,7 +149,7 @@ Description: n/a
 
 The following providers are needed by this module:
 
-- [authentik](https://registry.terraform.io/providers/goauthentik/authentik/2024.10.2/docs) (2024.10.2)
+- [authentik](https://registry.terraform.io/providers/goauthentik/authentik/2026.8.2/docs) (2026.8.2)
 
 - [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
 

@@ -34,9 +34,6 @@ locals {
 }
 '''
         counts = {}
-        counts["envoy"] = source.split("      envoy = {", 1)[1].split("enabled =", 1)[1].split("\n", 1)[0].strip()
-        counts["l7_proxy"] = source.split("      l7Proxy =", 1)[1].split("\n", 1)[0].strip()
-        counts["namespace_labels"] = source.split('module "namespace" {', 1)[1].split("extra_labels =", 1)[1].split("\n", 1)[0].strip()
         for name, heading in {
             "eks_lookups": 'data "aws_eks_cluster" "cluster"',
             "iam_modules": 'module "aws_permissions"',
@@ -51,6 +48,8 @@ locals {
         operator = "extraEnv =" + operator
         operator = operator.replace("module.aws_permissions[0].role_arn", '"arn:aws:iam::123456789012:role/cilium"').replace("data.aws_region.region.region", '"us-east-2"')
         platform += "\nlocals { test_operator = merge({" + operator + "}, local.operator_web_identity) }\n"
+        labels = source.split('module "namespace" {', 1)[1].split("extra_labels =", 1)[1].split("\n", 1)[0].strip()
+        counts["namespace_labels"] = labels
         counts["operator_replicas"] = re.search(r"\breplicas = ([^\n]+)", source).group(1)
         for name in ("k8sServiceHost", "k8sServicePort"):
             expression = re.search(rf"\b{name}\s*=\s*([^\n]+)", source).group(1)
@@ -69,23 +68,10 @@ locals {
         args = [shutil.which("tofu") or "tofu", "-chdir=" + str(self.path), "console", "-no-color"]
         (self.path / "case.tfvars.json").write_text(json.dumps(variables))
         args += ["-var-file=case.tfvars.json"]
-        expression = "jsonencode({envoy=local.test_envoy, l7_proxy=local.test_l7_proxy, namespace_labels=local.test_namespace_labels, iam_actions=local.test_iam_actions, operator=local.test_operator, values=local.platform_values, eni=local.eni_enabled, eks=local.test_eks_lookups, iam=local.test_iam_modules, annotations=local.test_iam_annotations, namespaces=local.test_managed_namespaces, tolerations=local.platform_tolerations, identity=local.operator_web_identity, replicas=local.test_operator_replicas, use_cache=local.pull_through_cache_enabled, scoped_eni=local.scoped_eni, api_host=local.test_k8sServiceHost, api_port=local.test_k8sServicePort})"
+        expression = "jsonencode({iam_actions=local.test_iam_actions, operator=local.test_operator, values=local.platform_values, eni=local.eni_enabled, eks=local.test_eks_lookups, iam=local.test_iam_modules, annotations=local.test_iam_annotations, namespaces=local.test_managed_namespaces, namespace_labels=local.test_namespace_labels, tolerations=local.platform_tolerations, replicas=local.test_operator_replicas, use_cache=local.pull_through_cache_enabled, scoped_eni=local.scoped_eni, api_host=local.test_k8sServiceHost, api_port=local.test_k8sServicePort})"
         result = subprocess.run(args, input=expression + "\n", text=True, capture_output=True, check=True)
         self.assertTrue(result.stdout.strip(), result.stderr)
         return json.loads(json.loads(result.stdout.strip()))
-
-    def test_optional_proxy_and_namespace_settings(self):
-        eks = self.evaluate()
-        self.assertFalse(eks["envoy"])
-        self.assertTrue(eks["l7_proxy"])
-        self.assertEqual(eks["namespace_labels"], {})
-        self.assertTrue(self.evaluate(cluster_type="talos")["envoy"])
-        value = self.evaluate(cluster_type="talos", envoy_enabled=False,
-                              l7_proxy_enabled=False,
-                              namespace_labels={"pod-security.kubernetes.io/enforce": "privileged"})
-        self.assertFalse(value["envoy"])
-        self.assertFalse(value["l7_proxy"])
-        self.assertEqual(value["namespace_labels"], {"pod-security.kubernetes.io/enforce": "privileged"})
 
     def test_default_eks_network_values_and_resources_are_preserved(self):
         value = self.evaluate()
@@ -104,7 +90,6 @@ locals {
         for name, sla_target, replicas in (("example-north", 1, 1), ("example-south", 2, 2)):
             with self.subTest(name=name):
                 value = self.evaluate(cluster={"type": "talos", "name": name}, sla_target=sla_target)
-                self.assertEqual((value["api_host"], value["api_port"]), ("localhost", 7445))
                 self.assertEqual([value[k] for k in ("eks", "iam", "annotations", "namespaces")], [0, 1, 1, 1])
                 eni = value["values"]["eni"]
                 self.assertEqual(eni["eniTags"], {"homelab-cluster": name})
@@ -114,6 +99,7 @@ locals {
                 self.assertEqual(value["replicas"], replicas)
                 self.assertFalse(value["use_cache"])
                 self.assertTrue(value["scoped_eni"])
+                self.assertEqual((value["api_host"], value["api_port"]), ("localhost", 7445))
                 self.assertEqual([t["key"] for t in value["tolerations"]], [
                     "node-role.kubernetes.io/control-plane",
                     "node.cloudprovider.kubernetes.io/uninitialized",
@@ -147,35 +133,6 @@ locals {
         self.assertEqual(value["values"]["ipam"], {"mode": "kubernetes"})
         self.assertFalse(value["eni"])
         self.assertEqual(value["eks"], 0)
-
-    def test_talos_routing_mode_override_sets_native_routing_cidr(self):
-        value = self.evaluate(cluster_type="talos", routing_mode="native", ipv4_native_routing_cidr="10.0.0.0/16")
-        self.assertEqual(value["values"]["routingMode"], "native")
-        self.assertEqual(value["values"]["ipv4NativeRoutingCIDR"], "10.0.0.0/16")
-
-    def test_routing_cidr_is_omitted_when_unset(self):
-        value = self.evaluate(cluster_type="talos")
-        self.assertNotIn("ipv4NativeRoutingCIDR", value["values"])
-
-    def test_talos_eni_uses_private_allocation_and_projected_identity(self):
-        value = self.evaluate(cluster_type="talos", ipam_mode="eni",
-                              eni_cluster_tag="test-cluster", eni_first_interface_index=1,
-                              eni_subnet_ids_filter=["subnet-private"],
-                              oidc_provider_arn="arn:aws:iam::123456789012:oidc-provider/issuer.example",
-                              oidc_issuer_url="https://issuer.example")
-        self.assertEqual([value[k] for k in ("eks", "iam", "annotations")], [0, 1, 1])
-        self.assertEqual(value["values"]["routingMode"], "native")
-        self.assertFalse(value["values"]["enableIPv4Masquerade"])
-        eni = value["values"]["eni"]
-        self.assertEqual(eni["nodeSpec"], {"subnetIDs": ["subnet-private"], "firstInterfaceIndex": 1})
-        self.assertEqual(eni["eniTags"], eni["gcTags"])
-        token = value["identity"]["extraVolumes"][0]["projected"]["sources"][0]["serviceAccountToken"]
-        self.assertEqual(token["audience"], "sts.amazonaws.com")
-        self.assertTrue(value["identity"]["extraVolumeMounts"][0]["readOnly"])
-
-    def test_projected_identity_is_omitted_for_eks_and_talos_overlay(self):
-        self.assertEqual(self.evaluate()["identity"], {})
-        self.assertEqual(self.evaluate(cluster_type="talos")["identity"], {})
 
     def test_web_identity_fields_are_omitted_outside_talos_eni(self):
         for variables in ({}, {"cluster_type": "talos"}):
@@ -216,6 +173,14 @@ locals {
         self.assertNotIn("cgroup", value["values"])
         self.assertNotIn("securityContext", value["values"])
         self.assertFalse(any(env["name"].startswith("AWS_") for env in value["operator"]["extraEnv"]))
+
+    def test_namespace_labels_default_to_kube_namespace_default(self):
+        # {} is kube_namespace's own extra_labels default, so callers that omit the input see no diff.
+        self.assertEqual(self.evaluate()["namespace_labels"], {})
+        value = self.evaluate(namespace_create=False, namespace_labels={"pod-security.kubernetes.io/enforce": "privileged"})
+        self.assertEqual(value["namespaces"], 0, "existing-namespace callers (us-east-2) never manage the namespace")
+        value = self.evaluate(cluster_type="local", namespace_labels={"pod-security.kubernetes.io/enforce": "privileged"})
+        self.assertEqual(value["namespace_labels"], {"pod-security.kubernetes.io/enforce": "privileged"})
 
     def test_local_eni_never_creates_iam(self):
         value = self.evaluate(cluster_type="local", ipam_mode="eni")

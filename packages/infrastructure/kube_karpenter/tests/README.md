@@ -68,7 +68,7 @@ python packages/infrastructure/kube_karpenter/tests/check_chart_contract.py
 ```
 
 Both1.10.0 and1.15.1 fixture renders verify explicit endpoint/name/region, no IMDS,
-one outside the service mesh controller, no init container and400Mi request. These fixtures do
+one unmeshed controller, no init container and400Mi request. These fixtures do
 not evaluate the complete Terraform IAM policy or prove runtime permissions.
 Backend-disabled init and OpenTofu validation passed with an isolated cache.
 Direct inspection of public.ecr.aws/karpenter/controller:1.15.1's manifest index

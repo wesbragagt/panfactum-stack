@@ -97,3 +97,16 @@ variable "namespace_labels" {
   type        = map(string)
   default     = {}
 }
+
+variable "name_rewrites" {
+  description = "Exact DNS names answered as the given cluster Service name (for example a local gateway)"
+  type        = map(string)
+  default     = {}
+  validation {
+    # A target outside the cluster zone would be forwarded upstream and could loop back to a rewritten name.
+    condition = alltrue([for name, target in var.name_rewrites :
+      endswith(target, ".svc.cluster.local") && !endswith(name, ".cluster.local") && !contains(keys(var.name_rewrites), target)
+    ])
+    error_message = "name_rewrites targets must be *.svc.cluster.local Service names, and sources must be outside cluster.local."
+  }
+}

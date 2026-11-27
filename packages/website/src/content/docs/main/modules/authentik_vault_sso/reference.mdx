@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### allowed_groups
+### allowed\_groups
 
 Description: Only members of these groups can access AWS
 
@@ -14,7 +14,7 @@ Type: `set(string)`
 
 Default: `[]`
 
-### authentik_domain
+### authentik\_domain
 
 Description: The domain name of the authentik instance
 
@@ -22,7 +22,7 @@ Type: `string`
 
 Default: n/a
 
-### authentik_namespace
+### authentik\_namespace
 
 Description: The kubernetes namespace where Authentik is deployed
 
@@ -30,7 +30,23 @@ Type: `string`
 
 Default: n/a
 
-### media_configmap
+### authentik\_url
+
+Description: Origin (scheme, host and optional port) of the Authentik instance. Null uses https://<authentik\_domain>.
+
+Type: `string`
+
+Default: `null`
+
+### grant\_types
+
+Description: OAuth2 grant types allowed for the Vault client. Authentik 2026.8 rejects authorization\_code when the provider has none. Null leaves the attribute unset.
+
+Type: `list(string)`
+
+Default: `null`
+
+### media\_configmap
 
 Description: The configmap holding the static media that Authentik will use
 
@@ -38,7 +54,7 @@ Type: `string`
 
 Default: n/a
 
-### organization_name
+### organization\_name
 
 Description: The name of your organization
 
@@ -46,7 +62,15 @@ Type: `string`
 
 Default: n/a
 
-### ui_description
+### redirect\_uri\_type
+
+Description: Set redirect\_uri\_type on every allowed redirect URI. Provider 2026.8 reads back "authorization", so leaving it unset replans an update forever. Null leaves the attribute unset.
+
+Type: `string`
+
+Default: `"authorization"`
+
+### ui\_description
 
 Description: The description to display in the Authentik web dashboard
 
@@ -54,7 +78,7 @@ Type: `string`
 
 Default: `"A Hashicorp Vault cluster"`
 
-### ui_group
+### ui\_group
 
 Description: The section in the Authentik web dashboard that this will appear in
 
@@ -62,7 +86,7 @@ Type: `string`
 
 Default: `"Vault"`
 
-### vault_domain
+### vault\_domain
 
 Description: The domain name of the Vault instance
 
@@ -70,7 +94,7 @@ Type: `string`
 
 Default: n/a
 
-### vault_name
+### vault\_name
 
 Description: The name of the vault instance. Must be unique in the Authentik system.
 
@@ -78,31 +102,39 @@ Type: `string`
 
 Default: n/a
 
+### vault\_url
+
+Description: Origin (scheme, host and optional port) of the Vault instance. Null uses https://<vault\_domain>.
+
+Type: `string`
+
+Default: `null`
+
 ## Outputs
 
 The following outputs are exported:
 
-### client_id
+### client\_id
 
 Description: The client ID to provide to the auth/oidc auth method in Vault
 
-### client_secret
+### client\_secret
 
 Description: The client secret to provide the auth/oidc auth method in Vault
 
-### oidc_discovery_url
+### oidc\_discovery\_url
 
 Description: The OIDC discovery url to use for the auth/oidc auth method in Vault
 
-### oidc_issuer
+### oidc\_issuer
 
 Description: The issuer to use for the auth/oidc auth method in Vault
 
-### oidc_redirect_uris
+### oidc\_redirect\_uris
 
 Description: The redirect URIs to use for the auth/oidc auth method in Vault
 
-### oidc_redirect_uris_including_regexes
+### oidc\_redirect\_uris\_including\_regexes
 
 Description: All redirect URIs including regex patterns, suitable for OIDC providers that support regex matching
 
@@ -110,7 +142,7 @@ Description: All redirect URIs including regex patterns, suitable for OIDC provi
 
 The following providers are needed by this module:
 
-- [authentik](https://registry.terraform.io/providers/goauthentik/authentik/2024.10.2/docs) (2024.10.2)
+- [authentik](https://registry.terraform.io/providers/goauthentik/authentik/2026.8.2/docs) (2026.8.2)
 
 - [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
 

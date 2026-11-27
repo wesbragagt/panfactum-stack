@@ -1,0 +1,127 @@
+{/* lint disable no-duplicate-headings */}
+
+{/* eslint-disable import-x/order */}
+
+## Inputs
+
+The following input variables are supported:
+
+### access\_key
+
+Description: Static access key for the S3 endpoint
+
+Type: `string`
+
+Default: n/a
+
+### aws\_plugin\_image
+
+Description: Full reference of the velero-plugin-for-aws image
+
+Type: `string`
+
+Default: `"docker.io/velero/velero-plugin-for-aws:v1.12.0"`
+
+### bucket
+
+Description: Bucket of the default BackupStorageLocation; it must already exist
+
+Type: `string`
+
+Default: n/a
+
+### extra\_helm\_values
+
+Description: Explicit chart values applied after module defaults
+
+Type: `any`
+
+Default: `{}`
+
+### log\_level
+
+Description: The log level for the Velero pods
+
+Type: `string`
+
+Default: `"warning"`
+
+### prefix
+
+Description: Directory under the bucket that holds this cluster's backups
+
+Type: `string`
+
+Default: `""`
+
+### region
+
+Description: Region label sent to the S3 endpoint
+
+Type: `string`
+
+Default: `"us-west-2"`
+
+### s3\_url
+
+Description: S3-compatible endpoint URL reachable from Pods
+
+Type: `string`
+
+Default: n/a
+
+### secret\_key
+
+Description: Static secret key for the S3 endpoint
+
+Type: `string`
+
+Default: n/a
+
+### velero\_helm\_version
+
+Description: The version of the velero helm chart
+
+Type: `string`
+
+Default: `"9.1.3"`
+
+### velero\_image\_repository
+
+Description: Repository of the Velero server and node-agent image
+
+Type: `string`
+
+Default: `"docker.io/velero/velero"`
+
+### velero\_image\_tag
+
+Description: Tag of the Velero server and node-agent image; may carry an @sha256 digest
+
+Type: `string`
+
+Default: `"v1.16.0"`
+
+## Outputs
+
+The following outputs are exported:
+
+### backup\_bucket
+
+Description: The bucket of the default BackupStorageLocation
+
+### backup\_prefix
+
+Description: The prefix of the default BackupStorageLocation
+
+## Providers
+
+The following providers are needed by this module:
+
+- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.3.0/docs) (3.3.0)
+
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
+
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}

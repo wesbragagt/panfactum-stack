@@ -6,7 +6,15 @@
 
 The following input variables are supported:
 
-### arm_nodes_enabled
+### allow\_single\_node
+
+Description: Explicitly permit one non-HA Redis/Sentinel replica with quorum one, relaxed scheduling and retained PVCs. False preserves HA defaults.
+
+Type: `bool`
+
+Default: `false`
+
+### arm\_nodes\_enabled
 
 Description: Whether the database pods can be scheduled on arm64 nodes
 
@@ -14,7 +22,7 @@ Type: `bool`
 
 Default: `true`
 
-### burstable_nodes_enabled
+### burstable\_nodes\_enabled
 
 Description: Whether the database pods can be scheduled on burstable nodes
 
@@ -22,7 +30,7 @@ Type: `bool`
 
 Default: `true`
 
-### controller_nodes_enabled
+### controller\_nodes\_enabled
 
 Description: Whether to allow pods to schedule on EKS Node Group nodes (controller nodes)
 
@@ -30,7 +38,23 @@ Type: `bool`
 
 Default: `false`
 
-### creds_syncer_logging_enabled
+### controller\_nodes\_required
+
+Description: Require Redis to run on retained controller nodes.
+
+Type: `bool`
+
+Default: `false`
+
+### creds\_syncer\_enabled
+
+Description: Whether to create the Vault-issued superuser, admin and reader creds Secrets and the creds-syncer that keeps their ACL users alive. Consumers that use root\_creds\_secret can disable it.
+
+Type: `bool`
+
+Default: `true`
+
+### creds\_syncer\_logging\_enabled
 
 Description: Whether to enable logging for the creds-syncer pods
 
@@ -38,7 +62,7 @@ Type: `bool`
 
 Default: `false`
 
-### disabled_commands
+### disabled\_commands
 
 Description: Commands that are disabled in Redis. This can be used to provide global protection against unsafe commands.
 
@@ -47,10 +71,13 @@ Type: `list(string)`
 Default:
 
 ```json
-["FLUSHDB", "FLUSHALL"]
+[
+  "FLUSHDB",
+  "FLUSHALL"
+]
 ```
 
-### helm_version
+### helm\_version
 
 Description: The version of the bitnamilegacy/redis helm chart to use
 
@@ -58,16 +85,23 @@ Type: `string`
 
 Default: `"20.5.0"`
 
-### instance_type_anti_affinity_required
+### instance\_type\_anti\_affinity\_required
 
-Description: Whether to enable anti-affinity to prevent pods from being scheduled on the same instance type. Defaults to
-true iff sla_target == 3.
+Description: Whether to enable anti-affinity to prevent pods from being scheduled on the same instance type. Defaults to true iff sla\_target == 3.
 
 Type: `bool`
 
 Default: `null`
 
-### lfu_cache_enabled
+### kyverno\_cel\_policies\_enabled
+
+Description: Use policies.kyverno.io/v1 CEL policies, required by Kyverno 1.20+. Existing legacy policies must be migrated with a reviewed replacement plan.
+
+Type: `bool`
+
+Default: `false`
+
+### lfu\_cache\_enabled
 
 Description: Whether redis will be deployed as an LFU cache
 
@@ -75,7 +109,15 @@ Type: `bool`
 
 Default: `false`
 
-### minimum_memory_mb
+### linkerd\_enabled
+
+Description: Whether to inject Linkerd into the credential synchronizer; namespace policy controls chart Pods
+
+Type: `bool`
+
+Default: `true`
+
+### minimum\_memory\_mb
 
 Description: The minimum memory in Mb to use for the redis nodes
 
@@ -83,7 +125,7 @@ Type: `number`
 
 Default: `25`
 
-### monitoring_enabled
+### monitoring\_enabled
 
 Description: Whether to allow monitoring CRs to be deployed in the namespace
 
@@ -99,7 +141,7 @@ Type: `string`
 
 Default: n/a
 
-### panfactum_scheduler_enabled
+### panfactum\_scheduler\_enabled
 
 Description: Whether to use the Panfactum pod scheduler with enhanced bin-packing
 
@@ -107,7 +149,7 @@ Type: `bool`
 
 Default: `true`
 
-### persistence_backups_enabled
+### persistence\_backups\_enabled
 
 Description: Whether to enable backups of the Redis durable storage.
 
@@ -115,16 +157,15 @@ Type: `bool`
 
 Default: `true`
 
-### persistence_size_gb
+### persistence\_size\_gb
 
-Description: How many GB to initially allocate for persistent storage (will grow automatically as needed). Can not be
-changed after cluster creation.
+Description: How many GB to initially allocate for persistent storage (will grow automatically as needed). Can not be changed after cluster creation.
 
 Type: `number`
 
 Default: `1`
 
-### persistence_storage_increase_gb
+### persistence\_storage\_increase\_gb
 
 Description: The amount of GB to increase storage by if free space drops below the threshold
 
@@ -132,7 +173,7 @@ Type: `number`
 
 Default: `1`
 
-### persistence_storage_increase_threshold_percent
+### persistence\_storage\_increase\_threshold\_percent
 
 Description: Dropping below this percent of free storage will trigger an automatic increase in storage size
 
@@ -140,7 +181,7 @@ Type: `number`
 
 Default: `20`
 
-### persistence_storage_limit_gb
+### persistence\_storage\_limit\_gb
 
 Description: The maximum number of gigabytes of storage to provision for each redis node
 
@@ -148,7 +189,7 @@ Type: `number`
 
 Default: `null`
 
-### pull_through_cache_enabled
+### pull\_through\_cache\_enabled
 
 Description: Whether to use the ECR pull through cache for the deployed images
 
@@ -156,7 +197,7 @@ Type: `bool`
 
 Default: `true`
 
-### redis_flags
+### redis\_flags
 
 Description: Extra configuration flags to pass to each redis node
 
@@ -164,7 +205,7 @@ Type: `list(string)`
 
 Default: `[]`
 
-### redis_save
+### redis\_save
 
 Description: Sets the save option for periodic snapshotting
 
@@ -172,7 +213,7 @@ Type: `string`
 
 Default: `"300 100"`
 
-### replica_count
+### replica\_count
 
 Description: The number of redis replicas to deploy
 
@@ -180,7 +221,7 @@ Type: `number`
 
 Default: `3`
 
-### spot_nodes_enabled
+### spot\_nodes\_enabled
 
 Description: Whether the database pods can be scheduled on spot nodes
 
@@ -188,7 +229,7 @@ Type: `bool`
 
 Default: `true`
 
-### vault_credential_lifetime_hours
+### vault\_credential\_lifetime\_hours
 
 Description: The lifetime of database credentials generated by Vault
 
@@ -196,7 +237,7 @@ Type: `number`
 
 Default: `16`
 
-### voluntary_disruption_window_cron_schedule
+### voluntary\_disruption\_window\_cron\_schedule
 
 Description: The times when disruption windows should start
 
@@ -204,7 +245,7 @@ Type: `string`
 
 Default: `"0 4 * * *"`
 
-### voluntary_disruption_window_enabled
+### voluntary\_disruption\_window\_enabled
 
 Description: Whether to confine voluntary disruptions of pods in this module to specific time windows
 
@@ -212,7 +253,7 @@ Type: `bool`
 
 Default: `false`
 
-### voluntary_disruption_window_seconds
+### voluntary\_disruption\_window\_seconds
 
 Description: The length of the disruption window in seconds
 
@@ -220,7 +261,7 @@ Type: `number`
 
 Default: `3600`
 
-### voluntary_disruptions_enabled
+### voluntary\_disruptions\_enabled
 
 Description: Whether to enable voluntary disruptions of pods in this module.
 
@@ -228,7 +269,7 @@ Type: `bool`
 
 Default: `true`
 
-### vpa_enabled
+### vpa\_enabled
 
 Description: Whether the VPA resources should be enabled
 
@@ -238,9 +279,7 @@ Default: `true`
 
 ### wait
 
-Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to
-proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment
-failures.
+Description: Wait for resources to be in a ready state before proceeding. Disabling this flag will allow upgrades to proceed faster but will disable automatic rollbacks. As a result, manual intervention may be required for deployment failures.
 
 Type: `bool`
 
@@ -250,23 +289,27 @@ Default: `true`
 
 The following outputs are exported:
 
-### admin_creds_secret
+### admin\_creds\_secret
 
 Description: The name of the Kubernetes Secret holding credentials for the admin role in the Redis database
 
-### admin_role
+### admin\_role
 
 Description: The Vault role used to get admin credentials for the created Redis cluster
 
-### master_set
+### kyverno\_cel\_policy\_documents
+
+Description: CEL policy manifests for migration validation.
+
+### master\_set
 
 Description: The value for the master set to use when configuring Sentinel-aware Redis clients
 
-### match_labels
+### match\_labels
 
 Description: A label selector that matches all Redis pods in the cluster
 
-### match_labels_master
+### match\_labels\_master
 
 Description: A label selector that matches only the Redis master pod in the cluster
 
@@ -274,51 +317,55 @@ Description: A label selector that matches only the Redis master pod in the clus
 
 Description: Kubernetes namespace where module resources are created
 
-### reader_creds_secret
+### reader\_creds\_secret
 
 Description: The name of the Kubernetes Secret holding credentials for the reader role in the Redis database
 
-### reader_role
+### reader\_role
 
 Description: The Vault role used to get read-only credentials for the created Redis cluster
 
-### redis_host
+### redis\_host
 
 Description: A service address that points to all Redis nodes
 
-### redis_host_list
+### redis\_host\_list
 
 Description: A list of domain names for every Redis pod in the cluster
 
-### redis_master_host
+### redis\_master\_host
 
 Description: A service address that points to only the writable redis master
 
-### redis_port
+### redis\_port
 
 Description: The port that the Redis servers listen on
 
-### redis_sentinel_host
+### redis\_sentinel\_host
 
 Description: A service address that points to the Redis Sentinels
 
-### redis_sentinel_port
+### redis\_sentinel\_port
 
 Description: The port that the Sentinel servers listen on
 
-### root_name
+### root\_creds\_secret
+
+Description: The name of the Kubernetes Secret holding the root user's password (key: password); the root user name is root\_name
+
+### root\_name
 
 Description: The name of the root user of the database
 
-### root_password
+### root\_password
 
 Description: The password for root user of the database
 
-### superuser_creds_secret
+### superuser\_creds\_secret
 
 Description: The name of the Kubernetes Secret holding credentials for the superuser role in the Redis database
 
-### superuser_role
+### superuser\_role
 
 Description: The Vault role used to get superuser credentials for the created Redis cluster
 
@@ -326,16 +373,18 @@ Description: The Vault role used to get superuser credentials for the created Re
 
 The following providers are needed by this module:
 
-- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.1.1/docs) (3.1.1)
+- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.3.0/docs) (3.3.0)
 
-- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
 
-- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/2.35.0/docs) (2.35.0)
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 
-- [random](https://registry.terraform.io/providers/hashicorp/random/3.8.1/docs) (3.8.1)
+- [random](https://registry.terraform.io/providers/hashicorp/random/3.9.1/docs) (3.9.1)
 
-- [vault](https://registry.terraform.io/providers/hashicorp/vault/4.8.0/docs) (4.8.0)
+- [vault](https://registry.terraform.io/providers/hashicorp/vault/5.13.0/docs) (5.13.0)
 
-{/* eslint-enable import-x/order */} {/* lint enable no-duplicate-headings */}
+{/* eslint-enable import-x/order */}
+
+{/* lint enable no-duplicate-headings */}
