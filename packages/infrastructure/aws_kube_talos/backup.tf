@@ -6,10 +6,6 @@ resource "aws_s3_bucket" "etcd_backup" {
   bucket_prefix = "${var.cluster_name}-etcd-"
   force_destroy = !var.lifecycle_lock
   tags          = data.pf_aws_tags.tags.tags
-
-  lifecycle {
-    prevent_destroy = var.lifecycle_lock
-  }
 }
 
 resource "aws_s3_bucket_public_access_block" "etcd_backup" {
@@ -39,10 +35,6 @@ resource "aws_kms_key" "etcd_backup" {
   enable_key_rotation     = true
   deletion_window_in_days = 30
   tags                    = data.pf_aws_tags.tags.tags
-
-  lifecycle {
-    prevent_destroy = var.lifecycle_lock
-  }
 }
 
 resource "aws_kms_alias" "etcd_backup" {

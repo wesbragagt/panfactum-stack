@@ -174,7 +174,7 @@ variable "api_dns" {
 }
 
 variable "lifecycle_lock" {
-  description = "Protect the etcd backup bucket and KMS key from destruction. Disable for disposable clusters to allow deletion of both S3 buckets and their contents."
+  description = "Disable force_destroy on the etcd backup and service account OIDC buckets. Set to false for disposable clusters to allow deletion of both S3 buckets and their contents."
   type        = bool
   default     = true
   nullable    = false
