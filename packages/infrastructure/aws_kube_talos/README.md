@@ -446,6 +446,8 @@ Talos waits for each static pod to become Ready before moving to the next contro
 
 The Talos OS workflow remains separate. Changing `talos_version` replaces `terraform_data.talos_upgrade`, which runs `scripts/version_upgrade.py talos` on one controller at a time and checks etcd and node readiness between controllers. Its installer comes from `installer_image` or the official AWS Image Factory image for that version. Set `version_upgrades_enabled = false` to skip the serial OS upgrade wrapper. The `talos_machine` resource uses the installer on creation and leaves subsequent OS version changes to the serial wrapper. After an OS upgrade, re-apply the worker pool with the matching `talos_ami_id`.
 
+The module always configures the kubelet ECR credential provider. Boot user data carries the provider config, so kubelet pulls from ECR on first boot. The AMI must include the `siderolabs/ecr-credential-provider` binary. Official AWS AMIs include it since Talos v1.12.0 ([siderolabs/talos#11454](https://github.com/siderolabs/talos/issues/11454)). [Sidero Labs Image Factory](https://docs.siderolabs.com/talos/v1.14/learn-more/image-factory), [talos_machine create order](https://github.com/siderolabs/terraform-provider-talos/blob/v0.12.0/pkg/talos/talos_machine_resource.go#L474-L488)
+
 ## Configuration notes
 
 - Bootstrap mode: `bootstrap_mode_enabled = true` drops the controller and control-plane taints so controllers run workloads before Karpenter exists. See "Bootstrap mode" for how it ends.

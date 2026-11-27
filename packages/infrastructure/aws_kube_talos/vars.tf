@@ -290,13 +290,6 @@ variable "image_factory_schematic_id" {
   }
 }
 
-variable "ecr_credential_provider_enabled" {
-  description = "Configure the kubelet ECR credential provider. Enable only after the nodes run an image with the ecr-credential-provider extension."
-  type        = bool
-  default     = false
-  nullable    = false
-}
-
 variable "pod_subnets" {
   description = "Kubernetes pod network ranges."
   type        = list(string)

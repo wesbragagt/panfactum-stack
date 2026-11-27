@@ -948,7 +948,7 @@ run "version_upgrades_follow_version_inputs" {
     error_message = "Machines must use the caller's installer on creation and leave Kubernetes image upgrades to the cluster resource."
   }
   assert {
-    condition     = data.talos_machine_configuration.control_plane_runtime.config_patches == tolist(concat(data.talos_machine_configuration.control_plane.config_patches, local.backup_config_patches))
+    condition     = slice(data.talos_machine_configuration.control_plane_runtime.config_patches, 0, length(data.talos_machine_configuration.control_plane.config_patches) + length(local.backup_config_patches)) == tolist(concat(data.talos_machine_configuration.control_plane.config_patches, local.backup_config_patches))
     error_message = "The running controller config must retain the user-data patches and add the backup patches."
   }
 }
@@ -964,27 +964,13 @@ run "version_upgrades_default_installer" {
     error_message = "Without installer_image the upgrade must use the official AWS installer for talos_version."
   }
   assert {
-    condition     = !contains([for patch in data.talos_machine_configuration.control_plane_runtime.config_patches : try(yamldecode(patch).kind, null)], "KubeCredentialProviderConfig")
-    error_message = "The ECR credential configuration must be opt-in."
+    condition     = contains([for patch in data.talos_machine_configuration.control_plane.config_patches : try(yamldecode(patch).kind, null)], "KubeCredentialProviderConfig")
+    error_message = "Boot user data must configure the ECR credential provider so kubelet pulls from ECR on first boot."
   }
 }
 
-run "ecr_credential_provider_opt_in" {
-  command = plan
-  variables {
-    ecr_credential_provider_enabled = true
-  }
-  assert {
-    condition     = contains([for patch in data.talos_machine_configuration.control_plane_runtime.config_patches : try(yamldecode(patch).kind, null)], "KubeCredentialProviderConfig")
-    error_message = "Enabling the ECR credential provider must add its kubelet configuration."
-  }
-  assert {
-    condition     = !contains([for patch in data.talos_machine_configuration.control_plane.config_patches : try(yamldecode(patch).kind, null)], "KubeCredentialProviderConfig")
-    error_message = "Boot user data must omit the ECR credential config, because stock AMIs lack the binary."
-  }
-}
 
-run "image_factory_bootstrap_with_ecr_disabled" {
+run "image_factory_bootstrap" {
   command = plan
   variables {
     image_factory_schematic_id = "7835171368ed53d6f9ed4d298a4db7d4bcc745bbbca3f7cb2374967d64a6a8aa"
@@ -1004,10 +990,6 @@ run "image_factory_bootstrap_with_ecr_disabled" {
   assert {
     condition     = terraform_data.talos_upgrade[0].triggers_replace[0] == output.node_bootstrap.installer_image
     error_message = "Changing only the opt-in schematic must schedule a serial upgrade."
-  }
-  assert {
-    condition     = !contains([for patch in data.talos_machine_configuration.control_plane_runtime.config_patches : try(yamldecode(patch).kind, null)], "KubeCredentialProviderConfig")
-    error_message = "A stock AMI bootstrap must be able to omit the ECR credential config."
   }
 }
 
