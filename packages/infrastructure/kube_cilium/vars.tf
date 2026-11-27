@@ -44,6 +44,12 @@ variable "monitoring_enabled" {
   default     = false
 }
 
+variable "envoy_enabled" {
+  description = "Whether to deploy the Envoy proxy and enable Cilium L7 proxy features"
+  type        = bool
+  default     = false
+}
+
 variable "hubble_enabled" {
   description = "Whether to enable hubble for network debugging"
   type        = bool

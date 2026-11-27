@@ -34,7 +34,7 @@ resource "kubectl_manifest" "crds" {
   }
 }
 
-resource "kubernetes_namespace" "kgateway" {
+resource "kubernetes_namespace_v1" "kgateway" {
   metadata {
     name        = var.namespace
     annotations = { "linkerd.io/inject" = "disabled" }
@@ -42,7 +42,7 @@ resource "kubernetes_namespace" "kgateway" {
 }
 
 resource "helm_release" "kgateway" {
-  namespace  = kubernetes_namespace.kgateway.metadata[0].name
+  namespace  = kubernetes_namespace_v1.kgateway.metadata[0].name
   name       = "kgateway"
   chart      = "${path.module}/kgateway-v2.5.1.tgz"
   wait       = true

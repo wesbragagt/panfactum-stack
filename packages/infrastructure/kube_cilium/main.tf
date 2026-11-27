@@ -433,17 +433,15 @@ resource "helm_release" "cilium" {
       }, local.operator_web_identity)
 
       envoy = {
-        enabled = local.talos_enabled
+        enabled = var.envoy_enabled
       }
+      l7Proxy = var.envoy_enabled
 
       gatewayAPI = {
         enabled = false
       }
     }))
-    ], local.scoped_eni ? [yamlencode({
-      envoy   = { enabled = false }
-      l7Proxy = false
-  })] : [], var.values_overrides)
+  ], var.values_overrides)
 }
 
 resource "kubectl_manifest" "vpa_operator" {

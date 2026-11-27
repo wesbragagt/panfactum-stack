@@ -83,7 +83,9 @@ run "talos_scoped_eni" {
       yamldecode(helm_release.cilium.values[0]).eni.nodeSpec.subnetIDs == ["subnet-private"] &&
       yamldecode(helm_release.cilium.values[0]).eni.nodeSpec.firstInterfaceIndex == 1 &&
       yamldecode(helm_release.cilium.values[0]).operator.replicas == 2 &&
-      helm_release.cilium.values[1] == yamlencode({ envoy = { enabled = false }, l7Proxy = false })
+      yamldecode(helm_release.cilium.values[0]).envoy.enabled == false &&
+      yamldecode(helm_release.cilium.values[0]).l7Proxy == false &&
+      length(helm_release.cilium.values) == 1
     )
     error_message = "The standard Talos render must retain sorted private subnets and the existing Helm values layout."
   }
