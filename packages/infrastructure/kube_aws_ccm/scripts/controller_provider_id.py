@@ -1,4 +1,4 @@
-"""Set a controller Node's AWS provider ID after Kubernetes registration."""
+"""Set a controller Node's AWS provider ID before CCM starts. A matching ID is left unchanged."""
 
 import json
 import os
@@ -60,19 +60,26 @@ def assign(kubectl, nodes, node, provider_id):
     kubectl("patch", "node", name, "--type=json", f"--patch={json.dumps(operations)}")
 
 
+def kubectl_command():
+    # NOTE: These match the generated Kubernetes provider: KUBE_CONFIG_PATH plus pf_metadata context and server.
+    command = ["kubectl", "--request-timeout=10s"]
+    for flag, variable in (
+        ("--kubeconfig", "KUBE_CONFIG_PATH"),
+        ("--context", "PF_KUBE_CONFIG_CONTEXT"),
+        ("--server", "PF_KUBE_API_SERVER"),
+    ):
+        if value := os.environ.get(variable):
+            command.append(f"{flag}={value}")
+    return command
+
+
 def main():
     identity = json.loads(os.environ["CONTROLLER_IDENTITY"])
-    kubeconfig = os.environ.pop("KUBECONFIG_RAW")
-    command = [
-        "kubectl", "--kubeconfig=/dev/stdin", "--request-timeout=10s",
-        f"--server={os.environ['KUBE_API_SERVER']}",
-    ]
-    if tls_name := os.environ.get("KUBE_TLS_SERVER_NAME"):
-        command.append(f"--tls-server-name={tls_name}")
+    command = kubectl_command()
 
     def kubectl(*args):
         return subprocess.run(
-            [*command, *args], input=kubeconfig, text=True, capture_output=True, timeout=12, check=True,
+            [*command, *args], text=True, capture_output=True, timeout=30, check=True,
         ).stdout
 
     try:

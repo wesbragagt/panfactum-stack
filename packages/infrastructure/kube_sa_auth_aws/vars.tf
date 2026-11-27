@@ -79,3 +79,9 @@ variable "ip_restrictions_enabled" {
   type        = bool
   default     = true
 }
+
+variable "local_static_credentials_enabled" {
+  description = "Development simulators only: create an IAM user, access key and Kubernetes Secret <service_account>-aws-static instead of IRSA/EKS discovery. The role trusts only that user. Never use against real AWS."
+  type        = bool
+  default     = false
+}

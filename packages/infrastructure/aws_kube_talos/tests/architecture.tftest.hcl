@@ -1,12 +1,14 @@
 mock_provider "aws" {
-  mock_data "aws_security_groups" { defaults = { ids = [] } }
-  mock_resource "aws_lb_target_group" {
-    defaults = { arn = "arn:aws:elasticloadbalancing:us-east-2:123456789012:targetgroup/test-api/0123456789abcdef" }
-  }
   mock_data "aws_iam_policy_document" { defaults = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" } }
   mock_data "aws_caller_identity" { defaults = { account_id = "123456789012" } }
   mock_data "aws_partition" { defaults = { partition = "aws", dns_suffix = "amazonaws.com" } }
   mock_data "aws_region" { defaults = { region = "us-east-2", name = "us-east-2" } }
+  mock_resource "aws_lb" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-east-2:123456789012:loadbalancer/net/test-api/0123456789abcdef" }
+  }
+  mock_resource "aws_lb_target_group" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-east-2:123456789012:targetgroup/test-api/0123456789abcdef" }
+  }
   mock_resource "aws_s3_bucket" {
     defaults = { bucket_regional_domain_name = "test-oidc.s3.us-east-2.amazonaws.com" }
   }
@@ -22,20 +24,29 @@ mock_provider "aws" {
   mock_data "aws_ec2_instance_type" {
     defaults = { supported_architectures = ["arm64"] }
   }
+  mock_data "aws_security_groups" {
+    defaults = { ids = [] }
+  }
 }
-mock_provider "talos" {}
+# NOTE: Plan native Talos resources with the real provider because OpenTofu 1.8 mocks cannot synthesize their optional nested attributes.
+override_data {
+  target = data.talos_machine_configuration.control_plane
+  values = { machine_configuration = "machine: {}" }
+}
+override_data {
+  target = data.talos_machine_configuration.control_plane_runtime
+  values = { machine_configuration = "machine: {}" }
+}
+override_data {
+  target = data.talos_client_configuration.this
+  values = { talos_config = "fixture" }
+}
 mock_provider "external" {
   mock_data "external" {
     defaults = { result = { jwks_json = "{}", member_ips = "10.0.1.10,10.0.2.10" } }
   }
 }
 mock_provider "pf" {}
-mock_provider "helm" {
-  alias = "ccm"
-}
-mock_provider "kubernetes" {
-  alias = "ccm"
-}
 
 override_resource {
   target = aws_eip.api
@@ -62,214 +73,66 @@ variables {
   client_configuration = { ca_certificate = "x", client_certificate = "x", client_key = "x" }
 }
 
-run "ccm_default_enabled" {
+run "external_cloud_provider" {
   command = plan
-
-  override_module {
-    target = module.aws_ccm_permissions
-    outputs = {
-      role_arn                    = "arn:aws:iam::123456789012:role/ccm"
-      service_account_annotations = { "eks.amazonaws.com/role-arn" = "arn:aws:iam::123456789012:role/ccm" }
-    }
-  }
-
-  assert {
-    condition     = helm_release.ccm.name == "aws-cloud-controller-manager" && length(terraform_data.aws_ccm_api) == 1 && length(terraform_data.aws_ccm_ready) == 1 && local.ccm_image_version == "v1.36.1"
-    error_message = "AWS node configuration must default to host-network CCM with the pinned matching image."
-  }
   assert {
     condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"cloud-provider\": \"external\"")
     error_message = "Controllers must use the external AWS cloud provider by default."
   }
+}
+
+run "scheduler_default_disabled" {
+  command = plan
+
   assert {
-    condition = (
-      yamldecode(helm_release.ccm.values[0]).hostNetworking &&
-      yamldecode(helm_release.ccm.values[0]).dnsPolicy == "Default" &&
-      one([for env in yamldecode(helm_release.ccm.values[0]).env : env.value if env.name == "KUBERNETES_SERVICE_HOST"]) == "127.0.0.1" &&
-      one([for env in yamldecode(helm_release.ccm.values[0]).env : env.value if env.name == "KUBERNETES_SERVICE_PORT"]) == "7445" &&
-      yamldecode(helm_release.ccm.values[1]).serviceAccount.annotations["eks.amazonaws.com/role-arn"] == output.aws_ccm_role_arn
-    )
-    error_message = "The Talos-owned release must use KubePrism over the host network and annotate the service account with the CCM IAM role."
+    condition     = alltrue([for patch in local.control_plane_base_patches : try(yamldecode(patch).kind, "") != "KubeSchedulerConfig"])
+    error_message = "The Panfactum scheduler must be opt-in."
   }
 }
 
-run "ccm_plans_for_fresh_ssm" {
+run "scheduler_enabled_with_caller_patch" {
   command = plan
   variables {
-    aws_ccm                         = { image_version = "v1.36.1", operator_kube_port = 26443 }
-    private_api_dns_name            = "api.test.internal"
-    talos_access_transport          = "ssm"
-    control_plane_public_ip_enabled = false
+    panfactum_scheduler_enabled  = true
+    kube_version                 = "1.35.10"
+    control_plane_config_patches = ["{\"machine\":{\"network\":{\"hostname\":\"custom-node\"}}}"]
   }
 
   assert {
-    condition     = helm_release.ccm.name == "aws-cloud-controller-manager" && length(terraform_data.aws_ccm_api) == 1 && length(terraform_data.aws_ccm_ready) == 1
-    error_message = "CCM ownership and bootstrap checks must plan before OIDC outputs exist."
-  }
-
-  assert {
-    condition     = length(terraform_data.controller_provider_id) == 1
-    error_message = "Integrated CCM must set the controller provider ID through the Kubernetes forward."
-  }
-
-  assert {
-    condition     = local.ccm_api_server == "https://127.0.0.1:26443" && local.ccm_tls_server_name == "api.test.internal"
-    error_message = "Providers must use the SSM listener and verify the private API name."
-  }
-}
-
-run "ccm_uses_custom_legacy_ssm_ports" {
-  command = plan
-
-  variables {
-    aws_ccm            = { image_version = "v1.36.1", operator_kube_port = 26443 }
-    talos_api_endpoint = "127.0.0.1:55000"
-  }
-
-  assert {
-    condition     = local.ccm_api_server == "https://127.0.0.1:26443" && length(terraform_data.controller_provider_id) == 1
-    error_message = "Legacy callers using a custom local Talos port must use the Kubernetes forward."
-  }
-}
-
-run "ccm_supports_pod_network_and_overrides" {
-  command = plan
-  variables {
-    aws_ccm = {
-      image_version     = "v1.36.1"
-      host_networking   = false
-      subnet_id         = "subnet-00000000000000000"
-      availability_zone = "us-east-2a"
-      helm_values       = "{\"image\":{\"repository\":\"example.test/ccm\"}}"
+    condition = yamldecode(reverse(local.control_plane_base_patches)[1]) == {
+      apiVersion = "v1alpha1"
+      kind       = "KubeSchedulerConfig"
+      image      = "registry.k8s.io/kube-scheduler:v1.35.10"
+      config = {
+        profiles = [
+          { schedulerName = "default-scheduler" },
+          {
+            schedulerName = "panfactum"
+            plugins       = { score = { enabled = [{ name = "NodeResourcesFit", weight = 2 }] } }
+            pluginConfig = [{
+              name = "NodeResourcesFit"
+              args = { scoringStrategy = { type = "MostAllocated", resources = [{ name = "cpu", weight = 1 }, { name = "memory", weight = 1 }] } }
+            }]
+          },
+        ]
+      }
     }
-  }
-
-  override_data {
-    target = data.aws_subnet.control_plane
-    values = { id = "subnet-11111111111111111", availability_zone = "us-east-2b" }
-  }
-
-  override_module {
-    target = module.aws_ccm_permissions
-    outputs = {
-      role_arn                    = "arn:aws:iam::123456789012:role/ccm"
-      service_account_annotations = { "eks.amazonaws.com/role-arn" = "arn:aws:iam::123456789012:role/ccm" }
-    }
-  }
-
-  assert {
-    condition     = helm_release.ccm.name == "aws-cloud-controller-manager" && length(terraform_data.aws_ccm_api) == 0 && length(terraform_data.aws_ccm_ready) == 0
-    error_message = "Pod-network CCM must skip the host-network bootstrap checks."
+    error_message = "The scheduler patch must retain both profiles and the versioned image."
   }
   assert {
-    condition = (
-      !contains(keys(yamldecode(helm_release.ccm.values[0])), "hostNetworking") &&
-      yamldecode(helm_release.ccm.values[0]).image.repository == "example.test/ccm" &&
-      yamldecode(helm_release.ccm.values[0]).image.tag == "v1.36.1" &&
-      strcontains(kubernetes_config_map_v1.cloud.data["cloud.conf"], "Zone=us-east-2a\n") &&
-      strcontains(kubernetes_config_map_v1.cloud.data["cloud.conf"], "SubnetID=subnet-00000000000000000\n")
-    )
-    error_message = "Pod-network CCM must use the overridden topology and the custom image repository with the selected tag."
+    condition     = reverse(local.control_plane_base_patches)[0] == var.control_plane_config_patches[0]
+    error_message = "Caller patches must follow the scheduler patch."
   }
 }
 
-run "ccm_explicit_null" {
-  command = plan
-  variables {
-    aws_ccm = null
-  }
-  assert {
-    condition     = helm_release.ccm.name == "aws-cloud-controller-manager" && length(terraform_data.aws_ccm_api) == 1 && length(terraform_data.aws_ccm_ready) == 1 && local.ccm_image_version == "v1.36.1"
-    error_message = "Explicit null must use the default host-network CCM and pinned image."
-  }
-}
-
-run "ccm_explicit_image_override" {
-  command = plan
-  variables {
-    aws_ccm = { image_version = "v1.36.0" }
-  }
-  assert {
-    condition     = local.ccm_image_version == "v1.36.0" && helm_release.ccm.name == "aws-cloud-controller-manager"
-    error_message = "The caller's compatible image pin must take precedence."
-  }
-}
-
-run "ccm_rejects_conflicting_helm_image_tag" {
-  command = plan
-  variables {
-    aws_ccm = {
-      image_version = "v1.36.1"
-      helm_values   = "{\"image\":{\"tag\":\"v1.34.0\"}}"
-    }
-  }
-  expect_failures = [var.aws_ccm]
-}
-
-run "ccm_requires_pin_for_unknown_minor" {
-  command = plan
-  variables {
-    kube_version = "1.35.10"
-  }
-  expect_failures = [var.aws_ccm]
-}
-
-run "ccm_accepts_previous_minor_during_upgrade" {
-  command = plan
-  variables {
-    aws_ccm      = { image_version = "v1.36.1" }
-    kube_version = "1.37.0"
-  }
-  assert {
-    condition     = local.ccm_image_version == "v1.36.1" && helm_release.ccm.name == "aws-cloud-controller-manager"
-    error_message = "The running CCM pin must remain available during a minor upgrade."
-  }
-}
-
-run "ccm_rejects_newer_minor" {
-  command = plan
-  variables {
-    aws_ccm      = { image_version = "v1.38.0" }
-    kube_version = "1.37.0"
-  }
-  expect_failures = [var.aws_ccm]
-}
-
-run "ccm_rejects_image_more_than_one_minor_old" {
-  command = plan
-  variables {
-    aws_ccm      = { image_version = "v1.35.1" }
-    kube_version = "1.37.0"
-  }
-  expect_failures = [var.aws_ccm]
-}
-
-run "ccm_rejects_other_major" {
-  command = plan
-  variables {
-    aws_ccm      = { image_version = "v2.36.1" }
-    kube_version = "1.37.0"
-  }
-  expect_failures = [var.aws_ccm]
-}
-
-run "ccm_rejects_malformed_image" {
-  command = plan
-  variables {
-    aws_ccm      = { image_version = "v1.36" }
-    kube_version = "1.37.0"
-  }
-  expect_failures = [var.aws_ccm]
-}
-
-run "arm64_controller_types" {
+run "arm64_fallbacks" {
   command = plan
   variables {
     control_plane_instance_types = ["t4g.medium", "m7g.large", "c7g.large"]
   }
   assert {
-    condition     = length(local.node_instance_types) == 3
-    error_message = "Every controller instance type override must be checked."
+    condition     = local.node_instance_types == toset(["t4g.medium", "m7g.large", "c7g.large"])
+    error_message = "Every controller override must be checked."
   }
 }
 run "reject_x86_controller" {
@@ -321,10 +184,6 @@ run "public_opt_in_keeps_elastic_ip" {
     condition     = length(aws_eip.api) == 1 && aws_instance.control_plane[0].associate_public_ip_address
     error_message = "Opting in must keep the Elastic IP and public address."
   }
-  assert {
-    condition     = length(terraform_data.controller_provider_id) == 1
-    error_message = "Legacy public access must reconcile AWS controller provider IDs."
-  }
 }
 
 run "three_unique_subnets_plan_three_controllers" {
@@ -336,8 +195,12 @@ run "three_unique_subnets_plan_three_controllers" {
     private_api_dns_name      = "api.test.internal"
   }
   assert {
-    condition     = length(aws_instance.control_plane) == 3 && length(talos_machine_configuration_apply.control_plane) == 3
+    condition     = length(aws_instance.control_plane) == 3 && length(talos_machine.control_plane) == 3
     error_message = "Three subnets must plan three controllers."
+  }
+  assert {
+    condition     = toset(talos_cluster.this.control_plane_nodes) == toset(var.control_plane_private_ips)
+    error_message = "Native cluster health checks must include every controller IP."
   }
   assert {
     condition     = aws_instance.control_plane[2].tags["Name"] == "test-control-plane-2"
@@ -360,12 +223,8 @@ run "bootstrap_follows_named_subnet" {
     error_message = "bootstrap_control_plane must select its subnet's position."
   }
   assert {
-    condition     = talos_machine_configuration_apply.control_plane[0].endpoint == "10.0.2.10"
+    condition     = talos_machine.control_plane[0].endpoint == "10.0.2.10"
     error_message = "Routed access must use the configured bootstrap controller, not the first controller."
-  }
-  assert {
-    condition     = length(terraform_data.controller_provider_id) == 3
-    error_message = "VPN must reconcile the provider IDs of all three AWS controllers."
   }
 }
 
@@ -527,15 +386,16 @@ run "workloads_disabled_has_no_label_or_taint" {
   }
 }
 
-run "controller_taint_with_aws_ccm" {
+run "controller_taint_with_aws_node_configuration" {
   command = plan
   assert {
     condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"controller\": \"true:NoSchedule\"")
-    error_message = "Controllers must retain the controller taint with AWS CCM enabled."
+    error_message = "The controller taint must apply with AWS node configuration."
   }
 }
 
-run "worker_bootstrap_known_while_adding_controllers" {
+# Adding controllers must not defer the worker config, or worker launch templates churn.
+run "node_bootstrap_known_while_adding_controllers" {
   command = plan
   variables {
     control_plane_count       = 3
@@ -544,8 +404,8 @@ run "worker_bootstrap_known_while_adding_controllers" {
     private_api_dns_name      = "api.test.internal"
   }
   assert {
-    condition     = output.node_bootstrap.cluster_endpoint == "https://api.test.internal:6443"
-    error_message = "Worker bootstrap metadata must be known when a private API DNS name is set."
+    condition     = output.node_bootstrap.cluster_endpoint != null
+    error_message = "Worker config must be known at plan time when private_api_dns_name is set."
   }
 }
 
@@ -592,6 +452,7 @@ run "private_api_is_a_records_to_controller_ips" {
     control_plane_subnets     = ["PRIVATE_B", "PRIVATE_A", "PRIVATE_C"]
     control_plane_private_ips = ["10.0.2.10", "10.0.1.10", "10.0.3.10"]
     private_api_dns_name      = "api.test.internal"
+    api_load_balancer_enabled = false
   }
   assert {
     condition     = length(aws_route53_record.private_api[0].alias) == 0 && aws_route53_record.private_api[0].ttl == 30 && aws_route53_record.private_api[0].type == "A"
@@ -627,7 +488,7 @@ run "controllers_are_on_demand_with_instance_profile" {
 }
 
 # Resizing one controller must be an in-place stop/start. Mocks cannot see the AWS provider's own
-# replace decisions (a live plan covers those), so this pins every module-side trigger.
+# replace decisions (the talos-2 plan demo covers those), so this pins every module-side trigger.
 run "resize_one_controller_changes_only_its_type" {
   command = plan
   variables {
@@ -659,23 +520,73 @@ run "resize_one_controller_changes_only_its_type" {
   }
 }
 
-run "karpenter_worker_bootstrap_outputs" {
+run "karpenter_worker_configuration_outputs" {
   command = plan
   variables {
     private_api_dns_name = "api.test.internal"
+  }
+  assert {
+    condition     = output.node_bootstrap.cluster_endpoint != null
+    error_message = "Karpenter still needs the private cluster endpoint."
   }
   assert {
     condition     = output.talos_ami_id != null
     error_message = "Karpenter still needs talos_ami_id."
   }
   assert {
-    condition = (
-      output.cluster.type == "talos" && output.cluster.name == "test" &&
-      output.cluster.endpoint == "https://api.test.internal:6443" &&
-      output.node_bootstrap.cluster_endpoint == output.cluster.endpoint &&
-      endswith(output.node_bootstrap.installer_image, ":v1.14.6")
-    )
-    error_message = "The typed Karpenter path must receive the Talos API and version-matched installer."
+    condition     = startswith(output.node_bootstrap.installer_image, "factory.talos.dev/aws-installer/") && endswith(output.node_bootstrap.installer_image, ":${var.talos_version}")
+    error_message = "Karpenter needs the version-matched AWS installer even when no installer_image is supplied."
+  }
+}
+
+run "bootstrap_mode_drops_taints" {
+  command = plan
+  variables {
+    bootstrap_mode_enabled = true
+  }
+  assert {
+    condition     = !strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"controller\": \"true:NoSchedule\"")
+    error_message = "Bootstrap mode must not add the controller taint."
+  }
+  assert {
+    condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"node-role.kubernetes.io/control-plane\":\n    \"$patch\": \"delete\"")
+    error_message = "Bootstrap mode must delete the control-plane taint."
+  }
+  assert {
+    condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "panfactum.com/class\": \"controller")
+    error_message = "Bootstrap mode must keep the controller class label."
+  }
+}
+
+run "bootstrap_mode_deletes_control_plane_taint_without_workloads" {
+  command = plan
+  variables {
+    bootstrap_mode_enabled          = true
+    control_plane_workloads_enabled = false
+  }
+  assert {
+    condition     = !strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"controller\": \"true:NoSchedule\"")
+    error_message = "Bootstrap mode must not add the controller taint."
+  }
+  assert {
+    condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"node-role.kubernetes.io/control-plane\":\n    \"$patch\": \"delete\"")
+    error_message = "Bootstrap mode must delete the control-plane taint even without control plane workloads."
+  }
+}
+
+run "networking_disabled_without_inputs" {
+  command = plan
+  assert {
+    condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"$patch\": \"delete\"\n\"apiVersion\": \"v1alpha1\"\n\"kind\": \"KubeFlannelCNIConfig\"")
+    error_message = "Controllers must delete Flannel."
+  }
+  assert {
+    condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"enabled\": false\n\"kind\": \"KubeProxyConfig\"")
+    error_message = "Controllers must disable kube-proxy."
+  }
+  assert {
+    condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"enabled\": false\n\"kind\": \"KubeCoreDNSConfig\"")
+    error_message = "Controllers must disable CoreDNS."
   }
 }
 
@@ -729,7 +640,8 @@ run "direct_private_api_has_no_ssm_dependency" {
   command = plan
   variables {
     private_api_dns_name             = "api.test.internal"
-    talos_api_endpoint               = "10.0.1.10"
+    talos_api_endpoint               = "10.0.9.10"
+    talos_access_transport           = "vpn"
     kube_api_source_security_groups  = { runner = "sg-00000000000000001" }
     talos_api_source_security_groups = { runner = "sg-00000000000000001" }
   }
@@ -742,12 +654,16 @@ run "direct_private_api_has_no_ssm_dependency" {
     error_message = "Jump host outputs must be null when disabled."
   }
   assert {
-    condition     = local.talos_api_endpoint == "10.0.1.10" && output.cluster_url == "https://api.test.internal:6443"
-    error_message = "The Talos client must use the private address while the Kubernetes API retains private DNS."
+    condition     = local.talos_api_endpoint == "10.0.9.10" && output.cluster_url == "https://api.test.internal:6443"
+    error_message = "An explicit Talos endpoint must win over automatic VPN routing."
   }
   assert {
     condition     = length(local.talos_api_patches) == 0 && !contains(yamldecode(local.api_san_patch).certExtraSANs, "127.0.0.1")
     error_message = "Direct reachability must not require loopback SANs."
+  }
+  assert {
+    condition     = aws_instance.control_plane[0].tags["kubernetes.io/cluster/test"] == "owned"
+    error_message = "Controllers must receive the cluster ownership tag."
   }
 }
 
@@ -780,6 +696,34 @@ run "caller_owned_ssm_path" {
   assert {
     condition     = alltrue([for key, rule in aws_vpc_security_group_ingress_rule.talos_api_source : rule.referenced_security_group_id == var.talos_api_source_security_groups[key] && rule.ip_protocol == "tcp" && rule.from_port == 50000 && rule.to_port == 50000])
     error_message = "Each caller-owned Talos source must receive only TCP 50000."
+  }
+}
+
+run "fixed_ssm_first_bootstrap" {
+  command = plan
+  variables {
+    private_api_dns_name             = "api.test.internal"
+    talos_access_transport           = "ssm"
+    kube_api_source_security_groups  = { jump = "sg-00000000000000001" }
+    talos_api_source_security_groups = { jump = "sg-00000000000000001" }
+    service_subnets                  = ["10.113.0.0/16"]
+    kube_version                     = "1.36.5"
+  }
+  assert {
+    condition     = talos_cluster.this.endpoint == "127.0.0.1" && length(aws_instance.ssm_jump_host) == 0
+    error_message = "First bootstrap must use the module hook's loopback forward and the standalone SSM host."
+  }
+  assert {
+    condition     = contains(yamldecode(local.api_san_patch).certExtraSANs, "127.0.0.1") && contains(local.talos_api_sans, "127.0.0.1")
+    error_message = "Fixed SSM must verify both APIs through loopback."
+  }
+  assert {
+    condition     = output.dns_service_ip == "10.113.0.10" && output.kubernetes_version == "1.36.5"
+    error_message = "CoreDNS must receive the Talos service DNS IP and Kubernetes version."
+  }
+  assert {
+    condition     = aws_instance.control_plane[0].tags["kubernetes.io/cluster/test"] == "owned"
+    error_message = "The cloud provider must discover controllers by their cluster tag."
   }
 }
 
@@ -840,6 +784,170 @@ run "reject_x86_ssm_jump_host" {
   expect_failures = [data.aws_ec2_instance_type.node]
 }
 
+run "api_lb_disabled_keeps_controller_ip_record" {
+  command = plan
+  variables {
+    control_plane_count       = 3
+    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
+    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
+    private_api_dns_name      = "api.test.internal"
+    api_load_balancer_enabled = false
+  }
+  assert {
+    condition     = length(aws_lb.api) == 0 && length(aws_lb_target_group.api) == 0 && length(aws_lb_listener.api) == 0 && length(aws_lb_target_group_attachment.api) == 0
+    error_message = "Opting out must create no load balancer."
+  }
+  assert {
+    condition     = length(aws_route53_record.private_api[0].alias) == 0 && length(aws_route53_record.private_api[0].records) == 3
+    error_message = "Without the load balancer the record must list the controller IPs."
+  }
+}
+
+run "api_lb_enabled_aliases_record" {
+  command = plan
+  variables {
+    control_plane_count       = 3
+    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
+    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
+    private_api_dns_name      = "api.test.internal"
+  }
+  assert {
+    condition     = aws_lb.api[0].internal && aws_lb.api[0].load_balancer_type == "network" && aws_lb.api[0].enable_cross_zone_load_balancing
+    error_message = "The load balancer must be an internal cross-zone NLB."
+  }
+  assert {
+    condition     = aws_lb_target_group.api[0].health_check[0].protocol == "HTTPS" && aws_lb_target_group.api[0].health_check[0].path == "/readyz" && aws_lb_target_group.api[0].port == 6443 && aws_lb_target_group.api[0].health_check[0].interval == 5
+    error_message = "The health check must be HTTPS /readyz on 6443 every 5 seconds."
+  }
+  assert {
+    condition     = aws_lb_target_group.api[0].preserve_client_ip == "false" && length(aws_lb_target_group_attachment.api) == 3
+    error_message = "Client IP preservation must be off and every controller attached."
+  }
+  assert {
+    condition     = length(aws_route53_record.private_api[0].alias) == 1 && aws_route53_record.private_api[0].records == null
+    error_message = "The record must be an alias to the load balancer."
+  }
+}
+
+run "api_lb_skipped_without_private_dns" {
+  command = plan
+  assert {
+    condition     = length(aws_lb.api) == 0 && length(aws_route53_record.private_api) == 0
+    error_message = "Without private_api_dns_name the default must create no load balancer."
+  }
+}
+
+run "controller_short_hostname_by_default" {
+  command = plan
+  assert {
+    condition     = !strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "registerWithFQDN")
+    error_message = "Controllers must keep the short hostname unless control_plane_register_with_fqdn is set."
+  }
+}
+
+# Must be in the data source patches (user data), not only the later apply, so the first registration uses the FQDN.
+run "controller_registers_with_fqdn_in_user_data" {
+  command = plan
+  variables {
+    control_plane_register_with_fqdn = true
+  }
+  assert {
+    condition     = strcontains(join("\n", data.talos_machine_configuration.control_plane.config_patches), "\"registerWithFQDN\": true")
+    error_message = "control_plane_register_with_fqdn must put registerWithFQDN in the controller machine config."
+  }
+}
+
+run "controller_provider_ids_output" {
+  command = plan
+
+  variables {
+    control_plane_count       = 3
+    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
+    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
+    private_api_dns_name      = "api.test.internal"
+  }
+  override_resource {
+    target = aws_instance.control_plane
+    values = { id = "i-00000000000000001", availability_zone = "us-east-2a" }
+  }
+
+  assert {
+    condition = output.controller_provider_ids == {
+      "10.0.1.10" = "aws:///us-east-2a/i-00000000000000001"
+      "10.0.2.10" = "aws:///us-east-2a/i-00000000000000001"
+      "10.0.3.10" = "aws:///us-east-2a/i-00000000000000001"
+    }
+    error_message = "Each controller must be keyed by its private IP with an aws:///<az>/<instance-id> provider ID."
+  }
+}
+
+run "no_serial_os_upgrade_on_new_cluster" {
+  command = plan
+  assert {
+    condition     = length(terraform_data.talos_upgrade) == 0
+    error_message = "A new cluster has no running controllers to upgrade."
+  }
+}
+
+run "version_upgrades_follow_version_inputs" {
+  command = plan
+  variables {
+    talos_version   = "v1.15.0"
+    kube_version    = "1.38.0"
+    installer_image = "factory.talos.dev/aws-installer/abc:v1.15.0"
+  }
+  override_data {
+    target = data.aws_instances.existing_control_plane
+    values = { ids = ["i-0000000000000000a"], private_ips = ["10.0.1.10"] }
+  }
+  assert {
+    condition     = terraform_data.talos_upgrade[0].triggers_replace[0] == "v1.15.0" && length(terraform_data.talos_upgrade[0].triggers_replace) == 1 && talos_cluster.this.kubernetes_version == "1.38.0"
+    error_message = "Talos and Kubernetes upgrades must retain separate version inputs."
+  }
+  assert {
+    condition     = talos_machine.control_plane[0].image == "factory.talos.dev/aws-installer/abc:v1.15.0" && talos_machine.control_plane[0].ignore_kubernetes_upgrade_drift
+    error_message = "Machines must use the caller's installer on creation and leave Kubernetes image upgrades to the cluster resource."
+  }
+  assert {
+    condition     = data.talos_machine_configuration.control_plane_runtime.config_patches == tolist(concat(data.talos_machine_configuration.control_plane.config_patches, local.backup_config_patches))
+    error_message = "The running controller config must retain the user-data patches and add the backup patches."
+  }
+}
+
+run "version_upgrades_default_installer" {
+  command = plan
+  override_data {
+    target = data.aws_instances.existing_control_plane
+    values = { ids = ["i-0000000000000000a"], private_ips = ["10.0.1.10"] }
+  }
+  assert {
+    condition     = local.upgrade_installer_image == "factory.talos.dev/aws-installer/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba:v1.14.6"
+    error_message = "Without installer_image the upgrade must use the official AWS installer for talos_version."
+  }
+}
+
+run "version_upgrades_opt_out" {
+  command = plan
+  variables { version_upgrades_enabled = false }
+  override_data {
+    target = data.aws_instances.existing_control_plane
+    values = { ids = ["i-0000000000000000a"], private_ips = ["10.0.1.10"] }
+  }
+  assert {
+    condition     = length(terraform_data.talos_upgrade) == 0 && talos_cluster.this.kubernetes_version == var.kube_version
+    error_message = "Disabling the serial Talos OS upgrade must leave Kubernetes under provider management."
+  }
+}
+
+run "reject_installer_image_for_other_release" {
+  command = plan
+  variables {
+    talos_version   = "v1.15.0"
+    installer_image = "factory.talos.dev/aws-installer/abc:v1.14.6"
+  }
+  expect_failures = [talos_machine.control_plane]
+}
+
 run "controller_identity_configured" {
   command = plan
   variables {
@@ -875,12 +983,12 @@ run "controller_identity_configured" {
 run "controller_identity_external_profile_precedence" {
   command = plan
   variables {
-    worker_identity             = { controller_instance_profile_enabled = true }
+    controller_identity         = { controller_instance_profile_enabled = true }
     controller_instance_profile = "external-controller"
   }
   assert {
     condition     = aws_instance.control_plane[0].iam_instance_profile == "external-controller" && length(aws_iam_instance_profile.controller) == 1
-    error_message = "The legacy controller IAM alias must retain its profile, and an explicit profile must take precedence."
+    error_message = "An explicit controller profile must take precedence over the managed profile."
   }
 }
 
@@ -908,34 +1016,6 @@ run "controller_identity_null_settings" {
   assert {
     condition     = length(aws_iam_instance_profile.controller) == 0
     error_message = "Null identity settings must select the defaults."
-  }
-}
-
-run "fixed_ssm_first_bootstrap" {
-  command = plan
-  variables {
-    private_api_dns_name             = "api.test.internal"
-    talos_access_transport           = "ssm"
-    kube_api_source_security_groups  = { jump = "sg-00000000000000001" }
-    talos_api_source_security_groups = { jump = "sg-00000000000000001" }
-    service_subnets                  = ["10.113.0.0/16"]
-    kube_version                     = "1.36.5"
-  }
-  assert {
-    condition     = talos_machine_bootstrap.this.endpoint == "127.0.0.1" && length(aws_instance.ssm_jump_host) == 0
-    error_message = "First bootstrap must use the module hook's loopback forward and the standalone SSM host."
-  }
-  assert {
-    condition     = contains(yamldecode(local.api_san_patch).certExtraSANs, "127.0.0.1") && contains(local.talos_api_sans, "127.0.0.1")
-    error_message = "Fixed SSM must verify both APIs through loopback."
-  }
-  assert {
-    condition     = output.dns_service_ip == "10.113.0.10" && output.kubernetes_version == "1.36.5"
-    error_message = "CoreDNS and CCM must receive the Talos service DNS IP and Kubernetes version."
-  }
-  assert {
-    condition     = aws_instance.control_plane[0].tags["kubernetes.io/cluster/test"] == "owned"
-    error_message = "CCM must discover controllers when AWS node configuration is enabled."
   }
 }
 
@@ -984,8 +1064,8 @@ run "bootstrap_public_first_plan" {
   }
   assert {
     condition = (
-      talos_machine_configuration_apply.control_plane[0].endpoint == "test.elb.amazonaws.com" &&
-      talos_machine_configuration_apply.control_plane[0].node == "10.0.1.10" &&
+      talos_machine.control_plane[0].endpoint == "test.elb.amazonaws.com" &&
+      talos_machine.control_plane[0].node == "10.0.1.10" &&
       contains(yamldecode(local.talos_api_patches[0]).machine.certSANs, "test.elb.amazonaws.com") &&
       contains(yamldecode(local.api_san_patch).certExtraSANs, "test.elb.amazonaws.com") &&
       local.cluster_endpoint == "https://api.test.internal:6443" &&
@@ -994,10 +1074,6 @@ run "bootstrap_public_first_plan" {
       output.bootstrap_public_kube_url == "https://test.elb.amazonaws.com:6443"
     )
     error_message = "Both API certificates must cover the public hostname while cluster traffic stays private."
-  }
-  assert {
-    condition     = length(terraform_data.controller_provider_id) == 1
-    error_message = "Public bootstrap must reconcile AWS controller provider IDs."
   }
 }
 
@@ -1039,7 +1115,7 @@ run "bootstrap_public_vpn_retained" {
   }
   assert {
     condition = (
-      talos_machine_configuration_apply.control_plane[0].endpoint == "10.0.1.10" &&
+      talos_machine.control_plane[0].endpoint == "10.0.1.10" &&
       length(aws_lb_listener.bootstrap_public) == 2 &&
       length(data.external.bootstrap_public_cidr) == 0 &&
       alltrue([for rule in aws_vpc_security_group_ingress_rule.bootstrap_public_operator : rule.cidr_ipv4 == "198.51.100.10/32"]) &&
@@ -1059,7 +1135,7 @@ run "bootstrap_public_vpn_removed" {
   }
   assert {
     condition = (
-      talos_machine_configuration_apply.control_plane[0].endpoint == "10.0.1.10" &&
+      talos_machine.control_plane[0].endpoint == "10.0.1.10" &&
       length(aws_lb.bootstrap_public) == 0 &&
       length(aws_vpc_security_group_ingress_rule.bootstrap_public_nodes) == 0 &&
       length(data.aws_security_groups.bootstrap_public_existing) == 0 &&
@@ -1143,69 +1219,4 @@ run "bootstrap_public_rejects_invalid_cidr" {
   command = plan
   variables { bootstrap_public = { operator_cidr = "invalid" } }
   expect_failures = [var.bootstrap_public]
-}
-
-run "aws_controller_provider_ids_follow_vpn_controller_ips" {
-  command = plan
-  variables {
-    talos_access_transport    = "vpn"
-    control_plane_count       = 3
-    control_plane_subnets     = ["PRIVATE_A", "PRIVATE_B", "PRIVATE_C"]
-    control_plane_private_ips = ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
-    private_api_dns_name      = "api.test.internal"
-  }
-  assert {
-    condition     = [for identity in terraform_data.controller_provider_id : identity.triggers_replace.private_ip] == ["10.0.1.10", "10.0.2.10", "10.0.3.10"]
-    error_message = "VPN must reconcile the provider ID for each AWS controller using its private IP."
-  }
-}
-
-run "ssm_bootstrap_uses_integrated_ccm_forward" {
-  command = plan
-  variables {
-    talos_access_transport = "ssm"
-  }
-  assert {
-    condition     = length(terraform_data.controller_provider_id) == 1 && local.ccm_api_server == "https://127.0.0.1:16443"
-    error_message = "SSM bootstrap must share the Kubernetes forward with CCM."
-  }
-}
-
-run "ssm_kubernetes_forward_enables_controller_provider_ids" {
-  command = plan
-  variables {
-    talos_access_transport                 = "ssm"
-    controller_provider_id_kube_api_server = "https://127.0.0.1:16444"
-  }
-  assert {
-    condition     = length(terraform_data.controller_provider_id) == 1
-    error_message = "An explicit Kubernetes forward must enable provider ID reconciliation for SSM."
-  }
-}
-
-run "ccm_accepts_matching_helm_image_tag" {
-  command = plan
-  variables {
-    aws_ccm = {
-      image_version = "v1.36.0"
-      helm_values   = "{\"image\":{\"tag\":\"v1.36.0\"}}"
-    }
-  }
-  assert {
-    condition     = local.ccm_image_version == "v1.36.0"
-    error_message = "An identical legacy Helm tag must preserve the explicit CCM image."
-  }
-}
-
-run "ccm_accepts_helm_repository_override" {
-  command = plan
-  variables {
-    aws_ccm = {
-      helm_values = "{\"image\":{\"repository\":\"example.test/ccm\"}}"
-    }
-  }
-  assert {
-    condition     = local.ccm_image_version == "v1.36.1"
-    error_message = "A Helm repository override must use the selected default CCM tag."
-  }
 }

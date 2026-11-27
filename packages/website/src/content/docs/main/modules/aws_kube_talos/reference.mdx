@@ -29,35 +29,29 @@ object({
 
 Default: `null`
 
-### aws\_ccm
+### api\_load\_balancer\_enabled
 
-Description: AWS cloud controller manager settings. Set host\_networking to false to run CCM on the pod network.
+Description: Put an internal network load balancer in front of the controllers and point the private\_api\_dns\_name record at it. Its HTTPS /readyz health check stops traffic to a controller that accepts TCP but is not ready. Has no effect without private\_api\_dns\_name.
 
-Type:
+Type: `bool`
 
-```hcl
-object({
-    image_version           = optional(string)
-    host_networking         = optional(bool, true)
-    subnet_id               = optional(string)
-    availability_zone       = optional(string)
-    ip_restrictions_enabled = optional(bool, false)
-    cluster_subnet_ids      = optional(set(string))
-    iam_tags                = optional(map(string))
-    helm_values             = optional(string, "{}")
-    operator_kube_port      = optional(number, 16443)
-  })
-```
-
-Default: `{}`
+Default: `true`
 
 ### bootstrap\_control\_plane
 
-Description: Subnet name of the controller that runs talos\_machine\_bootstrap and serves as the cluster endpoint fallback. Null uses the first entry of control\_plane\_subnets. Must be one of the active subnets.
+Description: Subnet name of the controller that bootstraps talos\_cluster and serves as the cluster endpoint fallback. Null uses the first entry of control\_plane\_subnets. Must be one of the active subnets.
 
 Type: `string`
 
 Default: `null`
+
+### bootstrap\_mode\_enabled
+
+Description: Controllers skip the controller=true:NoSchedule and control-plane taints so workloads run on them until Karpenter launches workers; set to false after that.
+
+Type: `bool`
+
+Default: `false`
 
 ### bootstrap\_public
 
@@ -73,14 +67,6 @@ object({
 ```
 
 Default: `null`
-
-### cilium\_enabled
-
-Description: Disable Talos-managed Flannel and kube-proxy on every node before installing Cilium with kube-proxy replacement.
-
-Type: `bool`
-
-Default: `true`
 
 ### client\_configuration
 
@@ -154,6 +140,14 @@ Type: `bool`
 
 Default: `false`
 
+### control\_plane\_register\_with\_fqdn
+
+Description: Whether controllers register Nodes under the EC2 private DNS name so the external cloud provider can resolve them and set spec.providerID. Changing it on an existing cluster renames controller Nodes, so set it only on new clusters.
+
+Type: `bool`
+
+Default: `false`
+
 ### control\_plane\_subnets
 
 Description: Subnet names (Name tag), one per control plane node in order. Use PUBLIC subnets only with control\_plane\_public\_ip\_enabled. Names must be unique. Node state is keyed by list position, so only append entries; reordering or removing one replaces nodes.
@@ -193,7 +187,7 @@ object({
   })
 ```
 
-Default: `null`
+Default: `{}`
 
 ### controller\_instance\_profile
 
@@ -202,22 +196,6 @@ Description: IAM instance profile name for controllers. Changing it on a running
 Type: `string`
 
 Default: `null`
-
-### controller\_provider\_id\_kube\_api\_server
-
-Description: Optional HTTPS Kubernetes API URL for setting AWS controller provider IDs. VPN and public access derive the URL automatically. For SSM, keep a Kubernetes forward running and set its loopback URL to enable provider ID reconciliation.
-
-Type: `string`
-
-Default: `null`
-
-### core\_dns\_enabled
-
-Description: Whether Talos deploys its own CoreDNS. Disabled by default for Panfactum kube\_core\_dns.
-
-Type: `bool`
-
-Default: `false`
 
 ### etcd\_backup\_retention\_days
 
@@ -293,7 +271,7 @@ Default: `{}`
 
 ### kube\_version
 
-Description: Kubernetes version (e.g., 1.36.5). Pinned so a talos provider upgrade does not change it; upgrade with `talosctl upgrade-k8s`.
+Description: Kubernetes version (e.g., 1.36.5). The Talos cluster resource manages upgrades. Raise it one minor version at a time.
 
 Type: `string`
 
@@ -333,6 +311,14 @@ Description: Security groups of SSM tunnel hosts (for example one NAT per AZ) al
 Type: `list(string)`
 
 Default: `[]`
+
+### panfactum\_scheduler\_enabled
+
+Description: Enable the Panfactum Kubernetes scheduler profile alongside the default scheduler.
+
+Type: `bool`
+
+Default: `false`
 
 ### pod\_subnets
 
@@ -458,6 +444,14 @@ Type: `string`
 
 Default: `"v1.14.6"`
 
+### version\_upgrades\_enabled
+
+Description: Run `talosctl upgrade` on each controller when talos\_version changes. Needs talosctl on PATH and the Talos API reachable at talos\_api\_endpoint during apply.
+
+Type: `bool`
+
+Default: `true`
+
 ### vpc\_id
 
 Description: The id for the VPC that the cluster should be deployed into
@@ -466,34 +460,13 @@ Type: `string`
 
 Default: n/a
 
-### worker\_identity
-
-Description: Deprecated alias for the Talos controller identity settings. Worker IAM is managed by Karpenter.
-
-Type:
-
-```hcl
-object({
-    name_prefix                            = optional(string)
-    ecr_cache_prefixes                     = optional(set(string), [])
-    controller_instance_profile_enabled    = optional(bool, false)
-    controller_additional_ecr_repositories = optional(set(string), [])
-  })
-```
-
-Default: `{}`
-
 ## Outputs
 
 The following outputs are exported:
 
-### aws\_ccm\_bootstrap\_controller
+### api\_load\_balancer\_dns\_name
 
-Description: Identity to check before deploying Cilium. Null when the host-network bootstrap check is disabled.
-
-### aws\_ccm\_role\_arn
-
-Description: IAM role ARN for the integrated AWS cloud controller manager.
+Description: DNS name of the internal Kubernetes API load balancer, or null when no load balancer is created.
 
 ### bootstrap\_public\_host
 
@@ -539,9 +512,13 @@ Description: Private IPs of the control plane nodes, in control\_plane\_subnets 
 
 Description: Public IP of the control plane node (Talos and Kubernetes API endpoint).
 
+### controller\_provider\_ids
+
+Description: AWS provider ID of each controller, keyed by private IP.
+
 ### dns\_service\_ip
 
-Description: CoreDNS service address in the primary service CIDR when AWS node configuration owns the network.
+Description: CoreDNS service address in the primary service CIDR.
 
 ### etcd\_backup\_bucket
 
@@ -602,10 +579,6 @@ The following providers are needed by this module:
 - [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
 
 - external (2.3.5)
-
-- [helm](https://registry.terraform.io/providers/hashicorp/helm/3.3.0/docs) (3.3.0)
-
-- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 

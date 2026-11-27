@@ -15,8 +15,10 @@ ROLE_ANNOTATION = {"eks.amazonaws.com/role-arn": ROLE_ARN}
 def values_expression(source):
     resource = source.split('resource "helm_release" "ccm" {', 1)[1]
     values = resource.split("  values = ", 1)[1].split("\n  depends_on =", 1)[0]
-    return values.replace("module.aws_permissions.role_arn", json.dumps(ROLE_ARN)).replace(
-        "module.aws_permissions.service_account_annotations", json.dumps(ROLE_ANNOTATION)
+    return (
+        values.replace("module.aws_permissions.role_arn", json.dumps(ROLE_ARN))
+        .replace("module.aws_permissions.service_account_annotations", json.dumps(ROLE_ANNOTATION))
+        .replace("data.aws_region.current.region", json.dumps("us-east-2"))
     )
 
 
@@ -38,11 +40,12 @@ class CCMValuesTests(unittest.TestCase):
 
     def evaluate(self, **overrides):
         variables = {
-            "region": "us-east-2",
-            "cluster_name": "example",
-            "availability_zone": "us-east-2b",
-            "vpc_id": "vpc-example",
-            "subnet_id": "subnet-example",
+            "cluster": {
+                "name": "example",
+                "oidc_provider_arn": "arn:aws:iam::123456789012:oidc-provider/example",
+                "oidc_issuer_url": "https://example.s3.us-east-2.amazonaws.com",
+            },
+            "controller_provider_ids": {"10.0.1.10": "aws:///us-east-2b/i-00000000000000001"},
             **overrides,
         }
         (self.path / "case.tfvars.json").write_text(json.dumps(variables))
@@ -53,8 +56,8 @@ class CCMValuesTests(unittest.TestCase):
         )
         return json.loads(json.loads(result.stdout.strip()))
 
-    def test_talos_bootstrap_release_matches_existing_values(self):
-        values, service_account = self.evaluate(talos_bootstrap_enabled=True, image_version="v1.36.1")
+    def test_release_values(self):
+        values, service_account = self.evaluate()
         self.assertEqual(values["image"], {
             "repository": "registry.k8s.io/provider-aws/cloud-controller-manager", "tag": "v1.36.1"
         })
@@ -69,11 +72,13 @@ class CCMValuesTests(unittest.TestCase):
         ])
         self.assertEqual(values["tolerations"], [
             {"key": "node.cloudprovider.kubernetes.io/uninitialized", "value": "true", "effect": "NoSchedule"},
+            {"key": "node.kubernetes.io/not-ready", "operator": "Exists", "effect": "NoSchedule"},
             {"key": "node-role.kubernetes.io/master", "effect": "NoSchedule"},
             {"key": "node-role.kubernetes.io/control-plane", "effect": "NoSchedule"},
             {"key": "controller", "operator": "Equal", "value": "true", "effect": "NoSchedule"},
         ])
         env = {entry["name"]: entry["value"] for entry in values["env"]}
+        self.assertEqual(env["AWS_REGION"], "us-east-2")
         self.assertEqual(env["AWS_ROLE_ARN"], ROLE_ARN)
         self.assertEqual(env["AWS_WEB_IDENTITY_TOKEN_FILE"], "/var/run/secrets/eks.amazonaws.com/serviceaccount/token")
         projected = next(volume["projected"] for volume in values["extraVolumes"] if volume["name"] == "aws-web-identity")
@@ -83,34 +88,25 @@ class CCMValuesTests(unittest.TestCase):
         self.assertIn({"name": "aws-web-identity", "mountPath": "/var/run/secrets/eks.amazonaws.com/serviceaccount", "readOnly": True}, values["extraVolumeMounts"])
         self.assertEqual(service_account, {"serviceAccount": {"annotations": ROLE_ANNOTATION}})
 
-    def test_default_preserves_legacy_values(self):
-        values, service_account = self.evaluate()
-        self.assertEqual(values["image"]["tag"], "v1.37.0")
-        self.assertIn("--controllers=cloud-node", values["args"])
-        self.assertNotIn("delete", next(rule for rule in values["clusterRoleRules"] if rule["resources"] == ["nodes"])["verbs"])
-        self.assertNotIn("tolerations", values)
-        self.assertFalse(any(env["name"] in {"AWS_ROLE_ARN", "AWS_WEB_IDENTITY_TOKEN_FILE"} for env in values["env"]))
-        self.assertEqual(values["extraVolumes"], [{"name": "cloud-config", "configMap": {"name": "aws-cloud-controller-manager"}}])
-        self.assertEqual(values["extraVolumeMounts"], [{"name": "cloud-config", "mountPath": "/etc/aws", "readOnly": True}])
-        self.assertEqual(service_account, {"serviceAccount": {"annotations": ROLE_ANNOTATION}})
-
-    def test_fresh_talos_uses_kubeprism_on_the_host_network(self):
-        values, _ = self.evaluate(talos_bootstrap_enabled=True, talos_host_networking=True, image_version="v1.36.1")
+    def test_uses_kubeprism_on_the_host_network(self):
+        values, _ = self.evaluate()
         self.assertTrue(values["hostNetworking"])
         self.assertEqual(values["dnsPolicy"], "Default")
         env = {entry["name"]: entry["value"] for entry in values["env"]}
         self.assertEqual(env["KUBERNETES_SERVICE_HOST"], "127.0.0.1")
         self.assertEqual(env["KUBERNETES_SERVICE_PORT"], "7445")
-        self.assertIn({"key": "node.kubernetes.io/not-ready", "operator": "Exists", "effect": "NoSchedule"},
-                      values["tolerations"])
 
-    def test_adoption_override_changes_only_the_overridden_values(self):
-        original, annotations = self.evaluate(talos_bootstrap_enabled=True, image_version="v1.36.1")
-        tolerations = original["tolerations"]
-        tolerations.insert(1, {"key": "node.kubernetes.io/not-ready", "operator": "Exists", "effect": "NoSchedule"})
-        self.assertEqual(self.evaluate(talos_bootstrap_enabled=True, image_version="v1.36.1",
-                                       helm_values=json.dumps({"tolerations": tolerations})),
-                         [original, annotations])
+    def test_image_version_override(self):
+        values, _ = self.evaluate(image_version="v1.36.0")
+        self.assertEqual(values["image"]["tag"], "v1.36.0")
+
+    def test_accepts_the_full_aws_kube_talos_cluster_output(self):
+        values, _ = self.evaluate(cluster={
+            "type": "talos", "name": "example", "endpoint": "https://api.example.internal:6443",
+            "oidc_provider_arn": "arn:aws:iam::123456789012:oidc-provider/example",
+            "oidc_issuer_url": "https://example.s3.us-east-2.amazonaws.com",
+        })
+        self.assertEqual(values["serviceAccountName"], "aws-cloud-controller-manager")
 
 
 if __name__ == "__main__":

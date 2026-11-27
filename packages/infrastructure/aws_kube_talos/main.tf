@@ -2,8 +2,6 @@
 
 terraform {
   required_providers {
-    helm       = { source = "hashicorp/helm", version = "3.3.0" }
-    kubernetes = { source = "hashicorp/kubernetes", version = "3.5.0" }
     aws = {
       source  = "hashicorp/aws"
       version = "6.73.0"
@@ -24,6 +22,8 @@ terraform {
 }
 
 locals {
+  # The NLB fronts the private API name, so callers without one get none
+  api_lb_enabled = var.api_load_balancer_enabled && var.private_api_dns_name != null
   # Indexed by position; subnets are append-only once nodes exist
   control_plane_subnet_list = slice(var.control_plane_subnets, 0, min(var.control_plane_count, length(var.control_plane_subnets)))
   control_plane_node_count  = length(local.control_plane_subnet_list)
@@ -51,13 +51,11 @@ locals {
   talos_api_sans    = distinct(concat(compact([local.bootstrap_public_host]), local.legacy_ssm_sans, var.talos_api_extra_sans))
   talos_api_patches = local.bootstrap_public_enabled || length(local.talos_api_sans) > 0 ? [yamlencode({ machine = { certSANs = local.talos_api_sans } })] : []
 
-  cilium_config_patches = var.cilium_enabled ? [
-    yamlencode({ apiVersion = "v1alpha1", kind = "KubeFlannelCNIConfig", "$patch" = "delete" }),
-    yamlencode({ apiVersion = "v1alpha1", kind = "KubeProxyConfig", enabled = false })
-  ] : []
-
+  # Panfactum kube_cilium and kube_core_dns own networking and DNS, so Talos never deploys Flannel, kube-proxy or CoreDNS.
   # Talos 1.14 rejects the legacy .cluster.coreDNS patch; KubeCoreDNSConfig is the supported switch.
-  core_dns_config_patches = var.core_dns_enabled ? [] : [
+  networking_disable_patches = [
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeFlannelCNIConfig", "$patch" = "delete" }),
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeProxyConfig", enabled = false }),
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeCoreDNSConfig", enabled = false })
   ]
 }
@@ -120,7 +118,6 @@ resource "aws_vpc_security_group_ingress_rule" "talos_api" {
   description       = "Talos API"
 }
 
-# Operators reach the API directly; there is no load balancer in front of the single control plane
 resource "aws_vpc_security_group_ingress_rule" "kube_api" {
   for_each          = toset(var.kube_api_allowed_cidrs)
   security_group_id = aws_security_group.nodes.id
@@ -201,14 +198,143 @@ resource "aws_route53_zone" "private_api" {
   tags = data.pf_aws_tags.tags.tags
 }
 
-# Clients and kubelets try each address; KubePrism load-balances after nodes join
 resource "aws_route53_record" "private_api" {
   count   = var.private_api_dns_name == null ? 0 : 1
   zone_id = aws_route53_zone.private_api[0].zone_id
   name    = var.private_api_dns_name
   type    = "A"
-  ttl     = 30
-  records = aws_instance.control_plane[*].private_ip
+  ttl     = local.api_lb_enabled ? null : 30
+  records = local.api_lb_enabled ? null : aws_instance.control_plane[*].private_ip
+
+  dynamic "alias" {
+    for_each = local.api_lb_enabled ? [1] : []
+    content {
+      name                   = aws_lb.api[0].dns_name
+      zone_id                = aws_lb.api[0].zone_id
+      evaluate_target_health = true
+    }
+  }
+}
+
+# The NLB health-checks /readyz, so clients skip a controller that accepts TCP but is not ready.
+# The Talos API on 50000 stays off the NLB.
+resource "aws_security_group" "api_lb" {
+  count       = local.api_lb_enabled ? 1 : 0
+  name        = "${var.cluster_name}-api-lb"
+  description = "Kubernetes API load balancer for ${var.cluster_name}"
+  vpc_id      = var.vpc_id
+
+  tags = merge(data.pf_aws_tags.tags.tags, {
+    Name = "${var.cluster_name}-api-lb"
+  })
+}
+
+resource "aws_vpc_security_group_ingress_rule" "api_lb_nodes" {
+  count                        = local.api_lb_enabled ? 1 : 0
+  security_group_id            = aws_security_group.api_lb[0].id
+  referenced_security_group_id = aws_security_group.nodes.id
+  ip_protocol                  = "tcp"
+  from_port                    = 6443
+  to_port                      = 6443
+  description                  = "Kubernetes API from cluster nodes"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "api_lb_source" {
+  for_each                     = local.api_lb_enabled ? var.kube_api_source_security_groups : {}
+  security_group_id            = aws_security_group.api_lb[0].id
+  referenced_security_group_id = each.value
+  ip_protocol                  = "tcp"
+  from_port                    = 6443
+  to_port                      = 6443
+  description                  = "Kubernetes API"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "api_lb_cidr" {
+  for_each          = local.api_lb_enabled ? toset(var.kube_api_allowed_cidrs) : toset([])
+  security_group_id = aws_security_group.api_lb[0].id
+  cidr_ipv4         = each.key
+  ip_protocol       = "tcp"
+  from_port         = 6443
+  to_port           = 6443
+  description       = "Kubernetes API"
+}
+
+resource "aws_vpc_security_group_egress_rule" "api_lb_nodes" {
+  count                        = local.api_lb_enabled ? 1 : 0
+  security_group_id            = aws_security_group.api_lb[0].id
+  referenced_security_group_id = aws_security_group.nodes.id
+  ip_protocol                  = "tcp"
+  from_port                    = 6443
+  to_port                      = 6443
+  description                  = "Kubernetes API and health checks to controllers"
+}
+
+# With preserve_client_ip off, traffic and health checks reach nodes from the NLB's security group
+resource "aws_vpc_security_group_ingress_rule" "kube_api_lb" {
+  count                        = local.api_lb_enabled ? 1 : 0
+  security_group_id            = aws_security_group.nodes.id
+  referenced_security_group_id = aws_security_group.api_lb[0].id
+  ip_protocol                  = "tcp"
+  from_port                    = 6443
+  to_port                      = 6443
+  description                  = "Kubernetes API from the load balancer"
+}
+
+resource "aws_lb" "api" {
+  count                            = local.api_lb_enabled ? 1 : 0
+  name                             = "${var.cluster_name}-api"
+  internal                         = true
+  load_balancer_type               = "network"
+  subnets                          = data.aws_subnet.control_plane[*].id
+  security_groups                  = [aws_security_group.api_lb[0].id]
+  enable_cross_zone_load_balancing = true
+
+  tags = merge(data.pf_aws_tags.tags.tags, {
+    Name = "${var.cluster_name}-api"
+  })
+}
+
+resource "aws_lb_target_group" "api" {
+  count                  = local.api_lb_enabled ? 1 : 0
+  name                   = "${var.cluster_name}-api"
+  port                   = 6443
+  protocol               = "TCP"
+  target_type            = "instance"
+  vpc_id                 = var.vpc_id
+  preserve_client_ip     = false
+  connection_termination = true
+
+  # Drill on 2026-11-24: a 10s interval left an unready API server in rotation for about 25s
+  health_check {
+    protocol            = "HTTPS"
+    path                = "/readyz"
+    port                = "6443"
+    interval            = 5
+    timeout             = 4
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+  }
+
+  tags = data.pf_aws_tags.tags.tags
+}
+
+resource "aws_lb_target_group_attachment" "api" {
+  count            = local.api_lb_enabled ? local.control_plane_node_count : 0
+  target_group_arn = aws_lb_target_group.api[0].arn
+  target_id        = aws_instance.control_plane[count.index].id
+  port             = 6443
+}
+
+resource "aws_lb_listener" "api" {
+  count             = local.api_lb_enabled ? 1 : 0
+  load_balancer_arn = aws_lb.api[0].arn
+  port              = 6443
+  protocol          = "TCP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api[0].arn
+  }
 }
 
 resource "aws_route53_record" "api" {
@@ -225,16 +351,55 @@ resource "aws_route53_record" "api" {
 ###########################################################################
 
 locals {
-  # SANs live in user data so the first boot's certs already validate through an SSM tunnel at 127.0.0.1
-  control_plane_base_patches = concat([local.api_san_patch], local.talos_api_patches, local.cilium_config_patches, local.core_dns_config_patches, local.aws_control_plane_patches, var.control_plane_config_patches)
+  # NOTE: The first boot needs the API SAN before the provider can apply machine configuration.
+  control_plane_base_patches = concat(
+    [local.api_san_patch],
+    local.talos_api_patches,
+    local.networking_disable_patches,
+    local.aws_control_plane_patches,
+    var.panfactum_scheduler_enabled ? [yamlencode({
+      apiVersion = "v1alpha1"
+      kind       = "KubeSchedulerConfig"
+      image      = "registry.k8s.io/kube-scheduler:v${var.kube_version}"
+      config = {
+        profiles = [
+          { schedulerName = "default-scheduler" },
+          {
+            schedulerName = "panfactum"
+            plugins = {
+              score = {
+                enabled = [{ name = "NodeResourcesFit", weight = 2 }]
+              }
+            }
+            pluginConfig = [{
+              name = "NodeResourcesFit"
+              args = {
+                scoringStrategy = {
+                  type = "MostAllocated"
+                  resources = [
+                    { name = "cpu", weight = 1 },
+                    { name = "memory", weight = 1 },
+                  ]
+                }
+              }
+            }]
+          },
+        ]
+      }
+    })] : [],
+    var.control_plane_config_patches,
+  )
   control_plane_node_config = {
-    apiVersion = "v1alpha1", kind = "KubeNodeConfig", labels = { "panfactum.com/class" = "controller" }
-    taints     = { "node-role.kubernetes.io/control-plane" = { "$patch" = "delete" }, "controller" = "true:NoSchedule" }
+    apiVersion = "v1alpha1", kind = "KubeNodeConfig", labels = { "panfactum.com/class" = "controller", "node.kubernetes.io/lifecycle" = "on-demand", "node.kubernetes.io/role" = "controller" }
+    taints     = merge({ "node-role.kubernetes.io/control-plane" = { "$patch" = "delete" } }, var.bootstrap_mode_enabled ? {} : { "controller" = "true:NoSchedule" })
   }
+  # A separate document leaves the default patch list unchanged and applies even without workloads.
+  fqdn_patches = var.control_plane_register_with_fqdn ? [yamlencode({ apiVersion = "v1alpha1", kind = "KubeNodeConfig", registerWithFQDN = true })] : []
   oidc_config_patches = [
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeServiceAccountConfig", issuer = { issuerURL = local.service_account_oidc_issuer_url } }),
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeAPIServerConfig", extraArgs = { "service-account-jwks-uri" = "${local.service_account_oidc_issuer_url}/keys.json" } })
   ]
+  control_plane_patches = concat(local.control_plane_base_patches, local.oidc_config_patches, var.control_plane_workloads_enabled || var.bootstrap_mode_enabled ? [yamlencode(local.control_plane_node_config)] : [], local.fqdn_patches)
 }
 
 data "talos_machine_configuration" "control_plane" {
@@ -248,10 +413,23 @@ data "talos_machine_configuration" "control_plane" {
   examples           = false
   # The OIDC issuer rides in user data: a replaced controller that boots with the default issuer
   # rejects valid tokens and issues tokens every other API server rejects until kubelet refreshes them.
-  config_patches = concat(local.control_plane_base_patches, local.oidc_config_patches, var.control_plane_workloads_enabled ? [yamlencode(local.control_plane_node_config)] : [])
+  config_patches = local.control_plane_patches
 }
 
-# NOTE: Keep the bootstrap IP stable for Karpenter when there is no private API name.
+data "talos_machine_configuration" "control_plane_runtime" {
+  cluster_name       = var.cluster_name
+  cluster_endpoint   = local.cluster_endpoint
+  machine_type       = "controlplane"
+  machine_secrets    = local.machine_secrets
+  talos_version      = var.talos_version
+  kubernetes_version = var.kube_version
+  docs               = false
+  examples           = false
+  config_patches     = concat(local.control_plane_patches, local.backup_config_patches)
+}
+
+# Workers reach the bootstrap controller IP only without a private API name. The indirection
+# keeps worker configs free of aws_instance references, so adding controllers does not defer them.
 resource "terraform_data" "worker_endpoint_ip" {
   count = var.private_api_dns_name == null ? 1 : 0
   input = aws_instance.control_plane[local.bootstrap_index].private_ip
@@ -305,7 +483,7 @@ resource "aws_instance" "control_plane" {
     # EC2 rejects user data over 16 KB raw; the OIDC patch must stay in it (see the config data source)
     precondition {
       condition     = length(data.talos_machine_configuration.control_plane.machine_configuration) <= 16384
-      error_message = "Controller user data exceeds the 16 KB EC2 limit; move large patches to talos_machine_configuration_apply.control_plane."
+      error_message = "Controller user data exceeds the 16 KB EC2 limit; keep large patches in the runtime machine configuration."
     }
     # OpenTofu 1.8 variable validation cannot reference other variables
     precondition {
@@ -347,14 +525,28 @@ resource "aws_instance" "control_plane" {
 ## Bootstrap
 ###########################################################################
 
-resource "talos_machine_configuration_apply" "control_plane" {
-  count                       = local.control_plane_node_count
-  client_configuration        = sensitive(local.client_configuration)
-  machine_configuration_input = data.talos_machine_configuration.control_plane.machine_configuration
-  # Applied over the Talos API rather than user data, which is capped at 16 KB
-  config_patches = local.backup_config_patches
-  endpoint       = local.talos_api_endpoint
-  node           = aws_instance.control_plane[count.index].private_ip
+# NOTE: OpenTofu 1.8 forgets these legacy entries without destroying them.
+removed {
+  from = talos_machine_configuration_apply.control_plane
+}
+
+removed {
+  from = talos_machine_bootstrap.this
+}
+
+removed {
+  from = terraform_data.kube_upgrade
+}
+
+resource "talos_machine" "control_plane" {
+  count                           = local.control_plane_node_count
+  client_configuration            = sensitive(local.client_configuration)
+  machine_configuration           = data.talos_machine_configuration.control_plane_runtime.machine_configuration
+  endpoint                        = local.talos_api_endpoint
+  node                            = aws_instance.control_plane[count.index].private_ip
+  image                           = local.upgrade_installer_image
+  drain_on_upgrade                = false
+  ignore_kubernetes_upgrade_drift = true
 
   # DNS and Talos ingress must exist before the first API call.
   depends_on = [
@@ -370,12 +562,21 @@ resource "talos_machine_configuration_apply" "control_plane" {
     aws_vpc_security_group_ingress_rule.bootstrap_public_operator,
     aws_vpc_security_group_ingress_rule.bootstrap_public_nodes,
     aws_vpc_security_group_egress_rule.bootstrap_public_nodes,
+    # NOTE: The OS wrapper sequences controller upgrades before the provider reconciles the installer.
+    terraform_data.talos_upgrade,
   ]
 
   # A replacement reuses the fixed IP, so node never changes; without this the new instance keeps
   # user data only and its API server rejects tokens from the shared OIDC issuer.
   lifecycle {
+    # NOTE: Run OS changes through the serial controller upgrade instead of per-machine updates.
+    ignore_changes       = [image]
     replace_triggered_by = [aws_instance.control_plane[count.index].id]
+
+    precondition {
+      condition     = local.installer_image_matches_version
+      error_message = "installer_image must be tagged with talos_version, so upgraded and newly launched nodes run the same release."
+    }
   }
 }
 
@@ -383,20 +584,22 @@ locals {
   bootstrap_node = aws_instance.control_plane[local.bootstrap_index].private_ip
 }
 
-resource "talos_machine_bootstrap" "this" {
-  depends_on           = [talos_machine_configuration_apply.control_plane]
+resource "talos_cluster" "this" {
+  depends_on           = [talos_machine.control_plane]
   client_configuration = sensitive(local.client_configuration)
   endpoint             = local.talos_api_endpoint
   node                 = local.bootstrap_node
+  control_plane_nodes  = aws_instance.control_plane[*].private_ip
+  kubernetes_version   = var.kube_version
 
   lifecycle {
-    # Bootstrap runs once. Re-running it on a replacement controller would start a second etcd cluster.
+    # NOTE: The bootstrap controller address can change when its instance is replaced.
     ignore_changes = [node]
   }
 }
 
 resource "talos_cluster_kubeconfig" "this" {
-  depends_on           = [talos_machine_bootstrap.this]
+  depends_on           = [talos_cluster.this]
   client_configuration = sensitive(local.client_configuration)
   endpoint             = local.talos_api_endpoint
   node                 = local.bootstrap_node
@@ -409,11 +612,39 @@ data "talos_client_configuration" "this" {
   nodes                = [var.talos_api_endpoint == null ? local.talos_api_endpoint : local.bootstrap_node]
 }
 
-moved {
-  from = aws_eip.api
-  to   = aws_eip.api[0]
+###########################################################################
+## Version upgrades
+###########################################################################
+
+locals {
+  # Gated like pre_membership_snapshot: a new cluster has no running controllers to upgrade.
+  version_upgrades_needed = var.version_upgrades_enabled && length(data.aws_instances.existing_control_plane.ids) > 0
+  # Official AMIs ship the vanilla Image Factory schematic; a custom installer_image carries its own.
+  upgrade_installer_image         = coalesce(var.installer_image, "factory.talos.dev/aws-installer/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba:${var.talos_version}")
+  installer_image_matches_version = endswith(local.upgrade_installer_image, ":${var.talos_version}")
+  upgrade_args                    = "--endpoint '${local.talos_api_endpoint}' --nodes '${join(",", sort(data.aws_instances.existing_control_plane.private_ips))}'"
+  upgrade_environment = {
+    TALOS_CA  = local.client_configuration.ca_certificate
+    TALOS_CRT = local.client_configuration.client_certificate
+    TALOS_KEY = local.client_configuration.client_key
+  }
 }
-moved {
-  from = aws_eip_association.api
-  to   = aws_eip_association.api[0]
+
+# Creation also runs the script, which exits 0 when every controller is already at the target.
+resource "terraform_data" "talos_upgrade" {
+  count            = local.version_upgrades_needed ? 1 : 0
+  triggers_replace = [var.talos_version]
+
+  provisioner "local-exec" {
+    interpreter = ["bash", "-c"]
+    environment = local.upgrade_environment
+    command     = "python3 '${path.module}/scripts/version_upgrade.py' talos ${local.upgrade_args} --target '${var.talos_version}' --image '${local.upgrade_installer_image}'"
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.installer_image_matches_version
+      error_message = "installer_image must be tagged with talos_version, so upgraded and newly launched nodes run the same release."
+    }
+  }
 }

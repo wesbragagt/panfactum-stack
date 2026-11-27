@@ -89,6 +89,16 @@ class OIDCTests(unittest.TestCase):
         result = self.evaluate(cluster_subnet_ids=["subnet-explicit"])
         self.assertEqual([result[k] for k in ("subnets", "ip_policy", "ip_attachment")], [0, 1, 1])
 
+    def test_local_static_credentials_skip_eks_lookup(self):
+        result = self.evaluate(local_static_credentials_enabled=True, ip_restrictions_enabled=False)
+        self.assertEqual([result[k] for k in ("eks", "subnets", "ip_policy", "ip_attachment")], [0, 0, 0, 0])
+        self.assertTrue(all(result["checks"]))
+
+    def test_local_static_credentials_reject_oidc_inputs(self):
+        result = self.evaluate(local_static_credentials_enabled=True, oidc_provider_arn="arn:aws:iam::111122223333:oidc-provider/issuer.example",
+                               oidc_issuer_url="https://issuer.example")
+        self.assertFalse(result["checks"][2])
+
 
 if __name__ == "__main__":
     unittest.main()

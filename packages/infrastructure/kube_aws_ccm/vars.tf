@@ -1,94 +1,24 @@
-variable "cluster_name" {
-  description = "Cluster identifier."
-  type        = string
+variable "cluster" {
+  description = "Talos cluster identity and service-account OIDC trust, as output by aws_kube_talos."
+  type = object({
+    name              = string
+    oidc_provider_arn = string
+    oidc_issuer_url   = string
+  })
 }
 
-variable "region" {
-  description = "AWS region."
-  type        = string
-}
+variable "controller_provider_ids" {
+  description = "AWS provider ID of each controller keyed by private IP, as output by aws_kube_talos."
+  type        = map(string)
 
-variable "availability_zone" {
-  description = "Control-plane availability zone."
-  type        = string
-}
-
-variable "vpc_id" {
-  description = "Existing cluster VPC ID."
-  type        = string
-}
-
-variable "subnet_id" {
-  description = "Existing control-plane subnet ID."
-  type        = string
-}
-
-variable "oidc_provider_arn" {
-  description = "Existing OIDC provider ARN; null retains EKS discovery."
-  type        = string
-  default     = null
-}
-
-variable "oidc_issuer_url" {
-  description = "Existing OIDC issuer URL paired with its ARN."
-  type        = string
-  default     = null
-}
-
-variable "ip_restrictions_enabled" {
-  description = "Enable source-IP deny policies."
-  type        = bool
-  default     = true
-}
-
-variable "cluster_subnet_ids" {
-  description = "Explicit subnets for source-IP policy discovery."
-  type        = set(string)
-  default     = null
+  validation {
+    condition     = length(var.controller_provider_ids) > 0 && alltrue([for id in values(var.controller_provider_ids) : can(regex("^aws:///[^/]+/i-[0-9a-f]+$", id))])
+    error_message = "Set at least one controller provider ID in aws:///<az>/<instance-id> form."
+  }
 }
 
 variable "image_version" {
-  description = "AWS cloud controller manager image tag."
+  description = "AWS cloud controller manager image tag. Use the release for the cluster's Kubernetes minor."
   type        = string
-  default     = "v1.37.0"
-}
-
-variable "talos_bootstrap_enabled" {
-  description = "Mount an AWS web identity token and tolerate Talos controller taints during bootstrap."
-  type        = bool
-  default     = false
-}
-
-variable "talos_host_networking" {
-  description = "Use host networking, host DNS, and the node-local Talos KubePrism API."
-  type        = bool
-  default     = false
-  nullable    = false
-}
-
-variable "api_ready" {
-  description = "Deferred readiness check when the Kubernetes API is created in the same plan."
-  type        = bool
-  default     = true
-  nullable    = false
-}
-
-variable "custom_oidc_enabled" {
-  description = "Select custom OIDC when the provider ARN and issuer are created in the same plan."
-  type        = bool
-  default     = false
-  nullable    = false
-}
-
-variable "iam_tags" {
-  description = "Existing IAM base tags to preserve during state adoption. Defaults to Panfactum AWS tags."
-  type        = map(string)
-  default     = null
-}
-
-variable "helm_values" {
-  description = "YAML map of top-level overrides to the default Helm values for legacy state adoption."
-  type        = string
-  default     = "{}"
-  nullable    = false
+  default     = "v1.36.1"
 }

@@ -7,7 +7,6 @@ import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import unittest
 import unittest.mock
@@ -33,11 +32,13 @@ class ClusterAccessTest(unittest.TestCase):
             result = subprocess.run([sys.executable, str(SCRIPT), "--help"], cwd=empty, env={"PATH": ""},
                                     capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--tunnel-name-pattern", result.stdout)
+        self.assertIn("--fixed-ssm", result.stdout)
 
     def test_cluster_is_required(self):
-        result = subprocess.run([sys.executable, str(SCRIPT), "--ensure"], capture_output=True, text=True)
+        env = {key: value for key, value in os.environ.items() if key != "TF_VAR_cluster_name"}
+        result = subprocess.run([sys.executable, str(SCRIPT), "--ensure"], env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
+        self.assertIn("inputs.cluster_name", result.stderr)
 
     def test_aws_argv_omits_unset_profile_and_region(self):
         argv = access().aws_args("sts", "get-caller-identity")
@@ -45,99 +46,6 @@ class ClusterAccessTest(unittest.TestCase):
         self.assertNotIn("--region", argv)
         argv = access(profile="p", region="r").aws_args("sts")
         self.assertEqual(argv[1:5], ["--profile", "p", "--region", "r"])
-
-    def test_target_overrides_tunnel_host_discovery(self):
-        helper = access(target=["i-1", "i-2"])
-        calls = []
-
-        def instances(filters):
-            calls.append(filters)
-            return [{"PrivateIpAddress": "10.0.0.5", "VpcId": "vpc-1",
-                     "Tags": [{"Key": "Name", "Value": "c-control-plane-0"}]}]
-        helper.instances = instances
-        self.assertEqual(helper.discover(), (["10.0.0.5"], ["i-1", "i-2"]))
-        self.assertEqual(len(calls), 1)
-
-    def test_tunnel_name_pattern_filters_the_vpc_lookup(self):
-        helper = access(tunnel_name_pattern="bastion-*")
-        calls = []
-
-        def instances(filters):
-            calls.append(filters)
-            return [{"PrivateIpAddress": "10.0.0.5", "VpcId": "vpc-1", "InstanceId": "i-b",
-                     "Tags": [{"Key": "Name", "Value": "c-control-plane-0"}]}]
-        helper.instances = instances
-        helper.aws = lambda *args: {"InstanceInformationList": [{"InstanceId": "i-b", "PingStatus": "Online"}]}
-        self.assertEqual(helper.discover()[1], ["i-b"])
-        self.assertIn("Name=tag:Name,Values=c-ssm-tunnel,bastion-*", calls[1])
-
-    def hosts_access(self, hosts, online, **overrides):
-        helper = access(**overrides)
-        controller = {"PrivateIpAddress": "10.0.0.5", "VpcId": "vpc-1",
-                      "Tags": [{"Key": "Name", "Value": "c-control-plane-0"}]}
-        helper.instances = lambda filters: [controller] if len(filters) == 2 else [
-            {"InstanceId": i, "Tags": [{"Key": "Name", "Value": name}]} for i, name in hosts]
-        helper.aws = lambda *args: {"InstanceInformationList": [
-            {"InstanceId": i, "PingStatus": "Online"} for i in online()]}
-        return helper
-
-    def test_filter_includes_the_jump_host_name_and_the_pattern(self):
-        helper = access()
-        calls = []
-
-        def instances(filters):
-            calls.append(filters)
-            return [{"PrivateIpAddress": "10.0.0.5", "VpcId": "vpc-1", "InstanceId": "i-b",
-                     "Tags": [{"Key": "Name", "Value": "c-control-plane-0"}]}]
-        helper.instances = instances
-        helper.aws = lambda *args: {"InstanceInformationList": [{"InstanceId": "i-b", "PingStatus": "Online"}]}
-        helper.discover()
-        self.assertIn("Name=tag:Name,Values=c-ssm-tunnel,nat-*", calls[1])
-
-    def test_jump_host_is_preferred_over_nat(self):
-        helper = self.hosts_access([("i-a", "nat-a"), ("i-z", "c-ssm-tunnel"), ("i-b", "nat-b")],
-                                   lambda: ["i-a", "i-z", "i-b"])
-        self.assertEqual(helper.discover()[1], ["i-z", "i-a", "i-b"])
-
-    def test_nat_only_hosts_keep_instance_id_order(self):
-        helper = self.hosts_access([("i-b", "nat-b"), ("i-a", "nat-a")], lambda: ["i-a", "i-b"])
-        self.assertEqual(helper.discover()[1], ["i-a", "i-b"])
-
-    def test_missing_online_host_fails_at_once_and_names_the_jump_host(self):
-        helper = self.hosts_access([("i-z", "c-ssm-tunnel")], lambda: [])
-        with self.assertRaisesRegex(module.NoTunnelHost, "c-ssm-tunnel"):
-            helper.discover()
-
-    def test_bootstrap_waits_for_the_jump_host_to_turn_online(self):
-        polls = []
-
-        def online():
-            polls.append(1)
-            return ["i-z"] if len(polls) >= 3 else []
-        helper = self.hosts_access([("i-z", "c-ssm-tunnel")], online)
-        naps = []
-        original = module.nap
-        module.nap = lambda args, seconds: naps.append(seconds)
-        try:
-            result = module.wait_for_controller(SimpleNamespace(wait=900), helper)
-        finally:
-            module.nap = original
-        self.assertEqual(result, ("10.0.0.5", ["i-z"]))
-        self.assertEqual(len(polls), 3)
-        self.assertEqual(len(naps), 2)
-
-    def test_bootstrap_times_out_when_the_host_never_turns_online(self):
-        helper = self.hosts_access([("i-z", "c-ssm-tunnel")], lambda: [])
-        clock = [0.0]
-        originals = module.nap, module.time.monotonic
-        module.nap = lambda args, seconds: clock.__setitem__(0, clock[0] + seconds)
-        module.time.monotonic = lambda: clock[0]
-        try:
-            with self.assertRaises(module.WaitTimeout):
-                module.wait_for_controller(SimpleNamespace(wait=12), helper)
-        finally:
-            module.nap, module.time.monotonic = originals
-        self.assertEqual(clock[0], 12)
 
     def test_terragrunt_output_preserves_only_supported_transport_overrides(self):
         args = SimpleNamespace(profile=None, region=None, module=Path("/module"))
@@ -155,14 +63,13 @@ class ClusterAccessTest(unittest.TestCase):
         helper.instances = lambda filters: [
             {"PrivateIpAddress": ips[k], "VpcId": "vpc-1",
              "Tags": [{"Key": "Name", "Value": f"c-control-plane-{k}"}]} for k in (2, 0, 1)]
-        self.assertEqual(helper.discover()[0], ["10.0.128.10", "10.0.64.10", "10.0.192.10"])
+        self.assertEqual([node["PrivateIpAddress"] for node in helper.controllers(("running",))], ["10.0.128.10", "10.0.64.10", "10.0.192.10"])
 
     def test_discovery_filters_by_the_control_plane_name_prefix(self):
         helper = access(target=["i-nat"])
         calls = []
         helper.instances = lambda filters: calls.append(filters) or []
-        with self.assertRaises(module.ControllerNotFound):
-            helper.discover()
+        self.assertEqual(helper.controllers(("running",)), [])
         self.assertIn("Name=tag:Name,Values=c-control-plane-*", calls[0])
 
     def test_unrelated_names_matching_the_prefix_filter_are_ignored(self):
@@ -172,7 +79,7 @@ class ClusterAccessTest(unittest.TestCase):
             {"PrivateIpAddress": "10.0.0.8", "Tags": [{"Key": "Name", "Value": "c-control-plane-0/x"}]},
             {"PrivateIpAddress": "10.0.0.6", "Tags": [{"Key": "Name", "Value": "c-control-plane-PRIVATE_A"}]},
             {"PrivateIpAddress": "10.0.0.7", "Tags": [{"Key": "Name", "Value": "c-control-plane-1"}]}]
-        self.assertEqual(helper.discover()[0], ["10.0.0.7"])
+        self.assertEqual([node["PrivateIpAddress"] for node in helper.controllers(("running",))], ["10.0.0.7"])
 
     def test_running_controllers_come_before_pending_ones(self):
         helper = access(target=["i-nat"])
@@ -181,42 +88,26 @@ class ClusterAccessTest(unittest.TestCase):
              "Tags": [{"Key": "Name", "Value": "c-control-plane-0"}]},
             {"PrivateIpAddress": "10.0.0.2", "State": {"Name": "running"},
              "Tags": [{"Key": "Name", "Value": "c-control-plane-1"}]}]
-        self.assertEqual(helper.discover(("pending", "running"))[0], ["10.0.0.2", "10.0.0.1"])
+        self.assertEqual([node["PrivateIpAddress"] for node in helper.controllers(("pending", "running"))], ["10.0.0.2", "10.0.0.1"])
 
     def test_explicit_control_plane_name_stays_exact(self):
         helper = access(target=["i-nat"], control_plane_name="c-control-plane-1")
         calls = []
         helper.instances = lambda filters: calls.append(filters) or [
             {"PrivateIpAddress": "10.0.64.10", "Tags": [{"Key": "Name", "Value": "c-control-plane-1"}]}]
-        self.assertEqual(helper.discover()[0], ["10.0.64.10"])
+        self.assertEqual([node["PrivateIpAddress"] for node in helper.controllers(("running",))], ["10.0.64.10"])
         self.assertIn("Name=tag:Name,Values=c-control-plane-1", calls[0])
         helper.instances = lambda filters: [
             {"PrivateIpAddress": ip, "Tags": [{"Key": "Name", "Value": "c-control-plane-1"}]}
             for ip in ("10.0.64.10", "10.0.64.11")]
         with self.assertRaises(module.AccessError):
-            helper.discover()
+            helper.controllers(("running",))
 
     def test_wildcards_in_the_cluster_name_are_rejected(self):
         helper = access(target=["i-nat"], cluster="c*")
         helper.instances = lambda filters: self.fail("must not query AWS")
         with self.assertRaises(module.AccessError):
-            helper.discover()
-
-    def test_establish_fails_over_to_the_next_controller(self):
-        helper = access()
-        attempts = []
-
-        def start(target, private_ip, directory, tls_context, talos_tls=None):
-            attempts.append(private_ip)
-            if private_ip == "10.0.0.1":
-                raise module.AccessError("TLS timeout")
-        helper.start = start
-        helper.close_forwards = lambda: None
-        ready = []
-        result = helper.establish(["10.0.0.1", "10.0.0.2"], ["i-nat"], None, None, None, ready.append)
-        self.assertEqual(result, ("i-nat", "10.0.0.2"))
-        self.assertEqual(attempts, ["10.0.0.1", "10.0.0.2"])
-        self.assertEqual(ready, ["10.0.0.2"])
+            helper.controllers(("running",))
 
     def test_rotation_tries_the_controller_after_the_failed_one_first(self):
         rotate = module.rotate_after
@@ -233,13 +124,34 @@ base = Path(os.environ["FAKE_DIR"])
 argv = sys.argv[1:]
 def option(name):
     return argv[argv.index(name) + 1]
-if "ec2" in argv:
-    tags = [{"Key": "Name", "Value": "nat-A" if any(a.startswith("Name=vpc-id") for a in argv) else "c-control-plane-0"}]
-    node = {"InstanceId": "i-nat" if tags[0]["Value"] == "nat-A" else "i-ctl",
+if "PF_TALOS_AWS_PROFILE" in os.environ:
+    assert option("--profile") == os.environ["PF_TALOS_AWS_PROFILE"]
+    assert option("--region") == os.environ["PF_TALOS_AWS_REGION"]
+if "get-caller-identity" in argv:
+    print(json.dumps({"Account": os.environ.get("FAKE_ACCOUNT", "123456789012")}))
+elif "ec2" in argv:
+    (base / "discovered").touch()
+    cluster = os.environ.get("FAKE_CLUSTER", "c")
+    name_filter = next(a for a in argv if a.startswith("Name=tag:Name"))
+    is_jump = name_filter == f"Name=tag:Name,Values={cluster}-ssm-tunnel"
+    assert "Name=vpc-id,Values=vpc-1" in argv
+    tags = ([{"Key": "Name", "Value": cluster + "-ssm-tunnel"},
+             {"Key": "panfactum.com/cluster", "Value": cluster},
+             {"Key": "panfactum.com/module", "Value": "aws_ssm_jump_host"}]
+            if is_jump else [{"Key": "Name", "Value": cluster + "-control-plane-0"}])
+    node = {"InstanceId": "i-01234567890123456" if is_jump else "i-ctl", "State": {"Name": "running"},
             "PrivateIpAddress": "10.0.0.5", "VpcId": "vpc-1", "Tags": tags}
-    print(json.dumps({"Reservations": [{"Instances": [node]}]}))
+    instances = [] if not is_jump and (base / "not-launched").exists() else [node]
+    print(json.dumps({"Reservations": [{"Instances": instances}]}))
+elif "get-document" in argv:
+    port = option("--name").split("-")[-1]
+    content = {"sessionType": "Port", "parameters": {"localPortNumber": {}},
+               "properties": {"type": "LocalPortForwarding", "host": "10.0.0.5", "portNumber": port,
+                              "localPortNumber": "{{ localPortNumber }}"}}
+    print(json.dumps({"Content": json.dumps(content), "DocumentType": "Session"}))
 elif "describe-instance-information" in argv:
-    print(json.dumps({"InstanceInformationList": [{"InstanceId": "i-nat", "PingStatus": "Online"}]}))
+    print(json.dumps({"InstanceInformationList": [
+        {"InstanceId": "i-01234567890123456", "PingStatus": "Online"}]}))
 elif "describe-sessions" in argv:
     sessions = [json.loads(f.read_text()) for f in (base / "sessions").glob("*.json")]
     print(json.dumps({"Sessions": sessions}))
@@ -250,16 +162,24 @@ elif "start-session" in argv:
     with (base / "starts").open("a") as starts:
         starts.write("x\\n")
     number = len((base / "starts").read_text().split())
-    parameters = json.loads(option("--parameters"))
-    session = {"SessionId": "sess-%%d" %% number, "Reason": option("--reason"), "Parameters": parameters}
+    forwarded = json.loads(option("--parameters"))
+    assert set(forwarded) == {"localPortNumber"}
+    session = {"SessionId": "sess-%%d" %% number, "Reason": option("--reason"),
+               "local": forwarded["localPortNumber"][0], "remote": option("--document-name").split("-")[-1],
+               "host": "10.0.0.5"}
     (base / "sessions" / (session["SessionId"] + ".json")).write_text(json.dumps(session))
     print("Starting session with SessionId: " + session["SessionId"], flush=True)
-    port = int(parameters["localPortNumber"][0])
+    if (base / f"fail-forward-{session['remote']}").exists():
+        sys.exit(1)
+    port = int(json.loads(option("--parameters"))["localPortNumber"][0])
     server = socket.socket()
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(("127.0.0.1", port))
     server.listen()
-    die = base / ("die-kube-once" if parameters["portNumber"] == ["6443"] else "die-once")
+    print(f"Port {port} opened for sessionId {session['SessionId']}", flush=True)
+    die = base / f"die-once-{session['remote']}"
+    if not die.exists():
+        die = base / "die-once"
     if die.exists():
         die.unlink()
         server.settimeout(1.5)
@@ -311,21 +231,33 @@ class BackgroundTest(unittest.TestCase):
             path.chmod(0o755)
         self.env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", FAKE_DIR=str(self.fake))
         self.port = free_port()
+        self.env["PF_TALOS_FIXED_SSM"] = str(self.config("c"))
         self.addCleanup(self.stop_helper)
 
-    def argv(self, *extra):
-        return [sys.executable, str(SCRIPT), "--bootstrap", "--cluster", "c", "--talos-port", str(self.port),
-                "--state-dir", str(self.state), "--tunnel-name-pattern", "nat-*", *extra]
+    def config(self, cluster):
+        file = self.root / f"{cluster}.json"
+        documents = {str(port): {"name": f"fixed-{port}", "port": port, "host": "10.0.0.5"}
+                     for port in (6443, 50000)}
+        file.write_text(json.dumps({"cluster": cluster, "account_id": "123456789012", "vpc_id": "vpc-1",
+                                    "instance_ids": ["i-01234567890123456"], "controller_ip": "10.0.0.5",
+                                    "document_destinations": documents}))
+        return file
+
+    def argv(self, *extra, cluster="c"):
+        cluster_arg = ["--cluster", cluster] if cluster is not None else []
+        return [sys.executable, str(SCRIPT), "--bootstrap", *cluster_arg, "--talos-port", str(self.port),
+                "--state-dir", str(self.state), *extra]
 
     def hook(self, *extra, **kwargs):
         return subprocess.run(self.argv("--background", *extra), env=self.env, capture_output=True,
                               text=True, timeout=30, **kwargs)
 
+    def artifact(self, name):
+        return next((self.state / "fixed-ssm").glob(f"*/{name}"), None)
+
     def record(self):
-        try:
-            return json.loads((self.state / "bootstrap.json").read_text())
-        except (OSError, ValueError):
-            return None
+        path = self.artifact("bootstrap.json")
+        return json.loads(path.read_text()) if path is not None and path.exists() else None
 
     def sessions(self):
         return list((self.fake / "sessions").glob("*.json"))
@@ -341,7 +273,7 @@ class BackgroundTest(unittest.TestCase):
 
     def test_background_requires_bootstrap(self):
         result = subprocess.run([sys.executable, str(SCRIPT), "--cluster", "c", "--background"],
-                                capture_output=True, text=True)
+                                env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 1)
         self.assertIn("--background requires --bootstrap", result.stderr)
 
@@ -356,40 +288,8 @@ class BackgroundTest(unittest.TestCase):
         self.assertTrue(pid_alive(record["pid"]))
         self.assertNotEqual(os.getsid(record["pid"]), os.getsid(0))
         self.assertEqual(record["talos_port"], self.port)
-        self.assertEqual(oct((self.state / "bootstrap.log").stat().st_mode & 0o777), "0o600")
+        self.assertEqual(oct(self.artifact("bootstrap.log").stat().st_mode & 0o777), "0o600")
         self.assertTrue(wait_until(lambda: len(self.sessions()) == 1))
-
-    def test_bootstrap_kubernetes_uses_the_controller_ip_and_restarts_only_kubernetes(self):
-        with socket.socket() as talos, socket.socket() as kube:
-            talos.bind(("127.0.0.1", self.port))
-            kube.bind(("127.0.0.1", 0))
-            kube_port = kube.getsockname()[1]
-        (self.fake / "die-kube-once").touch()
-        result = self.hook("--bootstrap-kubernetes", "--kube-port", str(kube_port))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.record()["kube_port"], kube_port)
-        self.assertTrue(wait_until(lambda: self.starts() >= 3 and len(self.sessions()) == 2))
-        self.assertEqual(self.starts(), 3)
-        sessions = sorted(json.loads(path.read_text())["Parameters"]["portNumber"][0]
-                          for path in self.sessions())
-        self.assertEqual(sessions, ["50000", "6443"])
-        for path in self.sessions():
-            self.assertEqual(json.loads(path.read_text())["Parameters"]["host"], ["10.0.0.5"])
-        self.stop_helper()
-        self.assertEqual(self.sessions(), [])
-
-    def test_bootstrap_kubernetes_rejects_occupied_port(self):
-        with socket.socket() as listener:
-            with socket.socket() as talos:
-                talos.bind(("127.0.0.1", self.port))
-                listener.bind(("127.0.0.1", 0))
-            listener.listen()
-            port = listener.getsockname()[1]
-            result = self.hook("--bootstrap-kubernetes", "--kube-port", str(port))
-        self.assertEqual(result.returncode, 1)
-        self.assertIn(f"Local port {port} is already in use", result.stderr)
-        self.assertIsNone(self.record())
-        self.assertEqual(self.starts(), 0)
 
     def test_helper_exits_and_cleans_its_session_after_the_parent_dies(self):
         parent = subprocess.Popen(
@@ -405,44 +305,6 @@ class BackgroundTest(unittest.TestCase):
         self.assertEqual(self.sessions(), [])
         self.assertIsNone(self.record())
         module.require_free_port(self.port)
-
-    def test_live_ensure_tunnel_on_the_same_port_is_reused(self):
-        self.state.mkdir(mode=0o700)
-        (self.state / "ready.json").write_text(json.dumps(
-            {"pid": os.getpid(), "kubeconfig": "k", "talosconfig": "t", "cluster": "c",
-             "kube_port": 1, "talos_port": self.port}))
-        result = self.hook()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(f"reusing live tunnel for c on 127.0.0.1:{self.port}", result.stdout)
-        self.assertIsNone(self.record())
-        self.assertEqual(self.starts(), 0)
-
-    def test_live_helper_of_a_running_parent_is_reused(self):
-        sleeper = subprocess.Popen(["sleep", "30"])
-        self.addCleanup(lambda: (sleeper.kill(), sleeper.wait()))
-        self.state.mkdir(mode=0o700)
-        record = {"pid": sleeper.pid, "parent": os.getpid(), "talos_port": self.port}
-        (self.state / "bootstrap.json").write_text(json.dumps(record))
-        result = self.hook()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("reusing background helper", result.stdout)
-        self.assertEqual(self.record(), record)
-        self.assertEqual(self.starts(), 0)
-
-    def test_exiting_previous_helper_is_waited_out(self):
-        gone = subprocess.Popen(["true"])
-        gone.wait()
-        sleeper = subprocess.Popen(["sleep", "3"])
-        threading.Thread(target=sleeper.wait, daemon=True).start()
-        self.state.mkdir(mode=0o700)
-        (self.state / "bootstrap.json").write_text(json.dumps(
-            {"pid": sleeper.pid, "parent": gone.pid, "talos_port": self.port}))
-        began = time.monotonic()
-        result = self.hook()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertGreaterEqual(time.monotonic() - began, 2)
-        self.assertFalse(pid_alive(sleeper.pid))
-        self.assertNotEqual(self.record()["pid"], sleeper.pid)
 
     def test_foreign_listener_fails_the_hook(self):
         with socket.socket() as listener:
@@ -461,6 +323,142 @@ class BackgroundTest(unittest.TestCase):
         self.assertTrue(pid_alive(self.record()["pid"]))
         self.stop_helper()
         self.assertEqual(self.sessions(), [])
+
+    def terragrunt_hook(self, **overrides):
+        env = dict(self.env, TF_VAR_cluster_name="fixture-cluster", FAKE_CLUSTER="fixture-cluster",
+                   AWS_PROFILE="ignored-profile", AWS_REGION="ignored-region",
+                   PF_TALOS_AWS_PROFILE="provider-profile", PF_TALOS_AWS_REGION="us-east-2",
+                   PF_TALOS_AWS_ACCOUNT_ID="123456789012", **overrides)
+        env["PF_TALOS_FIXED_SSM"] = str(self.config("fixture-cluster"))
+        self.kube_port = free_port()
+        argv = self.argv("--background", "--terragrunt-hook", "--kube-port", str(self.kube_port), cluster=None)
+        return argv, env
+
+    def test_terragrunt_hook_waits_for_an_existing_cluster_then_follows_parent_lifetime(self):
+        argv, env = self.terragrunt_hook()
+        # Keep the hook and a simulated engine under the same parent PID.
+        parent = """
+import json, os, socket, subprocess, sys
+from pathlib import Path
+subprocess.run(sys.argv[3:], check=True, timeout=5)
+with socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=1):
+    record = json.loads(next(Path(sys.argv[2]).glob("fixed-ssm/*/bootstrap.json")).read_text())
+    assert record["parent"] == os.getpid(), record
+    print(record["pid"])
+"""
+        result = subprocess.run([sys.executable, "-c", parent, str(self.port),
+                                 str(self.state), *argv],
+                                env=env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pid = int(result.stdout.splitlines()[-1])
+        self.assertTrue(wait_until(lambda: not pid_alive(pid), 5))
+        self.assertEqual(self.starts(), 2)
+        self.assertEqual(self.sessions(), [])
+        self.assertIsNone(self.record())
+
+    def test_terragrunt_hook_forwards_talos_and_kubernetes(self):
+        argv, env = self.terragrunt_hook()
+        result = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(wait_until(lambda: len(self.sessions()) == 2, 8))
+        forwards = {(item["local"], item["remote"], item["host"]) for item in
+                    (json.loads(path.read_text()) for path in self.sessions())}
+        self.assertEqual(forwards, {(str(self.port), "50000", "10.0.0.5"),
+                                    (str(self.kube_port), "6443", "10.0.0.5")})
+        self.assertEqual(self.record()["kube_port"], self.kube_port)
+        self.assertTrue(wait_until(lambda: self._listening(self.kube_port), 5))
+
+    def test_terragrunt_hook_reconnects_kube_without_closing_talos(self):
+        (self.fake / "die-once-6443").touch()
+        argv, env = self.terragrunt_hook()
+        result = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        talos_session = self.fake / "sessions" / "sess-1.json"
+        self.assertEqual(json.loads(talos_session.read_text())["remote"], "50000")
+        self.assertTrue(wait_until(lambda: self.starts() == 3 and len(self.sessions()) == 2, 10))
+        self.assertTrue(talos_session.is_file())
+        self.assertEqual(json.loads((self.fake / "sessions" / "sess-3.json").read_text())["remote"], "6443")
+
+    def test_terragrunt_hook_rejects_a_busy_kube_port(self):
+        argv, env = self.terragrunt_hook()
+        with socket.socket() as busy:
+            busy.bind(("127.0.0.1", self.kube_port))
+            busy.listen()
+            result = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(f"Local port {self.kube_port} is already in use", result.stderr)
+        self.assertEqual(self.starts(), 0)
+
+    @staticmethod
+    def _listening(port):
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=1).close()
+        except OSError:
+            return False
+        return True
+
+    def test_terragrunt_hook_defers_discovery_for_first_apply(self):
+        (self.fake / "not-launched").touch()
+        argv, env = self.terragrunt_hook()
+        result = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Waiting in the background for Talos tunnel discovery", result.stdout)
+        self.assertEqual(self.starts(), 0)
+        (self.fake / "not-launched").unlink()
+        self.assertTrue(wait_until(lambda: len(self.sessions()) == 2, 8))
+
+    def test_terragrunt_hook_rejects_aws_account_mismatch_before_discovery(self):
+        argv, env = self.terragrunt_hook(FAKE_ACCOUNT="999999999999")
+        result = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("resolves to account 999999999999", result.stderr)
+        self.assertIsNone(self.record())
+        self.assertFalse((self.fake / "discovered").exists())
+
+    def test_terragrunt_hook_requires_provider_configuration(self):
+        argv, env = self.terragrunt_hook()
+        del env["PF_TALOS_AWS_REGION"]
+        result = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("PF_TALOS_AWS_REGION is required", result.stderr)
+        self.assertFalse((self.fake / "discovered").exists())
+
+    def test_terragrunt_hook_requires_fixed_configuration(self):
+        argv, env = self.terragrunt_hook(TF_VAR_talos_access_transport="ssm", PF_TALOS_TRANSPORT="vpn")
+        del env["PF_TALOS_FIXED_SSM"]
+        result = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Set PF_TALOS_FIXED_SSM", result.stderr)
+        self.assertIsNone(self.record())
+        self.assertEqual(self.starts(), 0)
+
+    def test_terragrunt_hook_uses_routed_transport_without_ssm(self):
+        argv, env = self.terragrunt_hook(TF_VAR_talos_access_transport="vpn", PF_TALOS_TRANSPORT="ssm")
+        del env["PF_TALOS_FIXED_SSM"]
+        result = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(self.record())
+        self.assertEqual(self.starts(), 0)
+
+    def test_terragrunt_hook_rejects_mismatched_fixed_configuration(self):
+        argv, env = self.terragrunt_hook()
+        env["PF_TALOS_FIXED_SSM"] = str(self.config("other-cluster"))
+        result = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Fix the cluster, AWS scope, host IDs or document map", result.stderr)
+        self.assertIsNone(self.record())
+        self.assertEqual(self.starts(), 0)
+
+    def test_terragrunt_hook_reports_startup_failure_and_cleans_partial_session(self):
+        (self.fake / "fail-forward-6443").touch()
+        argv, env = self.terragrunt_hook()
+        result = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Background Talos helper failed to start", result.stderr)
+        self.assertIn("failed to establish the Kubernetes forward", self.artifact("bootstrap.log").read_text())
+        self.assertEqual(self.starts(), 2)
+        self.assertEqual(self.sessions(), [])
+        self.assertIsNone(self.record())
 
 
 if __name__ == "__main__":

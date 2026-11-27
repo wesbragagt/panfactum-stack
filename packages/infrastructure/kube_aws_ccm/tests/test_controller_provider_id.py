@@ -32,35 +32,38 @@ def node_list(*nodes):
 
 
 class ControllerProviderIDTest(unittest.TestCase):
-    def test_uses_shared_kubernetes_server_and_tls_name(self):
-        routes = (
-            ("https://127.0.0.1:26443", "api.test.internal"),
-            ("https://test.elb.amazonaws.com:6443", ""),
-            ("https://api.test.internal:6443", ""),
+    def test_uses_provider_kubeconfig_context_and_server(self):
+        environments = (
+            ({"KUBE_CONFIG_PATH": "/k/config", "PF_KUBE_CONFIG_CONTEXT": "homelab", "PF_KUBE_API_SERVER": "https://127.0.0.1:16443"},
+             ["--kubeconfig=/k/config", "--context=homelab", "--server=https://127.0.0.1:16443"]),
+            ({"KUBE_CONFIG_PATH": "/k/config", "PF_KUBE_CONFIG_CONTEXT": "", "PF_KUBE_API_SERVER": ""},
+             ["--kubeconfig=/k/config"]),
+            ({}, []),
         )
-        for server, tls_name in routes:
+        for provider_environment, flags in environments:
             environment = {
                 "CONTROLLER_IDENTITY": json.dumps({"private_ip": IP, "provider_id": PROVIDER_ID}),
-                "KUBECONFIG_RAW": "fixture-kubeconfig",
-                "KUBE_API_SERVER": server,
-                "KUBE_TLS_SERVER_NAME": tls_name,
+                **provider_environment,
             }
-            with self.subTest(server=server), patch.dict(os.environ, environment, clear=True), \
+            with self.subTest(flags=flags), patch.dict(os.environ, environment, clear=True), \
                     patch("controller_provider_id.subprocess.run") as run:
                 run.return_value.stdout = node_list(node("short", provider_id=PROVIDER_ID))
 
                 self.assertEqual(main(), 0)
 
-                command = [
-                    "kubectl", "--kubeconfig=/dev/stdin", "--request-timeout=10s",
-                    f"--server={server}",
-                ]
-                if tls_name:
-                    command.append(f"--tls-server-name={tls_name}")
                 run.assert_called_once_with(
-                    [*command, "get", "nodes", "-o", "json"],
-                    input="fixture-kubeconfig", text=True, capture_output=True, timeout=12, check=True,
+                    ["kubectl", "--request-timeout=10s", *flags, "get", "nodes", "-o", "json"],
+                    text=True, capture_output=True, timeout=30, check=True,
                 )
+
+    def test_mismatched_id_fails_the_command(self):
+        environment = {"CONTROLLER_IDENTITY": json.dumps({"private_ip": IP, "provider_id": PROVIDER_ID})}
+        with patch.dict(os.environ, environment, clear=True), \
+                patch("controller_provider_id.subprocess.run") as run, \
+                patch("sys.stderr"):
+            run.return_value.stdout = node_list(node("short", provider_id="aws:///us-east-2a/i-stale"))
+
+            self.assertEqual(main(), 1)
 
     def test_patches_blank_id_on_existing_short_name_node(self):
         kubectl = Mock(side_effect=[node_list(node("ip-10-0-1-10")), ""])

@@ -25,7 +25,7 @@ output "kubernetes_version" {
 }
 
 output "dns_service_ip" {
-  description = "CoreDNS service address in the primary service CIDR when AWS node configuration owns the network."
+  description = "CoreDNS service address in the primary service CIDR."
   # NOTE: Talos computes the kube-dns service address by advancing ten addresses from the CIDR base.
   value = try(cidrhost(var.service_subnets[0], 10), null)
 }
@@ -54,6 +54,19 @@ output "control_plane_public_ips" {
 output "control_plane_private_ips" {
   description = "Private IPs of the control plane nodes, in control_plane_subnets order."
   value       = aws_instance.control_plane[*].private_ip
+}
+
+output "controller_provider_ids" {
+  description = "AWS provider ID of each controller, keyed by private IP."
+  value = {
+    for instance in aws_instance.control_plane :
+    instance.private_ip => format("aws:///%s/%s", instance.availability_zone, instance.id)
+  }
+}
+
+output "api_load_balancer_dns_name" {
+  description = "DNS name of the internal Kubernetes API load balancer, or null when no load balancer is created."
+  value       = one(aws_lb.api[*].dns_name)
 }
 
 output "talosconfig" {
@@ -90,7 +103,7 @@ output "node_bootstrap" {
     cluster_endpoint   = local.worker_cluster_endpoint
     talos_version      = var.talos_version
     kubernetes_version = var.kube_version
-    installer_image    = coalesce(var.installer_image, "factory.talos.dev/aws-installer/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba:${var.talos_version}")
+    installer_image    = local.upgrade_installer_image
     pod_subnets        = var.pod_subnets
     service_subnets    = var.service_subnets
   }

@@ -6,7 +6,7 @@
 
 The following input variables are supported:
 
-### allow_public_s3_presigned_urls
+### allow\_public\_s3\_presigned\_urls
 
 Description: Whether to allow the service account to generate presigned URLs that will be publicly accessible
 
@@ -14,7 +14,7 @@ Type: `bool`
 
 Default: `false`
 
-### annotate_service_account
+### annotate\_service\_account
 
 Description: Whether or not to annotate the service account
 
@@ -22,7 +22,31 @@ Type: `bool`
 
 Default: `true`
 
-### iam_policy_json
+### cluster\_name
+
+Description: Explicit Kubernetes cluster name. Defaults to Panfactum kubeconfig metadata.
+
+Type: `string`
+
+Default: `null`
+
+### cluster\_subnet\_ids
+
+Description: Explicit cluster subnet IDs for IP restrictions. Null preserves tagged EKS subnet discovery; an empty set disables discovery.
+
+Type: `set(string)`
+
+Default: `null`
+
+### custom\_oidc\_enabled
+
+Description: Select custom OIDC at plan time when the provider ARN and issuer URL are created in the same plan.
+
+Type: `bool`
+
+Default: `false`
+
+### iam\_policy\_json
 
 Description: An IAM policy document in rendered JSON string form.
 
@@ -30,7 +54,15 @@ Type: `string`
 
 Default: n/a
 
-### ip_allow_list
+### iam\_tags
+
+Description: Existing IAM base tags to preserve during state adoption. Defaults to Panfactum AWS tags.
+
+Type: `map(string)`
+
+Default: `null`
+
+### ip\_allow\_list
 
 Description: A list of IPs that can use the service account token to authenticate with AWS API
 
@@ -38,7 +70,39 @@ Type: `list(string)`
 
 Default: `[]`
 
-### service_account
+### ip\_restrictions\_enabled
+
+Description: Attach Panfactum source-IP deny policies (default true). Explicit false supports self-managed nodes with changing public egress; OIDC principal/subject/audience restrictions remain enforced.
+
+Type: `bool`
+
+Default: `true`
+
+### local\_static\_credentials\_enabled
+
+Description: Development simulators only: create an IAM user, access key and Kubernetes Secret <service\_account>-aws-static instead of IRSA/EKS discovery. The role trusts only that user. Never use against real AWS.
+
+Type: `bool`
+
+Default: `false`
+
+### oidc\_issuer\_url
+
+Description: HTTPS issuer URL paired with oidc\_provider\_arn. Custom identities require the exact namespace/service-account subject and sts.amazonaws.com audience.
+
+Type: `string`
+
+Default: `null`
+
+### oidc\_provider\_arn
+
+Description: Existing self-managed cluster OIDC provider ARN. Supply with oidc\_issuer\_url; null preserves EKS discovery.
+
+Type: `string`
+
+Default: `null`
+
+### service\_account
 
 Description: The name of the service account that should be able to assume the AWS permissions.
 
@@ -46,7 +110,7 @@ Type: `string`
 
 Default: n/a
 
-### service_account_namespace
+### service\_account\_namespace
 
 Description: The namespace of the service account.
 
@@ -58,19 +122,27 @@ Default: n/a
 
 The following outputs are exported:
 
-### policy_arn
+### local\_credentials\_secret\_name
+
+Description: Secret holding AWS\_ACCESS\_KEY\_ID/AWS\_SECRET\_ACCESS\_KEY when local\_static\_credentials\_enabled; null otherwise.
+
+### local\_user\_arn
+
+Description: IAM user ARN behind the local static credentials; null otherwise.
+
+### policy\_arn
 
 Description: The ARN of the policy assigned to the role.
 
-### role_arn
+### role\_arn
 
 Description: The ARN of the role created for the service account.
 
-### role_name
+### role\_name
 
 Description: The name of the role created for the service account.
 
-### service_account_annotations
+### service\_account\_annotations
 
 Description: The annotations to apply to the service account
 
@@ -78,11 +150,11 @@ Description: The annotations to apply to the service account
 
 The following providers are needed by this module:
 
-- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.40.0/docs) (6.40.0)
+- [aws](https://registry.terraform.io/providers/hashicorp/aws/6.73.0/docs) (6.73.0)
 
-- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/2.1.6/docs) (2.1.6)
+- [kubectl](https://registry.terraform.io/providers/alekc/kubectl/3.0.1/docs) (3.0.1)
 
-- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/2.35.0/docs) (2.35.0)
+- [kubernetes](https://registry.terraform.io/providers/hashicorp/kubernetes/3.5.0/docs) (3.5.0)
 
 - [pf](https://registry.terraform.io/providers/panfactum/pf/0.0.7/docs) (0.0.7)
 

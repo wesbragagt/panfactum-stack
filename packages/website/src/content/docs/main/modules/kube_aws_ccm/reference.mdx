@@ -6,93 +6,37 @@
 
 The following input variables are supported:
 
-### availability\_zone
+### cluster
 
-Description: Control-plane availability zone.
+Description: Talos cluster identity and service-account OIDC trust, as output by aws\_kube\_talos.
 
-Type: `string`
+Type:
+
+```hcl
+object({
+    name              = string
+    oidc_provider_arn = string
+    oidc_issuer_url   = string
+  })
+```
 
 Default: n/a
 
-### cluster\_name
+### controller\_provider\_ids
 
-Description: Cluster identifier.
+Description: AWS provider ID of each controller keyed by private IP, as output by aws\_kube\_talos.
 
-Type: `string`
+Type: `map(string)`
 
 Default: n/a
-
-### cluster\_subnet\_ids
-
-Description: Explicit subnets for source-IP policy discovery.
-
-Type: `set(string)`
-
-Default: `null`
 
 ### image\_version
 
-Description: AWS cloud controller manager image tag.
+Description: AWS cloud controller manager image tag. Use the release for the cluster's Kubernetes minor.
 
 Type: `string`
 
-Default: `"v1.37.0"`
-
-### ip\_restrictions\_enabled
-
-Description: Enable source-IP deny policies.
-
-Type: `bool`
-
-Default: `true`
-
-### oidc\_issuer\_url
-
-Description: Existing OIDC issuer URL paired with its ARN.
-
-Type: `string`
-
-Default: `null`
-
-### oidc\_provider\_arn
-
-Description: Existing OIDC provider ARN; null retains EKS discovery.
-
-Type: `string`
-
-Default: `null`
-
-### region
-
-Description: AWS region.
-
-Type: `string`
-
-Default: n/a
-
-### subnet\_id
-
-Description: Existing control-plane subnet ID.
-
-Type: `string`
-
-Default: n/a
-
-### talos\_bootstrap\_enabled
-
-Description: Mount an AWS web identity token and tolerate Talos controller taints during bootstrap.
-
-Type: `bool`
-
-Default: `false`
-
-### vpc\_id
-
-Description: Existing cluster VPC ID.
-
-Type: `string`
-
-Default: n/a
+Default: `"v1.36.1"`
 
 ## Outputs
 

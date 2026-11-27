@@ -1,6 +1,6 @@
 # Bootstrap Talos and Karpenter on AWS
 
-Use `aws_kube_talos` for the control plane and AWS cloud controller manager (CCM). Use Karpenter for workers. Start with a temporary public load balancer. Remove it after you verify private access.
+Use `aws_kube_talos` for the control plane and `kube_aws_ccm` for the AWS cloud controller manager (CCM). Use Karpenter for workers. Start with a temporary public load balancer. Remove it after you verify private access.
 
 ## 1. Prepare the control plane
 
@@ -15,19 +15,15 @@ Set `talos_access_transport = "bootstrap_public"`. The module detects the runner
 
 1. Review and apply the Talos plan. Save `kubeconfig` and `talosconfig` in private files.
 2. Use `bootstrap_public_kube_url` and `bootstrap_public_talos_endpoint` to check `/readyz` and the etcd members.
-3. Check that CCM has set the controller provider IDs. Use `aws_ccm_bootstrap_controller` to identify the bootstrap controller.
-
-CCM starts with Talos. Kubernetes `1.36` defaults to CCM `v1.36.1`. Set `aws_ccm.image_version` to override it. Set an explicit image if the Kubernetes minor has no default. Use the same Kubernetes major and the target minor or the previous minor. During an upgrade, keep CCM at or below the oldest API server minor that it can reach. [AWS CCM compatibility](https://cloud-provider-aws.sigs.k8s.io/#compatibility-with-kubernetes) · [Kubernetes version skew](https://kubernetes.io/releases/version-skew-policy/#kube-controller-manager-kube-scheduler-and-cloud-controller-manager)
-
-If a separate caller owns CCM, destroy that caller's CCM resources before applying `aws_kube_talos`.
 
 ## 3. Install networking and switch to private access
 
 1. Apply `kube_cilium`. Pass `cluster = { type = "talos", name = dependency.cluster.outputs.cluster_name }`. Use its default Talos KubePrism endpoint.
-2. Apply `kube_core_dns`. Set `service_ip` from the Talos `dns_service_ip` output. Check DNS from a Pod.
-3. Configure Headscale or Tailscale. Route the private controller subnets and make the private API name resolvable from the runner.
-4. Verify authenticated Kubernetes and Talos API requests over the private path. Set `talos_access_transport = "vpn"`. Plan and apply with the public load balancer still available.
-5. Repeat those checks. Set `bootstrap_public = { enabled = false }`. Review the removal plan and apply it. Verify that the private APIs still work.
+2. Apply `kube_aws_ccm`. Pass the `cluster` and `controller_provider_ids` outputs of `aws_kube_talos`. It sets the controller provider IDs and installs CCM. Kubernetes `1.36` defaults to CCM `v1.36.1`. Set `image_version` to override it. Use the same Kubernetes major and the target minor or the previous minor. During an upgrade, keep CCM at or below the oldest API server minor that it can reach. [AWS CCM compatibility](https://cloud-provider-aws.sigs.k8s.io/#compatibility-with-kubernetes) · [Kubernetes version skew](https://kubernetes.io/releases/version-skew-policy/#kube-controller-manager-kube-scheduler-and-cloud-controller-manager)
+3. Apply `kube_core_dns`. Set `service_ip` from the Talos `dns_service_ip` output. Check DNS from a Pod.
+4. Configure Headscale or Tailscale. Route the private controller subnets and make the private API name resolvable from the runner.
+5. Verify authenticated Kubernetes and Talos API requests over the private path. Set `talos_access_transport = "vpn"`. Plan and apply with the public load balancer still available.
+6. Repeat those checks. Set `bootstrap_public = { enabled = false }`. Review the removal plan and apply it. Verify that the private APIs still work.
 
 Use separate plans for the transport change and the load balancer removal.
 

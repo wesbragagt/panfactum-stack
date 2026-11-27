@@ -114,9 +114,6 @@ resource "aws_instance" "ssm_jump_host" {
   iam_instance_profile        = aws_iam_instance_profile.ssm_jump_host[0].name
   associate_public_ip_address = false
 
-  # Attach the SSM policy before the agent starts on a new host.
-  depends_on = [aws_iam_role_policy_attachment.ssm_jump_host]
-
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
@@ -157,4 +154,25 @@ resource "aws_vpc_security_group_ingress_rule" "ssm_jump_host_talos" {
   from_port                    = 50000
   to_port                      = 50000
   description                  = "talos API from the SSM jump host"
+}
+
+# Tunnels that target the API name reach the NLB, not the nodes
+resource "aws_vpc_security_group_ingress_rule" "api_lb_ssm_jump_host" {
+  count                        = local.api_lb_enabled ? local.ssm_jump_host_count : 0
+  security_group_id            = aws_security_group.api_lb[0].id
+  referenced_security_group_id = aws_security_group.ssm_jump_host[0].id
+  ip_protocol                  = "tcp"
+  from_port                    = 6443
+  to_port                      = 6443
+  description                  = "kubernetes API from the SSM jump host"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "api_lb_operator_tunnel" {
+  for_each                     = local.api_lb_enabled ? toset(var.operator_tunnel_security_group_ids) : toset([])
+  security_group_id            = aws_security_group.api_lb[0].id
+  referenced_security_group_id = each.value
+  ip_protocol                  = "tcp"
+  from_port                    = 6443
+  to_port                      = 6443
+  description                  = "kubernetes API from SSM tunnel hosts"
 }

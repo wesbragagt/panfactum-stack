@@ -26,7 +26,7 @@ variable "control_plane_subnets" {
 }
 
 variable "bootstrap_control_plane" {
-  description = "Subnet name of the controller that runs talos_machine_bootstrap and serves as the cluster endpoint fallback. Null uses the first entry of control_plane_subnets. Must be one of the active subnets."
+  description = "Subnet name of the controller that bootstraps talos_cluster and serves as the cluster endpoint fallback. Null uses the first entry of control_plane_subnets. Must be one of the active subnets."
   type        = string
   default     = null
 }
@@ -61,6 +61,12 @@ variable "private_api_dns_name" {
   default     = null
 }
 
+variable "api_load_balancer_enabled" {
+  description = "Put an internal network load balancer in front of the controllers and point the private_api_dns_name record at it. Its HTTPS /readyz health check stops traffic to a controller that accepts TCP but is not ready. Has no effect without private_api_dns_name."
+  type        = bool
+  default     = true
+}
+
 variable "control_plane_instance_type" {
   description = "EC2 instance type for control plane nodes. T2 types are not supported by Talos."
   type        = string
@@ -79,6 +85,18 @@ variable "control_plane_workloads_enabled" {
   default     = true
 }
 
+variable "control_plane_register_with_fqdn" {
+  description = "Whether controllers register Nodes under the EC2 private DNS name so the external cloud provider can resolve them and set spec.providerID. Changing it on an existing cluster renames controller Nodes, so set it only on new clusters."
+  type        = bool
+  default     = false
+}
+
+variable "bootstrap_mode_enabled" {
+  description = "Controllers skip the controller=true:NoSchedule and control-plane taints so workloads run on them until Karpenter launches workers; set to false after that."
+  type        = bool
+  default     = false
+}
+
 variable "root_volume_size_gb" {
   description = "Size of each node's root EBS volume in GB."
   type        = number
@@ -92,9 +110,15 @@ variable "talos_version" {
 }
 
 variable "kube_version" {
-  description = "Kubernetes version (e.g., 1.36.5). Pinned so a talos provider upgrade does not change it; upgrade with `talosctl upgrade-k8s`."
+  description = "Kubernetes version (e.g., 1.36.5). The Talos cluster resource manages upgrades. Raise it one minor version at a time."
   type        = string
   default     = "1.36.5"
+}
+
+variable "version_upgrades_enabled" {
+  description = "Run `talosctl upgrade` on each controller when talos_version changes. Needs talosctl on PATH and the Talos API reachable at talos_api_endpoint during apply."
+  type        = bool
+  default     = true
 }
 
 variable "talos_api_allowed_cidrs" {
@@ -174,18 +198,6 @@ variable "api_dns" {
   default = null
 }
 
-variable "core_dns_enabled" {
-  description = "Whether Talos deploys its own CoreDNS. Disabled by default for Panfactum kube_core_dns."
-  type        = bool
-  default     = false
-}
-
-variable "cilium_enabled" {
-  description = "Disable Talos-managed Flannel and kube-proxy on every node before installing Cilium with kube-proxy replacement."
-  type        = bool
-  default     = true
-}
-
 variable "etcd_backup_retention_days" {
   description = "Days to keep etcd snapshots in S3."
   type        = number
@@ -249,6 +261,12 @@ variable "client_configuration" {
   default   = null
 }
 
+variable "panfactum_scheduler_enabled" {
+  description = "Enable the Panfactum Kubernetes scheduler profile alongside the default scheduler."
+  type        = bool
+  default     = false
+}
+
 variable "control_plane_config_patches" {
   description = "Additional Talos configuration patches for control plane nodes."
   type        = list(string)
@@ -286,19 +304,8 @@ variable "service_subnets" {
   default     = ["10.96.0.0/12"]
 }
 
-variable "controller_provider_id_kube_api_server" {
-  description = "Optional HTTPS Kubernetes API URL for setting AWS controller provider IDs. VPN and public access derive the URL automatically. For SSM, keep a Kubernetes forward running and set its loopback URL to enable provider ID reconciliation."
-  type        = string
-  default     = null
-
-  validation {
-    condition     = var.controller_provider_id_kube_api_server == null ? true : startswith(var.controller_provider_id_kube_api_server, "https://")
-    error_message = "controller_provider_id_kube_api_server must be an HTTPS URL."
-  }
-}
-
-variable "worker_identity" {
-  description = "Deprecated alias for the Talos controller identity settings. Worker IAM is managed by Karpenter."
+variable "controller_identity" {
+  description = "IAM naming and ECR access settings for the optional Talos controller identity."
   type = object({
     name_prefix                            = optional(string)
     ecr_cache_prefixes                     = optional(set(string), [])
@@ -309,41 +316,15 @@ variable "worker_identity" {
   nullable = false
 
   validation {
-    condition     = var.worker_identity.name_prefix == null || can(regex("^[A-Za-z0-9+=,.@_-]{1,24}$", var.worker_identity.name_prefix))
+    condition     = var.controller_identity.name_prefix == null || can(regex("^[A-Za-z0-9+=,.@_-]{1,24}$", var.controller_identity.name_prefix))
     error_message = "name_prefix must be 1-24 IAM-compatible characters so generated role and profile names fit AWS limits."
   }
   validation {
-    condition     = alltrue([for prefix in var.worker_identity.ecr_cache_prefixes : contains(["github", "docker-hub", "quay", "kubernetes", "ecr-public"], prefix)])
+    condition     = alltrue([for prefix in var.controller_identity.ecr_cache_prefixes : contains(["github", "docker-hub", "quay", "kubernetes", "ecr-public"], prefix)])
     error_message = "Only the five established pull-through cache prefixes are allowed."
   }
   validation {
-    condition = alltrue([for name in var.worker_identity.controller_additional_ecr_repositories :
-      length(name) >= 2 && length(name) <= 256 && can(regex("^[a-z0-9]+([._/-][a-z0-9]+)*$", name))
-    ])
-    error_message = "Use exact lowercase ECR repository names without wildcards or ARNs."
-  }
-}
-
-variable "controller_identity" {
-  description = "IAM naming and ECR access settings for the optional Talos controller identity."
-  type = object({
-    name_prefix                            = optional(string)
-    ecr_cache_prefixes                     = optional(set(string), [])
-    controller_instance_profile_enabled    = optional(bool, false)
-    controller_additional_ecr_repositories = optional(set(string), [])
-  })
-  default = null
-
-  validation {
-    condition     = var.controller_identity == null ? true : (var.controller_identity.name_prefix == null || can(regex("^[A-Za-z0-9+=,.@_-]{1,24}$", var.controller_identity.name_prefix)))
-    error_message = "name_prefix must be 1-24 IAM-compatible characters so generated role and profile names fit AWS limits."
-  }
-  validation {
-    condition     = var.controller_identity == null ? true : alltrue([for prefix in var.controller_identity.ecr_cache_prefixes : contains(["github", "docker-hub", "quay", "kubernetes", "ecr-public"], prefix)])
-    error_message = "Only the five established pull-through cache prefixes are allowed."
-  }
-  validation {
-    condition = var.controller_identity == null ? true : alltrue([for name in var.controller_identity.controller_additional_ecr_repositories :
+    condition = alltrue([for name in var.controller_identity.controller_additional_ecr_repositories :
       length(name) >= 2 && length(name) <= 256 && can(regex("^[a-z0-9]+([._/-][a-z0-9]+)*$", name))
     ])
     error_message = "Use exact lowercase ECR repository names without wildcards or ARNs."

@@ -73,29 +73,45 @@ resource "aws_iam_policy" "service_account" {
 }
 
 data "aws_eks_cluster" "cluster" {
-  count = local.custom_oidc_requested ? 0 : 1
+  count = local.custom_oidc_requested || var.local_static_credentials_enabled ? 0 : 1
   name  = local.cluster_name
 }
 
 data "aws_iam_policy_document" "service_account_assume" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-    principals {
-      identifiers = [local.oidc_principal]
-      type        = "Federated"
-    }
-    condition {
-      test     = "StringEquals"
-      values   = ["system:serviceaccount:${var.service_account_namespace}:${var.service_account}"]
-      variable = "${local.kube_oidc_provider}:sub"
-    }
-    dynamic "condition" {
-      for_each = local.custom_oidc_requested ? [true] : []
-      content {
+  dynamic "statement" {
+    for_each = var.local_static_credentials_enabled ? [] : [true]
+    content {
+      effect  = "Allow"
+      actions = ["sts:AssumeRoleWithWebIdentity"]
+      principals {
+        identifiers = [local.oidc_principal]
+        type        = "Federated"
+      }
+      condition {
         test     = "StringEquals"
-        values   = ["sts.amazonaws.com"]
-        variable = "${local.kube_oidc_provider}:aud"
+        values   = ["system:serviceaccount:${var.service_account_namespace}:${var.service_account}"]
+        variable = "${local.kube_oidc_provider}:sub"
+      }
+      dynamic "condition" {
+        for_each = local.custom_oidc_requested ? [true] : []
+        content {
+          test     = "StringEquals"
+          values   = ["sts.amazonaws.com"]
+          variable = "${local.kube_oidc_provider}:aud"
+        }
+      }
+    }
+  }
+
+  # Local mode has no OIDC issuer; only the static-credential user may assume the role.
+  dynamic "statement" {
+    for_each = var.local_static_credentials_enabled ? [true] : []
+    content {
+      effect  = "Allow"
+      actions = ["sts:AssumeRole"]
+      principals {
+        identifiers = [aws_iam_user.local[0].arn]
+        type        = "AWS"
       }
     }
   }
@@ -118,6 +134,10 @@ resource "aws_iam_role" "service_account" {
       condition     = local.custom_oidc_requested && var.oidc_provider_arn != null ? endswith(var.oidc_provider_arn, ":oidc-provider/${local.kube_oidc_provider}") && split(":", var.oidc_provider_arn)[4] == data.aws_caller_identity.main.account_id : true
       error_message = "The explicit OIDC provider ARN must match the issuer URL and the role's AWS account."
     }
+    precondition {
+      condition     = !var.local_static_credentials_enabled || !local.custom_oidc_requested
+      error_message = "local_static_credentials_enabled cannot be combined with an OIDC provider."
+    }
   }
 }
 
@@ -125,6 +145,8 @@ resource "aws_iam_policy_attachment" "service_account" {
   name       = aws_iam_policy.service_account.name
   policy_arn = aws_iam_policy.service_account.arn
   roles      = [aws_iam_role.service_account.name]
+  # This attachment is exclusive for the policy, so it must also list the local user or it would detach it.
+  users = var.local_static_credentials_enabled ? [aws_iam_user.local[0].name] : null
 }
 
 data "aws_iam_policy_document" "ip_blocks" {
@@ -247,7 +269,7 @@ resource "aws_iam_policy_attachment" "ip_blocks" {
 # ################################################################################
 
 resource "kubernetes_annotations" "service_account" {
-  count       = var.annotate_service_account ? 1 : 0
+  count       = var.annotate_service_account && !var.local_static_credentials_enabled ? 1 : 0
   api_version = "v1"
   kind        = "ServiceAccount"
   metadata {
@@ -269,4 +291,37 @@ moved {
 moved {
   from = aws_iam_policy_attachment.ip_blocks
   to   = aws_iam_policy_attachment.ip_blocks[0]
+}
+
+# ################################################################################
+# Local static credentials (development simulators only; does not exercise IRSA)
+# ################################################################################
+
+resource "aws_iam_user" "local" {
+  count = var.local_static_credentials_enabled ? 1 : 0
+  name  = substr("local-${var.service_account_namespace}-${var.service_account}", 0, 64)
+  tags  = local.iam_tags
+}
+
+resource "aws_iam_user_policy_attachment" "local" {
+  count      = var.local_static_credentials_enabled ? 1 : 0
+  user       = aws_iam_user.local[0].name
+  policy_arn = aws_iam_policy.service_account.arn
+}
+
+resource "aws_iam_access_key" "local" {
+  count = var.local_static_credentials_enabled ? 1 : 0
+  user  = aws_iam_user.local[0].name
+}
+
+resource "kubernetes_secret_v1" "local" {
+  count = var.local_static_credentials_enabled ? 1 : 0
+  metadata {
+    name      = "${var.service_account}-aws-static"
+    namespace = var.service_account_namespace
+  }
+  data = {
+    AWS_ACCESS_KEY_ID     = aws_iam_access_key.local[0].id
+    AWS_SECRET_ACCESS_KEY = aws_iam_access_key.local[0].secret
+  }
 }

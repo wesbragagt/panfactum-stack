@@ -299,6 +299,7 @@ words:
     "kubeconfigs",
     "clientconfig",
     "IMDS",
+    "readyz",
   ]
 languageSettings:
   - languageId:

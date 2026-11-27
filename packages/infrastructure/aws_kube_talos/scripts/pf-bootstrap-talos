@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""Set up kubectl access to Talos clusters through the SSM tunnel.
+"""Set up kubectl access to Talos through VPN, SSM or public bootstrap.
 
 Subcommands: preflight (check tools, AWS identity and a tunnel host), forward
 (tunnel the Talos port before the first apply), register (record a cluster after
 its first apply) and merge (write the registered clusters into $KUBE_DIR/config).
 
 $KUBE_DIR (default: .kube at the git repository root) holds two files. config.talos.yaml is committed and has
-no secrets: region, ports, module path and CA per cluster. config.talos.user.yaml is
-per operator and gitignored: the AWS profile per cluster. Both are read as JSON or,
+no secrets: region, ports, module path, CA and optional private endpoints per cluster.
+config.talos.user.yaml is gitignored and records the operator's AWS profile and transport
+per cluster. Both are read as JSON or,
 for the user file, as a block list:
 
   - name: my-cluster
     aws_profile: my-profile
+    transport: vpn
+
+Omitting transport selects SSM.
 
 The kubeconfig user runs python3 on cluster_access.py (next to this script) with
 --exec-credential to fetch the credential on demand, so config holds no keys.
@@ -21,7 +25,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -33,7 +36,6 @@ import cluster_access  # noqa: E402
 
 COMMITTED = "config.talos.yaml"
 USER = "config.talos.user.yaml"
-TOOLS = ("aws", "session-manager-plugin", "kubectl", "talosctl", "terragrunt")
 
 
 class SetupError(Exception):
@@ -43,18 +45,20 @@ class SetupError(Exception):
 def kube_dir():
     if os.environ.get("KUBE_DIR"):
         return Path(os.environ["KUBE_DIR"]).resolve()
-    # Terragrunt hooks run from a cache directory, so a relative .kube would land there.
-    return repo_root(Path.cwd()) / ".kube"
+    # NOTE: Linked checkouts share the primary checkout's config with direnv.
+    return repo_root(Path.cwd(), primary=True) / ".kube"
 
 
-def repo_root(directory):
+def repo_root(directory, *, primary=False):
     directory.mkdir(parents=True, exist_ok=True)
-    result = subprocess.run(["git", "-C", str(directory), "rev-parse", "--show-toplevel"],
+    query = ["--path-format=absolute", "--git-common-dir"] if primary else ["--show-toplevel"]
+    result = subprocess.run(["git", "-C", str(directory), "rev-parse", *query],
                             capture_output=True, text=True)
     if result.returncode:
         raise SetupError(f"{directory} is not inside a git repository; "
                          "run from the repository or set KUBE_DIR to its .kube directory")
-    return Path(result.stdout.strip()).resolve()
+    path = Path(result.stdout.strip()).resolve()
+    return path.parent if primary else path
 
 
 def atomic_write(path, content):
@@ -85,7 +89,7 @@ def read_committed(path):
 
 
 def parse_user(text, path):
-    """Return {name: aws_profile}. Accepts JSON or a block list of name/aws_profile items."""
+    """Read the operator's profile and transport from JSON or a block list."""
     try:
         data = json.loads(text) if text.strip() else []
     except ValueError:
@@ -101,15 +105,19 @@ def parse_user(text, path):
                 data.append(item)
                 line = line[2:].strip()
             key, sep, value = line.partition(":")
-            if item is None or not sep or key.strip() not in ("name", "aws_profile"):
-                raise SetupError(f"{path}:{number}: expected '- name: X' then 'aws_profile: Y'")
+            if item is None or not sep or key.strip() not in ("name", "aws_profile", "transport"):
+                raise SetupError(f"{path}:{number}: expected '- name: X', 'aws_profile: Y' or 'transport: vpn|ssm|bootstrap_public'")
             item[key.strip()] = value.strip().strip("\"'")
     if isinstance(data, dict):
         data = data.get("clusters", [])
     try:
-        return {entry["name"]: entry.get("aws_profile") for entry in data}
+        entries = {entry["name"]: entry for entry in data}
     except (KeyError, TypeError, AttributeError) as exc:
         raise SetupError(f"{path}: every entry needs a name") from exc
+    for name, entry in entries.items():
+        if entry.get("transport", "ssm") not in ("vpn", "ssm", "bootstrap_public"):
+            raise SetupError(f"{path}: {name} transport must be vpn, ssm or bootstrap_public")
+    return entries
 
 
 def read_user(path):
@@ -128,45 +136,94 @@ def kubectl_config(path):
 
 
 def upsert(items, entry):
-    return [item for item in items if item.get("name") != entry["name"]] + [entry]
+    for index, item in enumerate(items):
+        if item.get("name") == entry["name"]:
+            items[index] = entry
+            return
+    items.append(entry)
+
+
+def recovery_exists(config, name, recovery, *, require_available=False):
+    matching = {key: next((item for item in (config.get(key) or []) if item["name"] == recovery), None)
+                for key in ("contexts", "clusters", "users")}
+    if not any(matching.values()):
+        return False
+    context = (matching["contexts"] or {}).get("context", {})
+    args = (matching["users"] or {}).get("user", {}).get("exec", {}).get("args", [])
+    if (all(matching.values()) and context.get("cluster") == recovery and context.get("user") == recovery
+            and len(args) >= 4 and Path(args[0]).name == "cluster_access.py"
+            and args[1:4] == ["--exec-credential", "--cluster", name]):
+        return True
+    if require_available:
+        raise SetupError(f"cannot create {recovery}: that name is already used in the kubeconfig")
+    return False
+
+
+def credential_helper(root):
+    helper = HERE / "cluster_access.py"
+    # NOTE: A shared kubeconfig must outlive the linked checkout that generated it.
+    try:
+        shared = root / helper.relative_to(repo_root(HERE))
+    except SetupError:
+        return helper
+    return shared if shared.is_file() else helper
 
 
 def cmd_merge(_args):
     directory = kube_dir()
     clusters = read_committed(directory / COMMITTED)
-    profiles = read_user(directory / USER)
+    operators = read_user(directory / USER)
     if not clusters:
         return 0
     root = repo_root(directory)
+    helper = credential_helper(root)
     path = directory / "config"
     current = kubectl_config(path)
     config = json.loads(json.dumps(current))
     for name, entry in sorted(clusters.items()):
-        if name not in profiles:
+        if name not in operators:
             print(f"pf-bootstrap-talos: {name} is not in {directory / USER}; "
                   f"add '- name: {name}' and 'aws_profile: <profile>' to use it", file=sys.stderr)
             continue
-        exec_args = [str(HERE / "cluster_access.py"), "--exec-credential", "--cluster", name]
-        if profiles[name]:
-            exec_args += ["--profile", profiles[name]]
+        exec_args = [str(helper), "--exec-credential", "--cluster", name]
+        operator = operators[name]
+        if operator.get("aws_profile"):
+            exec_args += ["--profile", operator["aws_profile"]]
         exec_args += ["--region", entry["region"], "--kube-port", str(entry["kube_port"]),
                       "--talos-port", str(entry["talos_port"]),
                       "--module", str((root / entry["module"]).resolve())]
-        config["clusters"] = upsert(config["clusters"], {"name": name, "cluster": {
-            "server": f"https://127.0.0.1:{entry['kube_port']}",
-            "certificate-authority-data": entry["ca_data"]}})
-        config["users"] = upsert(config["users"], {"name": name, "user": {"exec": {
-            "apiVersion": "client.authentication.k8s.io/v1", "command": "python3",
-            "args": exec_args, "interactiveMode": "Never"}}})
-        config["contexts"] = upsert(config["contexts"], {"name": name,
-                                                         "context": {"cluster": name, "user": name}})
+        address, _identity = cluster_access.client_endpoint("ssm", None, 6443, entry["kube_port"])
+        loopback = f"https://{address}"
+        contexts = [(name, loopback, exec_args)]
+        recovery = name + "-ssm"
+        if operator.get("transport") == "vpn":
+            cluster_access.validate_private_endpoints(entry.get("kube_api_server"), entry.get("talos_endpoints"))
+            if recovery in clusters:
+                raise SetupError(f"cannot create {recovery}: it is already registered as a source cluster")
+            recovery_exists(config, name, recovery, require_available=True)
+            contexts = [(name, entry["kube_api_server"], [*exec_args, "--transport", "vpn"]),
+                        (recovery, loopback, exec_args)]
+        elif operator.get("transport") == "bootstrap_public":
+            host = entry.get("bootstrap_public_host")
+            cluster_access.validate_public_endpoint(host, entry.get("bootstrap_public_node"))
+            address, _identity = cluster_access.client_endpoint("bootstrap_public", host, 6443, None)
+            contexts = [(name, f"https://{address}", [*exec_args, "--transport", "bootstrap_public"])]
+        elif "kube_api_server" in entry and recovery not in clusters and recovery_exists(config, name, recovery):
+            contexts.append((recovery, loopback, exec_args))
+        for context, server, arguments in contexts:
+            upsert(config["clusters"], {"name": context, "cluster": {
+                "server": server, "certificate-authority-data": entry["ca_data"]}})
+            upsert(config["users"], {"name": context, "user": {"exec": {
+                "apiVersion": "client.authentication.k8s.io/v1", "command": "python3",
+                "args": arguments, "interactiveMode": "Never"}}})
+            upsert(config["contexts"], {"name": context, "context": {"cluster": context, "user": context}})
     # Rewriting an unchanged file would retrigger direnv's watch_file.
     if config != current or not path.exists():
         atomic_write(path, dump(config))
     return 0
 
 
-def append_user_entry(text, name, profile):
+def append_user_entry(text, name, profile, transport=None):
     """Add an entry in the file's layout: a bare list stays bare, anything else uses `clusters:`."""
     lines = text.splitlines()
     bare = (not any(line.split("#")[0].strip() == "clusters:" for line in lines)
@@ -177,7 +234,9 @@ def append_user_entry(text, name, profile):
     if not bare and not any(line.split("#")[0].strip() == "clusters:" for line in lines):
         text += "clusters:\n"
     text += f"{pad}- name: {name}\n"
-    return text + (f"{pad}  aws_profile: {profile}\n" if profile else "")
+    if profile:
+        text += f"{pad}  aws_profile: {profile}\n"
+    return text + (f"{pad}  transport: {transport}\n" if transport else "")
 
 
 def cmd_register(args):
@@ -187,79 +246,79 @@ def cmd_register(args):
     try:
         relative = module.relative_to(root)
     except ValueError as exc:
-        raise SetupError(f"--module {module} is outside the repository {root}") from exc
+        if os.environ.get("KUBE_DIR") or repo_root(module, primary=True) != root:
+            raise SetupError(f"--module {module} is outside the repository {root}") from exc
+        relative = module.relative_to(repo_root(module))
     if args.kube_port == args.talos_port:
         raise SetupError("--kube-port and --talos-port must differ")
     clusters = read_committed(directory / COMMITTED)
+    user_path = directory / USER
+    operators = read_user(user_path)
+    transport = operators.get(args.cluster, {}).get("transport")
+    profile = args.profile or operators.get(args.cluster, {}).get("aws_profile") or os.environ.get("AWS_PROFILE")
     for name, other in clusters.items():
         taken = {other["kube_port"], other["talos_port"]}
         if name != args.cluster and taken & {args.kube_port, args.talos_port}:
             raise SetupError(f"ports {sorted(taken & {args.kube_port, args.talos_port})} "
                              f"are already used by cluster {name} in {directory / COMMITTED}")
     with tempfile.TemporaryDirectory(prefix="pf-bootstrap-talos-") as scratch:
-        source = SimpleNamespace(module=module, source_kubeconfig=None, kube_port=args.kube_port)
-        config_path, _tls = cluster_access.kubeconfig(source, Path(scratch))
-        config = json.loads(config_path.read_text())
+        public = args.bootstrap_public or transport == "bootstrap_public"
+        source = SimpleNamespace(module=module, source_kubeconfig=None, profile=profile, region=args.region,
+                                 transport="bootstrap_public" if public else None)
+        config = cluster_access.read_source_kubeconfig(source, Path(scratch))
+        previous = clusters.get(args.cluster, {})
+        endpoints = {}
+        if (public or args.vpn_endpoints or "kube_api_server" in previous
+                or "talos_endpoints" in previous or transport == "vpn"):
+            url = cluster_access.terragrunt_output(source, Path(scratch), "cluster_url").decode().strip()
+            ips = json.loads(cluster_access.terragrunt_output(
+                source, Path(scratch), "control_plane_private_ips", output_format="-json"))
+            cluster_access.validate_private_endpoints(url, ips)
+            endpoints = {"kube_api_server": url, "talos_endpoints": ips}
+        if public:
+            host = cluster_access.terragrunt_output(source, Path(scratch), "bootstrap_public_host").decode().strip()
+            node = cluster_access.terragrunt_output(source, Path(scratch), "bootstrap_public_node").decode().strip()
+            cluster_access.validate_public_endpoint(host, node)
+            endpoints.update(bootstrap_public_host=host, bootstrap_public_node=node)
     context = next(item["context"] for item in config["contexts"]
                    if item["name"] == config["current-context"])
     cluster = next(item["cluster"] for item in config["clusters"] if item["name"] == context["cluster"])
+    if not cluster.get("certificate-authority-data"):
+        raise SetupError("Terragrunt kubeconfig has no embedded cluster CA")
     clusters[args.cluster] = {"region": args.region, "kube_port": args.kube_port,
                               "talos_port": args.talos_port, "module": str(relative),
-                              "ca_data": cluster["certificate-authority-data"]}
+                              "ca_data": cluster["certificate-authority-data"], **endpoints}
     atomic_write(directory / COMMITTED, dump({"clusters": clusters}))
-    user_path = directory / USER
-    profile = args.profile or os.environ.get("AWS_PROFILE")
-    if args.cluster not in read_user(user_path):
+    if args.cluster not in operators:
         text = user_path.read_text() if user_path.exists() else ""
         if text.lstrip().startswith(("{", "[")):
             data = json.loads(text)
             entries = data if isinstance(data, list) else data.setdefault("clusters", [])
-            entries.append({"name": args.cluster, **({"aws_profile": profile} if profile else {})})
+            entry = {"name": args.cluster}
+            if profile:
+                entry["aws_profile"] = profile
+            if args.bootstrap_public:
+                entry["transport"] = "bootstrap_public"
+            entries.append(entry)
             text = dump(data).decode()
         else:
-            text = append_user_entry(text, args.cluster, profile)
+            text = append_user_entry(text, args.cluster, profile, "bootstrap_public" if args.bootstrap_public else None)
         atomic_write(user_path, text.encode())
     return cmd_merge(args)
 
 
 def cmd_forward(args):
-    os.execv(sys.executable, [sys.executable, str(HERE / "cluster_access.py"), "--bootstrap", *args.rest])
+    rest = args.rest[1:] if args.rest[:1] == ["--"] else args.rest
+    os.execv(sys.executable, [sys.executable, str(HERE / "cluster_access.py"), "--bootstrap", *rest])
 
 
 def cmd_preflight(args):
-    failures = []
-
-    def fail(cause, fix):
-        failures.append(cause)
-        print(f"FAIL {cause}. Fix: {fix}")
-
-    for tool in TOOLS:
-        if shutil.which(tool):
-            print(f"ok   {tool}")
-        else:
-            fail(f"{tool} is not on PATH", "enter the devshell (direnv allow) or install it")
-    if shutil.which("aws"):
-        options = [item for flag, value in (("--profile", args.profile), ("--region", args.region))
-                   if value for item in (flag, value)]
-        try:
-            cluster_access.command(["aws", *options, "sts", "get-caller-identity"], timeout=30)
-            print("ok   aws sts get-caller-identity")
-        except (cluster_access.AccessError, subprocess.TimeoutExpired, OSError):
-            fail("aws sts get-caller-identity failed", "run 'aws sso login' for the profile, "
-                 "or pass --profile and --region")
-        else:
-            ns = SimpleNamespace(profile=args.profile, region=args.region, cluster=args.cluster,
-                                 control_plane_name=None, target=None, tunnel_name_pattern=args.tunnel_name_pattern)
-            try:
-                hosts = cluster_access.Access(ns).discover(("pending", "running"))[1]
-                print(f"ok   SSM Online tunnel host {hosts[0]}")
-            except cluster_access.ControllerNotFound:
-                # Before the first apply there is no controller whose VPC could be searched.
-                print("skip tunnel host check: the controller is not launched yet")
-            except (cluster_access.AccessError, subprocess.TimeoutExpired, OSError, ValueError) as exc:
-                fail(f"no usable tunnel host ({exc})", "start the controller and the NAT, check its "
-                     "SSM registration, or pass --tunnel-name-pattern")
-    return 1 if failures else 0
+    command = [sys.executable, str(HERE / "cluster_access.py"), "--preflight", "--bootstrap",
+               "--cluster", args.cluster]
+    for flag, value in (("--profile", args.profile), ("--region", args.region), ("--fixed-ssm", args.fixed_ssm)):
+        if value:
+            command += [flag, value]
+    os.execv(sys.executable, command)
 
 
 def main():
@@ -269,7 +328,7 @@ def main():
     pre.add_argument("--cluster", required=True)
     pre.add_argument("--profile")
     pre.add_argument("--region")
-    pre.add_argument("--tunnel-name-pattern", default="nat-*")
+    pre.add_argument("--fixed-ssm", help="fixed document and host JSON (default: PF_TALOS_FIXED_SSM)")
     pre.set_defaults(run=cmd_preflight)
     fwd = sub.add_parser("forward", help="cluster_access.py --bootstrap with the remaining flags")
     fwd.add_argument("rest", nargs=argparse.REMAINDER)
@@ -281,6 +340,10 @@ def main():
     reg.add_argument("--kube-port", type=int, default=16443)
     reg.add_argument("--talos-port", type=int, default=50000)
     reg.add_argument("--profile")
+    reg.add_argument("--bootstrap-public", action="store_true",
+                     help="record public bootstrap and private VPN endpoints after the first apply")
+    reg.add_argument("--vpn-endpoints", action="store_true",
+                     help="record the private cluster URL and controller IPs for VPN access")
     reg.set_defaults(run=cmd_register)
     mrg = sub.add_parser("merge", help="write registered clusters into $KUBE_DIR/config")
     mrg.set_defaults(run=cmd_merge)
