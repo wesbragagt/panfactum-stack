@@ -269,13 +269,13 @@ variable "ami_id" {
 }
 
 variable "installer_image" {
-  description = "Optional explicit Talos installer image. Mutually exclusive with image_factory_schematic_id."
+  description = "Optional explicit Talos installer image. Mutually exclusive with image_factory_schematic_id. When both are null, the module builds an Image Factory schematic with the ecr-credential-provider and util-linux-tools extensions."
   type        = string
   default     = null
 }
 
 variable "image_factory_schematic_id" {
-  description = "Optional Talos Image Factory schematic ID. Derives the AWS installer from talos_version and reconciles the schematic on existing controllers."
+  description = "Optional Talos Image Factory schematic ID that replaces the module-built default (ecr-credential-provider and util-linux-tools). Derives the AWS installer from talos_version and reconciles the schematic on existing controllers."
   type        = string
   default     = null
 

@@ -620,12 +620,23 @@ data "talos_client_configuration" "this" {
 ## Version upgrades
 ###########################################################################
 
+resource "talos_image_factory_schematic" "this" {
+  count = var.installer_image == null && var.image_factory_schematic_id == null ? 1 : 0
+  schematic = yamlencode({
+    customization = {
+      systemExtensions = {
+        officialExtensions = sort(["siderolabs/ecr-credential-provider", "siderolabs/util-linux-tools"])
+      }
+    }
+  })
+}
+
 locals {
   # Gated like pre_membership_snapshot: a new cluster has no running controllers to upgrade.
-  version_upgrades_needed    = var.version_upgrades_enabled && length(data.aws_instances.existing_control_plane.ids) > 0
-  configured_installer_image = var.image_factory_schematic_id == null ? var.installer_image : "factory.talos.dev/aws-installer/${var.image_factory_schematic_id}:${var.talos_version}"
-  # NOTE: Official AMIs ship the vanilla Image Factory schematic.
-  upgrade_installer_image         = coalesce(local.configured_installer_image, "factory.talos.dev/aws-installer/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba:${var.talos_version}")
+  version_upgrades_needed = var.version_upgrades_enabled && length(data.aws_instances.existing_control_plane.ids) > 0
+  schematic_id            = var.installer_image == null ? coalesce(var.image_factory_schematic_id, one(talos_image_factory_schematic.this[*].id)) : null
+  # NOTE: The official AWS AMIs ship the vanilla schematic, so the module always installs its own.
+  upgrade_installer_image         = local.schematic_id == null ? var.installer_image : "factory.talos.dev/aws-installer/${local.schematic_id}:${var.talos_version}"
   installer_image_matches_version = endswith(local.upgrade_installer_image, ":${var.talos_version}")
   upgrade_args                    = "--endpoint '${local.talos_api_endpoint}' --nodes '${join(",", sort(data.aws_instances.existing_control_plane.private_ips))}'"
   upgrade_environment = {
@@ -638,12 +649,12 @@ locals {
 # NOTE: Legacy callers keep the version trigger. A schematic can change without a version change.
 resource "terraform_data" "talos_upgrade" {
   count            = local.version_upgrades_needed ? 1 : 0
-  triggers_replace = [var.image_factory_schematic_id == null ? var.talos_version : local.upgrade_installer_image]
+  triggers_replace = [local.schematic_id == null ? var.talos_version : local.upgrade_installer_image]
 
   provisioner "local-exec" {
     interpreter = ["bash", "-c"]
     environment = local.upgrade_environment
-    command     = "python3 '${path.module}/scripts/version_upgrade.py' talos ${local.upgrade_args} --target '${var.talos_version}' --image '${local.upgrade_installer_image}'${var.image_factory_schematic_id == null ? "" : " --schematic-id '${var.image_factory_schematic_id}'"}"
+    command     = "python3 '${path.module}/scripts/version_upgrade.py' talos ${local.upgrade_args} --target '${var.talos_version}' --image '${local.upgrade_installer_image}'${local.schematic_id == null ? "" : " --schematic-id '${local.schematic_id}'"}"
   }
 
   lifecycle {

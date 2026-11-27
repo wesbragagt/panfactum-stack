@@ -53,6 +53,11 @@ override_resource {
   values = { public_ip = "192.0.2.10" }
 }
 
+override_resource {
+  target = talos_image_factory_schematic.this
+  values = { id = "7835171368ed53d6f9ed4d298a4db7d4bcc745bbbca3f7cb2374967d64a6a8aa" }
+}
+
 variables {
   cluster_name  = "test"
   vpc_id        = "vpc-00000000"
@@ -960,8 +965,8 @@ run "version_upgrades_default_installer" {
     values = { ids = ["i-0000000000000000a"], private_ips = ["10.0.1.10"] }
   }
   assert {
-    condition     = local.upgrade_installer_image == "factory.talos.dev/aws-installer/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba:v1.14.6"
-    error_message = "Without installer_image the upgrade must use the official AWS installer for talos_version."
+    condition     = local.upgrade_installer_image == "factory.talos.dev/aws-installer/7835171368ed53d6f9ed4d298a4db7d4bcc745bbbca3f7cb2374967d64a6a8aa:v1.14.6" && length(talos_image_factory_schematic.this) == 1 && strcontains(talos_image_factory_schematic.this[0].schematic, "siderolabs/ecr-credential-provider")
+    error_message = "Without installer_image or image_factory_schematic_id the module must build its own schematic and derive the installer from it."
   }
   assert {
     condition     = contains([for patch in data.talos_machine_configuration.control_plane_runtime.config_patches : try(yamldecode(patch).kind, null)], "KubeCredentialProviderConfig") && !contains([for patch in data.talos_machine_configuration.control_plane.config_patches : try(yamldecode(patch).kind, null)], "KubeCredentialProviderConfig")

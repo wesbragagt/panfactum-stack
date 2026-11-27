@@ -7,7 +7,7 @@ Use `aws_kube_talos` for the control plane and `kube_aws_ccm` for the AWS cloud 
 1. Choose a private subnet and a fixed controller IP. Reserve a private API DNS name.
 2. Verify that the VPC has a tagged public subnet in the bootstrap controller's Availability Zone.
 3. Generate a new Talos secrets bundle. Encrypt the file with SOPS. Use a separate state key for the cluster.
-4. Pass the VPC, API DNS name, and encrypted secrets to `aws_kube_talos`. Describe the controllers with one `control_plane` list. Keep controller public IPs disabled.
+4. Pass the VPC, API DNS name, and encrypted secrets to `aws_kube_talos`. Describe the controllers with one `control_plane` list. Keep controller public IPs disabled. The module builds an Image Factory schematic with `ecr-credential-provider` and `util-linux-tools` by default. Set `image_factory_schematic_id` or `installer_image` to override it. One apply gives ECR pulls on first boot.
 
 ```hcl
 control_plane = [{ subnet = "PRIVATE_A", private_ip = "10.0.128.10", instance_type = "t4g.medium" }]
