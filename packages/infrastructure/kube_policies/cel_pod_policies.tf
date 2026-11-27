@@ -24,7 +24,7 @@ locals {
         }
       }
     ],
-    var.pull_through_cache_enabled ? [for field in local.cel_pod_fields : {
+    var.pull_through_cache_enabled && !var.cluster_wide_pull_through_cache_enabled ? [for field in local.cel_pod_fields : {
       patchType = "JSONPatch"
       jsonPatch = {
         expression = <<-CEL
@@ -264,6 +264,7 @@ resource "kubectl_manifest" "cel_pod_policy" {
   force_conflicts   = true
 
   depends_on = [
+    kubectl_manifest.pull_through_cache_binding,
     kubectl_manifest.linkerd_destination_global_context,
     kubectl_manifest.linkerd_identity_global_context,
     kubectl_manifest.scheduler_global_context,

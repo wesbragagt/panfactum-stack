@@ -80,7 +80,7 @@ resource "kubectl_manifest" "panfactum_policies" {
       rules = [for rule in concat(
         local.rule_cilium_test,
         local.rule_disable_linkerd,
-        local.rule_use_pull_through_image_cache,
+        var.cluster_wide_pull_through_cache_enabled ? [] : local.rule_use_pull_through_image_cache,
         local.rule_use_panfactum_scheduler,
         local.rule_add_default_tolerations,
         local.rule_add_extra_tolerations_if_controller_toleration,
@@ -105,6 +105,7 @@ resource "kubectl_manifest" "panfactum_policies" {
   server_side_apply = true
 
   depends_on = [
+    kubectl_manifest.pull_through_cache_binding,
     kubectl_manifest.linkerd_destination_global_context,
     kubectl_manifest.linkerd_identity_global_context,
     kubectl_manifest.scheduler_global_context,

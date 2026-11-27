@@ -28,6 +28,12 @@ variable "pull_through_cache_enabled" {
   default     = true
 }
 
+variable "cluster_wide_pull_through_cache_enabled" {
+  description = "Use native Kubernetes 1.36 admission to apply the enabled ECR pull-through cache across all namespaces, including pods that opt out of Kyverno's cache mutation."
+  type        = bool
+  default     = false
+}
+
 variable "panfactum_scheduler_enabled" {
   description = "Whether pods should be automatically updated to use the Panfactum bin-packing scheduler."
   type        = bool
