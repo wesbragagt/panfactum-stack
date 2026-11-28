@@ -224,16 +224,32 @@ data "aws_iam_policy_document" "karpenter" {
       "ec2:RunInstances",
       "ec2:CreateFleet"
     ]
-    resources = concat([
+    resources = [
       "arn:aws:ec2:${local.region}::image/*",
       "arn:aws:ec2:${local.region}::snapshot/*"
-      ], var.vpc_id == null ? [
+    ]
+  }
+  // NOTE: Scoping by the ec2:Vpc condition key keeps the policy size independent of
+  // the number of subnets and security groups, which otherwise exceeds the 6144 character IAM limit.
+  statement {
+    sid    = "AllowScopedEC2NetworkAccessActions"
+    effect = "Allow"
+    actions = [
+      "ec2:RunInstances",
+      "ec2:CreateFleet"
+    ]
+    resources = [
       "arn:aws:ec2:${local.region}:*:security-group/*",
       "arn:aws:ec2:${local.region}:*:subnet/*"
-      ] : concat(
-      [for id in data.aws_security_groups.cluster[0].ids : "arn:aws:ec2:${local.region}:${data.aws_caller_identity.main.account_id}:security-group/${id}"],
-      [for id in data.aws_subnets.cluster[0].ids : "arn:aws:ec2:${local.region}:${data.aws_caller_identity.main.account_id}:subnet/${id}"]
-    ))
+    ]
+    dynamic "condition" {
+      for_each = var.vpc_id == null ? [] : [1]
+      content {
+        test     = "ArnEquals"
+        values   = ["arn:aws:ec2:${local.region}:${data.aws_caller_identity.main.account_id}:vpc/${var.vpc_id}"]
+        variable = "ec2:Vpc"
+      }
+    }
   }
   statement {
     sid    = "AllowScopedEC2LaunchTemplateAccessActions"
@@ -637,14 +653,12 @@ resource "helm_release" "karpenter_crds" {
   force_update    = true # required b/c the CRDs might already be installed
   max_history     = 5
 
-  # Karpenter must be upgraded BEFORE upgrading the CRDS in order for the conversion
-  # webhooks to work
-  depends_on = [helm_release.karpenter]
+  // NOTE: CRDs must exist before the controller starts, otherwise it crash-loops on missing NodeClaim kinds.
 }
 
 resource "helm_release" "karpenter" {
   # Projected credentials must be present when the Pod is admitted.
-  depends_on      = [module.aws_permissions]
+  depends_on      = [module.aws_permissions, helm_release.karpenter_crds]
   namespace       = local.namespace
   name            = "karpenter"
   repository      = "oci://public.ecr.aws/karpenter"

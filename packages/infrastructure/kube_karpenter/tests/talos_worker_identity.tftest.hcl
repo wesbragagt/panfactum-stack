@@ -283,3 +283,40 @@ run "cluster_rejects_external_worker_role" {
   }
   expect_failures = [var.node_role_arn]
 }
+
+run "vpc_scope_uses_condition_not_arn_lists" {
+  command = plan
+
+  variables {
+    vpc_id                = "vpc-0abc"
+    node_role_arn         = "arn:aws:iam::123456789012:role/eks-worker"
+  }
+
+  override_data {
+    target = data.aws_subnets.cluster[0]
+    values = { ids = ["subnet-1", "subnet-2", "subnet-3"] }
+  }
+
+  override_data {
+    target = data.aws_security_groups.cluster[0]
+    values = { ids = ["sg-1", "sg-2", "sg-3"] }
+  }
+
+  assert {
+    condition = alltrue([
+      for s in data.aws_iam_policy_document.karpenter.statement :
+      !anytrue([for r in s.resources : can(regex("(subnet|security-group)/(subnet|sg)-", r))])
+    ])
+    error_message = "The policy must not enumerate subnet or security group ARNs."
+  }
+
+  assert {
+    condition = anytrue([
+      for s in data.aws_iam_policy_document.karpenter.statement :
+      s.sid == "AllowScopedEC2NetworkAccessActions" && length(s.resources) == 2 && anytrue([
+        for c in s.condition : c.variable == "ec2:Vpc" && contains(c.values, "arn:aws:ec2:us-east-2:123456789012:vpc/vpc-0abc")
+      ])
+    ])
+    error_message = "Subnet and security group access must be scoped by the ec2:Vpc condition."
+  }
+}
