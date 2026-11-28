@@ -69,12 +69,49 @@ class IamLoginTest(unittest.TestCase):
 
     def test_account_root_gets_credential(self):
         root = f"arn:aws:iam::{ACCOUNT}:root"
+        config = {**CONFIG, "principal_arns": [root]}
         response = token_response(sub=root, **{iam.STS_CLAIMS: {"principal_id": root}})
         values = [{"Arn": root, "Account": ACCOUNT}, response]
         with patch.object(iam, "aws_json", side_effect=values):
-            credential = iam.credential(CONFIG, ARGS)
+            credential = iam.credential(config, ARGS)
         self.assertEqual(credential["kind"], "ExecCredential")
         self.assertEqual(credential["status"]["token"], response["WebIdentityToken"])
+
+    def test_listed_iam_user_gets_credential(self):
+        user = f"arn:aws:iam::{ACCOUNT}:user/operator-reader"
+        config = {**CONFIG, "principal_arns": [user]}
+        response = token_response(sub=user, **{iam.STS_CLAIMS: {"principal_id": user}})
+        values = [{"Arn": user, "Account": ACCOUNT}, response]
+        with patch.object(iam, "aws_json", side_effect=values):
+            credential = iam.credential(config, ARGS)
+        self.assertEqual(credential["status"]["token"], response["WebIdentityToken"])
+
+    def test_unlisted_iam_user_is_rejected(self):
+        user = f"arn:aws:iam::{ACCOUNT}:user/operator-reader"
+        config = {**CONFIG, "principal_arns": [f"arn:aws:iam::{ACCOUNT}:user/operator-admin"]}
+        identity = {"Arn": user, "Account": ACCOUNT}
+        with patch.object(iam, "aws_json", return_value=identity) as aws:
+            with self.assertRaisesRegex(ValueError, "not an approved Identity Center role or account root"):
+                iam.credential(config, ARGS)
+            self.assertEqual(aws.call_count, 1)
+
+    def test_extra_role_session_matches_role_name_in_same_account(self):
+        role = f"arn:aws:iam::{ACCOUNT}:role/operators/extra-reader"
+        config = {**CONFIG, "principal_arns": [role]}
+        response = token_response(sub=role, **{iam.STS_CLAIMS: {"principal_id": role}})
+        with patch.object(iam, "aws_json", side_effect=[
+            {"Arn": f"arn:aws:sts::{ACCOUNT}:assumed-role/extra-reader/session", "Account": ACCOUNT}, response,
+        ]):
+            credential = iam.credential(config, ARGS)
+        self.assertEqual(credential["status"]["token"], response["WebIdentityToken"])
+        for session_arn in (
+            f"arn:aws:sts::{ACCOUNT}:assumed-role/other-reader/session",
+            "arn:aws:sts::999999999999:assumed-role/extra-reader/session",
+        ):
+            identity = {"Arn": session_arn, "Account": session_arn.split(":")[4]}
+            with self.subTest(session_arn=session_arn), patch.object(iam, "aws_json", return_value=identity):
+                with self.assertRaisesRegex(ValueError, "not an approved Identity Center role or account root"):
+                    iam.credential(config, ARGS)
 
     def test_root_from_another_account_cannot_mint(self):
         identity = {"Arn": "arn:aws:iam::999999999999:root", "Account": "999999999999"}
@@ -119,6 +156,25 @@ class IamLoginTest(unittest.TestCase):
                         self.assertEqual(iam.load_config(path), CONFIG)
                     else:
                         with self.assertRaisesRegex(ValueError, "invalid Identity Center role ARN for Admin"):
+                            iam.load_config(path)
+
+    def test_config_checks_principal_arns_account_and_format(self):
+        root = f"arn:aws:iam::{ACCOUNT}:root"
+        user = f"arn:aws:iam::{ACCOUNT}:user/operator-reader"
+        for principals, message in (
+            ([root, user], None),
+            (["arn:aws:iam::999999999999:user/operator-reader"], "one AWS account"),
+            ([f"arn:aws:sts::{ACCOUNT}:assumed-role/operator/session"], "invalid IAM principal ARN"),
+        ):
+            config = {**CONFIG, "principal_arns": principals}
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "operator.json"
+                path.write_text(json.dumps(config))
+                with self.subTest(principals=principals):
+                    if message is None:
+                        self.assertEqual(iam.load_config(path), config)
+                    else:
+                        with self.assertRaisesRegex(ValueError, message):
                             iam.load_config(path)
 
 

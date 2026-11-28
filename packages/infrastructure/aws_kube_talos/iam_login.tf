@@ -5,14 +5,24 @@ locals {
     Reader           = { group = "pf:readers", arns = data.aws_iam_roles.iam_login_reader.arns }
     RestrictedReader = { group = "pf:restricted-readers", arns = data.aws_iam_roles.iam_login_restricted_reader.arns }
   }
-  # NOTE: A role ARN found in two sets fails with a duplicate key, as aws_eks fails on a duplicate access entry, instead of silently picking a group.
-  iam_login_role_groups = merge(
-    {
-      for pair in flatten([for role in local.iam_login_roles : [for arn in role.arns : { arn = arn, group = role.group }]]) : pair.arn => pair.group
-    },
-    # NOTE: The root ARN is outside iam_login_roles because the iam_login output reads that local and must list only Identity Center roles.
-    { "arn:${data.aws_partition.backup.partition}:iam::${data.aws_caller_identity.oidc.account_id}:root" = "pf:superusers" }
-  )
+  # NOTE: The root ARN is outside iam_login_roles because the iam_login output reads that local and must list only Identity Center roles.
+  iam_login_root_arn = "arn:${data.aws_partition.backup.partition}:iam::${data.aws_caller_identity.oidc.account_id}:root"
+  iam_login_extra_principals = flatten([
+    for group, arns in {
+      "pf:superusers"         = var.extra_principal_arns.superusers
+      "pf:admins"             = var.extra_principal_arns.admins
+      "pf:readers"            = var.extra_principal_arns.readers
+      "pf:restricted-readers" = var.extra_principal_arns.restricted_readers
+    } : [for arn in arns : { arn = arn, group = group }]
+  ])
+  # NOTE: An ARN listed in two places, including the root ARN, fails with a duplicate key, as aws_eks fails on a duplicate access entry, instead of silently picking a group.
+  iam_login_role_groups = {
+    for pair in concat(
+      flatten([for role in local.iam_login_roles : [for arn in role.arns : { arn = arn, group = role.group }]]),
+      [{ arn = local.iam_login_root_arn, group = "pf:superusers" }],
+      local.iam_login_extra_principals
+    ) : pair.arn => pair.group
+  }
 }
 
 # NOTE: These regexes and the path match aws_eks, so the same Identity Center roles get the same groups on EKS and Talos.

@@ -462,6 +462,7 @@ run "iam_login_maps_roles_to_groups" {
         Reader           = "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_Reader_0123456789abcdef"
         RestrictedReader = "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_RestrictedReader_0123456789abcdef"
       }
+      principal_arns = tolist(["arn:aws:iam::123456789012:root"])
     }
     error_message = "The iam_login output must carry the metadata that scripts/iam_login.py reads."
   }
@@ -477,6 +478,73 @@ run "iam_login_without_matching_roles" {
     )
     error_message = "Without matching roles the config must admit only the account root and the output must carry null role ARNs."
   }
+}
+
+run "iam_login_extra_principals_map_to_groups" {
+  command = plan
+  variables {
+    extra_principal_arns = {
+      superusers         = ["arn:aws:iam::123456789012:user/operator-superuser"]
+      admins             = ["arn:aws:iam::123456789012:user/operator-admin"]
+      readers            = ["arn:aws:iam::123456789012:user/operator-reader"]
+      restricted_readers = ["arn:aws:iam::123456789012:user/operator-restricted-reader"]
+    }
+  }
+
+  assert {
+    condition = alltrue([
+      for arn, group in {
+        "arn:aws:iam::123456789012:user/operator-superuser"         = "pf:superusers"
+        "arn:aws:iam::123456789012:user/operator-admin"             = "pf:admins"
+        "arn:aws:iam::123456789012:user/operator-reader"            = "pf:readers"
+        "arn:aws:iam::123456789012:user/operator-restricted-reader" = "pf:restricted-readers"
+        } : strcontains(
+        one([for patch in local.control_plane_patches : yamldecode(patch) if try(yamldecode(patch).kind, "") == "KubeAuthenticationConfig"]).configuration.jwt[0].claimMappings.groups.expression,
+        "\"${arn}\":\"${group}\""
+      )
+    ])
+    error_message = "Every extra principal ARN must map to its Panfactum group."
+  }
+
+  assert {
+    condition = alltrue([
+      for arn in [
+        "arn:aws:iam::123456789012:user/operator-superuser",
+        "arn:aws:iam::123456789012:user/operator-admin",
+        "arn:aws:iam::123456789012:user/operator-reader",
+        "arn:aws:iam::123456789012:user/operator-restricted-reader",
+      ] :
+      strcontains(one([for patch in local.control_plane_patches : yamldecode(patch) if try(yamldecode(patch).kind, "") == "KubeAuthenticationConfig"]).configuration.jwt[0].claimValidationRules[0].expression, "\"${arn}\"")
+    ])
+    error_message = "The claim validation rule must admit every extra principal ARN."
+  }
+
+  assert {
+    condition = output.iam_login.principal_arns == tolist([
+      "arn:aws:iam::123456789012:root",
+      "arn:aws:iam::123456789012:user/operator-admin",
+      "arn:aws:iam::123456789012:user/operator-reader",
+      "arn:aws:iam::123456789012:user/operator-restricted-reader",
+      "arn:aws:iam::123456789012:user/operator-superuser",
+    ])
+    error_message = "principal_arns must be the sorted account root and extra principal ARNs."
+  }
+
+  assert {
+    condition     = alltrue([for arn in values(output.iam_login.role_arns) : arn == null])
+    error_message = "Extra principals must not appear in role_arns, which lists only Identity Center roles."
+  }
+}
+
+run "iam_login_rejects_duplicate_principal_across_groups" {
+  command = plan
+  variables {
+    extra_principal_arns = {
+      admins  = ["arn:aws:iam::123456789012:user/operator"]
+      readers = ["arn:aws:iam::123456789012:user/operator"]
+    }
+  }
+  expect_failures = [var.extra_principal_arns]
 }
 
 run "controller_class_label_and_taint_by_default" {

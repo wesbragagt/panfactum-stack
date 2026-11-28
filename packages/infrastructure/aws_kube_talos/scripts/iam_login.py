@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 ROLES = ("Superuser", "Admin", "Reader", "RestrictedReader")
 STS_CLAIMS = "https://sts.amazonaws.com/"
 ROLE_ARN = r"arn:([^:]+):iam::(\d{{12}}):role/aws-reserved/sso\.amazonaws\.com/(?:[\w-]+/)?(AWSReservedSSO_{}_[0-9a-f]+)"
+PRINCIPAL_ARN = r"arn:([^:]+):iam::(\d{12}):(root|(?:user|role)/[\w+=,.@/-]+)"
 SESSION_ARN = r"arn:([^:]+):sts::(\d{12}):assumed-role/([^/]+)/[^/]+"
 
 
@@ -39,8 +40,16 @@ def load_config(path):
         if not role:
             raise ValueError(f"invalid Identity Center role ARN for {name}")
         accounts.add(role.groups()[:2])
+    principals = config.get("principal_arns", [])
+    if not isinstance(principals, list):
+        raise ValueError("operator principal_arns must be a list")
+    for arn in principals:
+        principal = re.fullmatch(PRINCIPAL_ARN, arn) if isinstance(arn, str) else None
+        if not principal:
+            raise ValueError(f"invalid IAM principal ARN {arn}")
+        accounts.add(principal.groups()[:2])
     if len(accounts) != 1:
-        raise ValueError("operator roles must belong to one AWS account")
+        raise ValueError("operator ARNs must belong to one AWS account")
     return config
 
 
@@ -63,6 +72,7 @@ def credential(config, args):
     identity = aws_json(args, config, "get-caller-identity")
     session = re.fullmatch(SESSION_ARN, identity["Arn"])
     role_arns = config["role_arns"]
+    principal_arns = config.get("principal_arns", [])
     selected = None
     if session:
         for name, arn in role_arns.items():
@@ -70,12 +80,12 @@ def credential(config, args):
             if session.groups() == role.groups() and identity["Account"] == role[2]:
                 selected = arn
                 break
-    else:
-        # NOTE: load_config requires one partition and account for all role ARNs, so the Superuser ARN gives the root ARN.
-        partition, account = re.fullmatch(ROLE_ARN.format("Superuser"), role_arns["Superuser"]).groups()[:2]
-        root = f"arn:{partition}:iam::{account}:root"
-        if identity["Arn"] == root:
-            selected = root
+        # NOTE: IAM role names are unique per account, so the session name identifies an extra role ARN.
+        for arn in principal_arns:
+            if arn.startswith(f"arn:{session[1]}:iam::{session[2]}:role/") and arn.rsplit("/", 1)[-1] == session[3]:
+                selected = arn
+    elif identity["Arn"] in principal_arns:
+        selected = identity["Arn"]
     if not selected:
         raise ValueError(f"AWS profile {args.profile} is not an approved Identity Center role or account root")
 

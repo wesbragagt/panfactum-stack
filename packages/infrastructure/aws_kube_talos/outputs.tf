@@ -39,10 +39,11 @@ output "cluster_ca_data" {
 output "iam_login" {
   description = "Public operator metadata for scripts/iam_login.py: `tofu output -json iam_login > operator.json`. A role with no matching IAM role is null, which the script rejects."
   value = {
-    issuer    = data.aws_iam_outbound_web_identity_federation.iam_login.issuer_identifier
-    audience  = var.cluster_name
-    region    = data.aws_region.current.region
-    role_arns = { for role, set in local.iam_login_roles : role => try(sort(tolist(set.arns))[0], null) }
+    issuer         = data.aws_iam_outbound_web_identity_federation.iam_login.issuer_identifier
+    audience       = var.cluster_name
+    region         = data.aws_region.current.region
+    role_arns      = { for role, set in local.iam_login_roles : role => try(sort(tolist(set.arns))[0], null) }
+    principal_arns = sort(concat([local.iam_login_root_arn], [for pair in local.iam_login_extra_principals : pair.arn]))
   }
 }
 

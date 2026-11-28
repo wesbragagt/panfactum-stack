@@ -328,3 +328,20 @@ variable "controller_identity" {
     error_message = "Use exact lowercase ECR repository names without wildcards or ARNs."
   }
 }
+
+variable "extra_principal_arns" {
+  description = "IAM principal ARNs, such as IAM users with static keys, mapped to Panfactum groups for Talos IAM login. Each key matches the aws_eks extra_*_principal_arns input of the same group. Identity Center roles and the account root user are added automatically."
+  type = object({
+    superusers         = optional(list(string), [])
+    admins             = optional(list(string), [])
+    readers            = optional(list(string), [])
+    restricted_readers = optional(list(string), [])
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = length(distinct(flatten(values(var.extra_principal_arns)))) == length(flatten(values(var.extra_principal_arns)))
+    error_message = "An IAM principal ARN may appear in only one extra_principal_arns group."
+  }
+}
