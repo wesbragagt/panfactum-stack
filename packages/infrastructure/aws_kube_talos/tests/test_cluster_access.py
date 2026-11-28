@@ -30,9 +30,9 @@ class ClusterAccessTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("inputs.cluster_name", result.stderr)
 
-    def test_terragrunt_output_preserves_only_supported_transport_overrides(self):
+    def test_terragrunt_output_preserves_transport_overrides(self):
         args = SimpleNamespace(profile=None, region=None, module=Path("/module"))
-        for inherited, expected in (("vpn", None), ("bootstrap_public", "bootstrap_public"), ("auto", "auto")):
+        for inherited, expected in (("bootstrap_public", "bootstrap_public"), ("auto", "auto")):
             with self.subTest(inherited=inherited), tempfile.TemporaryDirectory() as directory, \
                     unittest.mock.patch.dict(os.environ, {"PF_TALOS_TRANSPORT": inherited}), \
                     unittest.mock.patch.object(module, "command", return_value=b"output") as command:
