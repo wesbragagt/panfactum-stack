@@ -9,7 +9,7 @@ variable "vpc_id" {
 }
 
 variable "control_plane" {
-  description = "Control plane nodes, one entry each: subnet (Name tag, required), optional fixed private_ip (null lets AWS assign one) and optional instance_type. The first entry bootstraps talos_cluster and is the endpoint fallback. Node state is keyed by list position, so only append entries; reordering or removing one replaces nodes. A fixed private_ip lets an SSM tunnel target the controller before it exists. An instance_type change resizes that controller in place (stop, modify, start); T2 types are not supported by Talos. More than one entry requires private_api_dns_name."
+  description = "Control plane nodes, one entry each: subnet (Name tag, required), optional fixed private_ip (null lets AWS assign one) and optional instance_type. The first entry bootstraps talos_cluster and is the endpoint fallback. Node state is keyed by list position, so only append entries; reordering or removing one replaces nodes. A fixed private_ip lets the VPN transport target the controller before it exists. An instance_type change resizes that controller in place (stop, modify, start); T2 types are not supported by Talos. More than one entry requires private_api_dns_name."
   type = list(object({
     subnet        = string
     private_ip    = optional(string)
@@ -36,7 +36,7 @@ variable "controller_instance_profile" {
 }
 
 variable "control_plane_public_ip_enabled" {
-  description = "Give controllers a public IP and an Elastic IP API endpoint. Off by default: controllers sit in private subnets and operators reach them through an SSM tunnel, which needs private_api_dns_name or a control_plane private_ip."
+  description = "Give controllers a public IP and an Elastic IP API endpoint. Off by default: controllers sit in private subnets and operators reach them through the VPN or bootstrap_public transport, which needs private_api_dns_name or a control_plane private_ip."
   type        = bool
   default     = false
 }
@@ -96,7 +96,7 @@ variable "version_upgrades_enabled" {
 }
 
 variable "talos_api_allowed_cidrs" {
-  description = "CIDRs allowed to reach the Talos API (TCP 50000). Empty by default; operators reach the API through the SSM tunnel instead."
+  description = "CIDRs allowed to reach the Talos API (TCP 50000). Empty by default; operators reach the API through talos_api_source_security_groups or the bootstrap_public load balancer instead."
   type        = list(string)
   default     = []
 }
@@ -114,14 +114,14 @@ variable "talos_api_endpoint" {
 }
 
 variable "talos_access_transport" {
-  description = "Talos operator transport. bootstrap_public selects the temporary public load balancer. vpn selects the configured bootstrap controller's fixed private IP. ssm selects the module hook's loopback address and enables loopback SANs. The empty default retains legacy loopback behavior."
+  description = "Talos operator transport. bootstrap_public selects the temporary public load balancer. vpn selects the configured bootstrap controller's fixed private IP. The empty default keeps the legacy 127.0.0.1 endpoint."
   type        = string
   default     = ""
   nullable    = false
 
   validation {
-    condition     = contains(["", "vpn", "ssm", "bootstrap_public"], var.talos_access_transport)
-    error_message = "talos_access_transport must be vpn, ssm, bootstrap_public, or empty."
+    condition     = contains(["", "vpn", "bootstrap_public"], var.talos_access_transport)
+    error_message = "talos_access_transport must be vpn, bootstrap_public, or empty."
   }
 }
 
@@ -199,7 +199,7 @@ variable "etcd_pre_membership_snapshot_enabled" {
 }
 
 variable "etcd_pre_membership_snapshot_kubeconfig" {
-  description = "Path to a kubeconfig that reaches the API through the operator tunnel. Required only when an apply adds controllers to an existing cluster; kubectl must be on PATH."
+  description = "Path to a kubeconfig that reaches the private Kubernetes API. Required only when an apply adds controllers to an existing cluster; kubectl must be on PATH."
   type        = string
   default     = null
 }

@@ -35,7 +35,7 @@ locals {
   # Keep the Elastic IP valid in the API server cert so clients pinned to it survive a switch to the DNS name
   api_san_patch = yamlencode({
     apiVersion    = "v1alpha1", kind = "KubeAPIServerConfig"
-    certExtraSANs = compact(distinct(concat([local.api_host, local.public_ip, var.private_api_dns_name, local.bootstrap_public_nlb_host], local.legacy_ssm_sans, var.kube_api_extra_sans)))
+    certExtraSANs = compact(distinct(concat([local.api_host, local.public_ip, var.private_api_dns_name, local.bootstrap_public_nlb_host], var.kube_api_extra_sans)))
   })
 
   configured_talos_api_endpoint = (
@@ -46,7 +46,7 @@ locals {
   )
   talos_api_endpoint = var.talos_api_endpoint == null ? aws_eip_association.api[0].public_ip : local.configured_talos_api_endpoint
 
-  talos_api_sans    = distinct(concat(compact([local.bootstrap_public_nlb_host, local.stable_api_hostname]), local.legacy_ssm_sans, var.talos_api_extra_sans))
+  talos_api_sans    = distinct(concat(compact([local.bootstrap_public_nlb_host, local.stable_api_hostname]), var.talos_api_extra_sans))
   talos_api_patches = local.bootstrap_public_enabled || length(local.talos_api_sans) > 0 ? [yamlencode({ machine = { certSANs = local.talos_api_sans } })] : []
 
   # Panfactum kube_cilium and kube_core_dns own networking and DNS, so Talos never deploys Flannel, kube-proxy or CoreDNS.
@@ -564,9 +564,6 @@ resource "talos_machine" "control_plane" {
     aws_route53_record.bootstrap_public,
     aws_vpc_security_group_ingress_rule.talos_api,
     aws_vpc_security_group_ingress_rule.talos_api_source,
-    aws_vpc_security_group_ingress_rule.operator_tunnel,
-    aws_instance.ssm_jump_host,
-    aws_vpc_security_group_ingress_rule.ssm_jump_host_talos,
     aws_lb_listener.bootstrap_public,
     aws_lb_target_group_attachment.bootstrap_public,
     aws_vpc_security_group_ingress_rule.bootstrap_public_operator,

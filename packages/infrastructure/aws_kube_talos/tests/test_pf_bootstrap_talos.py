@@ -44,16 +44,6 @@ IAM_LOGIN = {
 }
 
 
-class PreflightTests(unittest.TestCase):
-    def test_preflight_checks_fixed_configuration_through_shared_helper(self):
-        env = {key: value for key, value in os.environ.items() if key != "PF_TALOS_FIXED_SSM"}
-        result = subprocess.run(["python3", str(SCRIPT), "preflight", "--cluster", "test"],
-                                env=env, capture_output=True, text=True, timeout=10)
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("Set PF_TALOS_FIXED_SSM or pass --fixed-ssm FILE", result.stderr)
-        self.assertEqual(result.stdout, "")
-
-
 @unittest.skipUnless(shutil.which("openssl"), "openssl missing; run through the dev shell")
 class PfBootstrapTalosTests(unittest.TestCase):
     def setUp(self):
@@ -266,7 +256,7 @@ class PfBootstrapTalosTests(unittest.TestCase):
 
     def test_merge_preserves_other_entries_and_replaces_same_name(self):
         self.kube.mkdir(exist_ok=True)
-        self.user_file().write_text("clusters:\n  - name: a\n    aws_profile: prof-a\n    transport: ssm\n")
+        self.user_file().write_text("clusters:\n  - name: a\n    aws_profile: prof-a\n")
         self.assertEqual(self.register().returncode, 0)
         config = self.config()
         config["clusters"].append({"name": "keep", "cluster": {"server": "https://keep"}})
@@ -282,7 +272,7 @@ class PfBootstrapTalosTests(unittest.TestCase):
         self.assertEqual(sorted(c["name"] for c in merged["clusters"]), ["a", "keep"])
         self.assertEqual(sum(c["name"] == "a" for c in merged["clusters"]), 1)
         self.assertEqual(next(c for c in merged["clusters"] if c["name"] == "a")["cluster"]["server"],
-                         "https://127.0.0.1:16443")
+                         "https://api.example.internal:6443")
         self.assertEqual(next(u for u in merged["users"] if u["name"] == "keep")["user"], {"token": "t"})
 
     def test_merge_does_not_set_current_context_and_uses_absolute_module(self):
@@ -326,50 +316,35 @@ class PfBootstrapTalosTests(unittest.TestCase):
         after = (self.kube / "config").stat()
         self.assertEqual((before.st_ino, before.st_mtime_ns), (after.st_ino, after.st_mtime_ns))
 
-    def test_vpn_register_and_merge_keep_transport_context_and_recovery(self):
+    def test_vpn_register_and_merge_keep_transport_and_context(self):
         self.kube.mkdir()
         self.user_file().write_text("- name: a\n  aws_profile: vpn-profile\n  transport: vpn\n")
         result = self.register()
         self.assertEqual(result.returncode, 0, result.stderr)
         output = self.config()
-        output["current-context"] = "a-ssm"
+        output["current-context"] = "a"
         path = self.kube / "config"
         path.write_text(json.dumps(output))
         self.env["TEST_PRIVATE_URL"] = "https://updated.example.internal:6443"
         result = self.register()
         self.assertEqual(result.returncode, 0, result.stderr)
         output = self.config()
-        self.assertEqual(output["current-context"], "a-ssm")
+        self.assertEqual(output["current-context"], "a")
         clusters = {entry["name"]: entry["cluster"] for entry in output["clusters"]}
         self.assertEqual(clusters, {
             "a": {"server": "https://updated.example.internal:6443", "certificate-authority-data": self.ca},
-            "a-ssm": {"server": "https://127.0.0.1:16443", "certificate-authority-data": self.ca},
         })
         for user in output["users"]:
             self.assertEqual(set(user["user"]), {"exec"})
             args = user["user"]["exec"]["args"]
             self.assertEqual(args[args.index("--cluster") + 1], "a")
             self.assertEqual(args[args.index("--profile") + 1], "vpn-profile")
-            self.assertEqual("--transport" in args, user["name"] == "a")
+            self.assertEqual(args[-2:], ["--transport", "vpn"])
         before = path.read_bytes()
         for _ in range(2):
             self.assertEqual(self.run_cli("merge").returncode, 0)
             self.assertEqual(path.read_bytes(), before)
         self.assertIn("transport: vpn", self.user_file().read_text())
-
-    def test_vpn_merge_rejects_unrelated_recovery_name(self):
-        self.kube.mkdir(exist_ok=True)
-        self.user_file().write_text("clusters:\n  - name: a\n    aws_profile: prof-a\n    transport: ssm\n")
-        self.assertEqual(self.register().returncode, 0)
-        self.user_file().write_text("- name: a\n  transport: vpn\n")
-        saved = self.config()
-        saved["contexts"].append({"name": "a-ssm", "context": {"cluster": "external", "user": "external"}})
-        path = self.kube / "config"
-        path.write_text(json.dumps(saved))
-        result = self.run_cli("merge")
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("a-ssm", result.stderr)
-        self.assertEqual(self.config(), saved)
 
     def test_invalid_vpn_transport_or_endpoint_fails_without_rewriting(self):
         self.assertEqual(self.register().returncode, 0)
@@ -377,7 +352,7 @@ class PfBootstrapTalosTests(unittest.TestCase):
         info = json.loads(info_path.read_text())
         del info["clusters"]["a"]["kube_api_server"]
         info_path.write_text(json.dumps(info))
-        for transport, message in (("invalid", "transport"), ("vpn", "kube_api_server")):
+        for transport, message in (("invalid", "transport"), ("ssm", "transport"), ("vpn", "kube_api_server")):
             self.user_file().write_text(f"- name: a\n  transport: {transport}\n")
             result = self.run_cli("merge")
             self.assertEqual(result.returncode, 1)
@@ -432,7 +407,7 @@ class PfBootstrapTalosTests(unittest.TestCase):
         result = self.build_and_merge("- name: a\n  aws_profile: prof-a\n", iam_login=IAM_LOGIN)
         self.assertEqual(result.returncode, 0, result.stderr)
         before = self.config()
-        self.assertEqual(sorted(c["name"] for c in before["contexts"]), ["a", "a-ssm"])
+        self.assertEqual(sorted(c["name"] for c in before["contexts"]), ["a"])
         self.assertFalse((self.kube / "a.iam.json").exists())
 
         result = self.build_and_merge("- name: a\n  aws_profile: prof-a\n  iam_profile: iam-a\n",
@@ -467,8 +442,8 @@ class PfBootstrapTalosTests(unittest.TestCase):
         self.assertEqual(json.loads(path.read_text()), changed)
 
     def test_iam_profile_skips_transports_other_than_vpn_with_a_message(self):
-        for transport, extra in (("ssm", {}), ("bootstrap_public", {
-                "bootstrap_public_host": "talos-1.elb.amazonaws.com", "bootstrap_public_node": "10.0.1.5"})):
+        for transport, extra in (("bootstrap_public", {
+                "bootstrap_public_host": "talos-1.elb.amazonaws.com", "bootstrap_public_node": "10.0.1.5"}),):
             with self.subTest(transport=transport):
                 result = self.build_and_merge(
                     f"- name: a\n  aws_profile: prof-a\n  iam_profile: iam-a\n  transport: {transport}\n",
@@ -482,7 +457,7 @@ class PfBootstrapTalosTests(unittest.TestCase):
         result = self.build_and_merge("- name: a\n  aws_profile: prof-a\n  iam_profile: iam-a\n")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("a has no iam_login metadata", result.stderr)
-        self.assertEqual(sorted(c["name"] for c in self.config()["contexts"]), ["a", "a-ssm"])
+        self.assertEqual(sorted(c["name"] for c in self.config()["contexts"]), ["a"])
         self.assertFalse((self.kube / "a.iam.json").exists())
 
     def test_iam_context_name_cannot_shadow_a_registered_cluster(self):
@@ -524,7 +499,7 @@ class PfBootstrapTalosTests(unittest.TestCase):
         self.assertEqual((modules.read_bytes(), users.read_bytes()), before)
         self.assertEqual(self.config()["current-context"], "old")
         self.assertEqual([item["name"] for item in self.config()["contexts"]],
-                         ["old", "old-ssm", "new", "new-ssm"])
+                         ["old", "new"])
         failure = self.run_cli("build", "--module", str(self.root / "environments/b"), "--merge")
         self.assertEqual(failure.returncode, 1)
         self.assertIn("b: module has no cluster_name output", failure.stderr)
@@ -557,7 +532,7 @@ class PfBootstrapTalosTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.config()["current-context"], "replacement")
         self.assertEqual([item["name"] for item in self.config()["contexts"]],
-                         ["replacement", "replacement-ssm", "unrelated"])
+                         ["replacement", "unrelated"])
         self.assertFalse((self.kube / "retiring.iam.json").exists())
         self.assertEqual(self.user_profiles(), {"replacement": "prof-a"})
         self.assertEqual((self.kube / "config.talos.yaml").read_text(), "clusters:\n  - module: b\n")

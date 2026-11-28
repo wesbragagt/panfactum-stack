@@ -1,8 +1,5 @@
 locals {
-  node_instance_types = toset(concat(
-    var.control_plane[*].instance_type,
-    var.ssm_jump_host_enabled ? [var.ssm_jump_host_instance_type] : []
-  ))
+  node_instance_types = toset(var.control_plane[*].instance_type)
 }
 
 data "aws_ec2_instance_type" "node" {

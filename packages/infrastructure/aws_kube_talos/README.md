@@ -31,24 +31,15 @@ flowchart LR
 
 ## Requirements
 
-- An existing VPC with DNS enabled and private subnets tagged `Name = PRIVATE_A`, `PRIVATE_B` and `PRIVATE_C`. The private routes must let the controllers pull images. An SSM host also needs connectivity to AWS Systems Manager.
-- A runner that can reach the Talos API on the bootstrap controller on TCP 50000 during apply. Use a runner in the VPC or start a forward from the caller.
+- An existing VPC with DNS enabled and private subnets tagged `Name = PRIVATE_A`, `PRIVATE_B` and `PRIVATE_C`. The private routes must let the controllers pull images.
+- A runner that can reach the Talos API on the bootstrap controller on TCP 50000 during apply. Use a runner with a VPN route into the VPC, or the `bootstrap_public` transport for a new cluster.
 - S3 Block Public Access on the account must allow a public bucket policy, and the applying identity must be able to create an IAM OIDC provider.
 - The guide's steps 1 and 2 are done: upstream registry credentials are stored and `aws_ecr_pull_through_cache` is deployed.
-- `python3`, `aws` CLI v2, `session-manager-plugin`, `terragrunt`, `kubectl`, `kubectx`, `talosctl` and `sops` on `PATH`. The Panfactum devshell provides all of them except `talosctl`.
+- `python3`, `aws` CLI v2, `terragrunt`, `kubectl`, `kubectx`, `talosctl` and `sops` on `PATH`. The Panfactum devshell provides all of them except `talosctl`.
 
 In the commands below, `<module>` is the path to this module folder in your repository and `<caller>` is the Terragrunt directory that deploys it. Run them from the repository root.
 
 ## Select bootstrap connectivity
-
-For homelab operators using the project Headscale client, follow the
-[Talos bootstrap guide](../../../../../docs/talos-new-cluster-bootstrap.md#use-the-tailnet-include-after-registration).
-It covers the isolated client, the Tailnet include for registered clusters,
-and fixed SSM recovery. On a fresh caller, the shared transport lookup can
-require a registry entry before OpenTofu runs. Use public bootstrap with the
-shared transport enabled, or use the fixed SSM first-apply configuration
-without that lookup. Register and merge the VPN endpoints before enabling the
-shared VPN transport and Tailnet include.
 
 Use [public bootstrap](../../../../../docs/talos-new-cluster-bootstrap.md#public-bootstrap-before-vpn)
 when the operator cannot yet reach the private VPC. Set
@@ -66,34 +57,13 @@ and provide fixed controller private IPs. The module uses the first
 ingress through `talos_api_source_security_groups`.
 `kube_api_source_security_groups` grants Kubernetes ingress separately. Both
 maps take stable caller-chosen keys and security group IDs as values. Keep
-`private_api_dns_name` for the Kubernetes API endpoint. The direct path needs no
-Terragrunt session hook.
+`private_api_dns_name` for the Kubernetes API endpoint. An explicit
+`talos_api_endpoint` overrides the transport's derived endpoint.
 
 For a first direct apply, use a runner with the route already established and
 caller configuration that does not require a pre-existing registry entry.
 The project Tailnet include has been verified against the existing Talos-2
 cluster after registration.
-
-For a caller-owned SSM path, apply the [private SSM jump host
-module](../aws_ssm_jump_host/README.md) first and wait for its instance to report
-`Online`. Pass its security group ID in each relevant ingress map. Include the
-module-owned hook and set `talos_access_transport = "ssm"` to use its
-`127.0.0.1:50000` Talos listener and include loopback SANs on both APIs. An
-explicit `talos_api_endpoint` overrides either transport's derived endpoint.
-
-For SSM, provision the jump hosts and fixed documents in
-`aws_ssm_jump_host` before the cluster hook runs. Set
-`PF_TALOS_FIXED_SSM` to an absolute JSON path with `cluster`, `account_id`,
-`vpc_id` and the jump module's `instance_ids` and `document_destinations`
-outputs. Include `controller_ip` for bootstrap or default Talos recovery.
-Set `kube_host` only to disambiguate multiple Kubernetes documents.
-
-The Kubernetes context opens only its document. For privileged Talos access,
-`cluster_access.py --talos-config --node <controller-ip>` selects the
-corresponding document. The helper keeps registered loopback addresses and
-verifies TLS. The routed context continues to use private API identities.
-Use the explicit `-ssm` context for recovery when routed access is unavailable.
-Existing listeners must finish before a new helper can bind the same ports.
 
 ## Kubernetes API routing
 
@@ -105,10 +75,8 @@ so Cilium uses the local listener.
 Set `private_api_dns_name` before bootstrapping. The module includes the
 hostname in the API certificate and creates a private A record with the
 controller IPs. Off-node Kubernetes clients connect to that hostname on
-TCP 6443. They need their own connection retries. A fixed-destination SSM
-session needs a new connection through a reachable controller after its
-destination fails. Keep direct Talos management on TCP 50000 for
-configuration and etcd bootstrap.
+TCP 6443. They need their own connection retries. Keep direct Talos
+management on TCP 50000 for configuration and etcd bootstrap.
 
 With three controllers in separate Availability Zones, etcd can keep
 quorum after losing one. KubePrism on v1.14.6 can switch peers when TCP
@@ -127,12 +95,11 @@ not ready. The private A record becomes an alias to the load balancer. The
 Talos API on TCP 50000 stays off it. The target group turns off client IP
 preservation so a node can reach itself through the load balancer. The module
 adds a load balancer security group and lets it reach the node security
-group on 6443. The SSM jump host and `operator_tunnel_security_group_ids` can
-reach it. Other clients outside the nodes need their source in
+group on 6443. Clients outside the nodes need their source in
 `kube_api_source_security_groups` or `kube_api_allowed_cidrs`. List price is
 about $16/month plus LCU charges.
 
-## Bootstrap with fixed SSM
+## Bootstrap
 
 This follows the Panfactum guide [Kubernetes Cluster](https://panfactum.com/docs/edge/guides/bootstrapping/kubernetes-cluster) step for step, starting at step 3. Step numbers match the guide. Each step says "same" or states the Talos difference.
 
@@ -148,15 +115,16 @@ This module replaces `aws_eks`. It needs Talos-only setup before the apply.
 
    Keep an encrypted copy outside the cluster. Never reuse another cluster's bundle.
 
-2. Include the module's hooks alongside the shared Panfactum configuration in `<caller>/terragrunt.hcl`:
+2. Include the access hook alongside the shared Panfactum configuration in `<caller>/terragrunt.hcl`:
 
    ```hcl
    include "panfactum" {
-     path = find_in_parent_folders("panfactum.hcl")
+     path   = find_in_parent_folders("panfactum.hcl")
+     expose = true
    }
 
-   include "talos_hooks" {
-     path = "${get_repo_root()}/<module>/terragrunt.hooks.hcl"
+   include "talos_access" {
+     path = "${get_repo_root()}/<module>/terragrunt.access.hcl"
    }
 
    terraform {
@@ -167,19 +135,19 @@ This module replaces `aws_eks`. It needs Talos-only setup before the apply.
      config_path = "../aws_vpc"
    }
 
-   dependency "ssm" {
-     config_path = "../aws_ssm_jump_host"
+   dependency "router" {
+     config_path = "../aws_tailnet_subnet_router"
    }
 
    inputs = {
-     cluster_name                       = "my-cluster"
-     vpc_id                             = dependency.vpc.outputs.vpc_id
-     secrets_bundle                     = yamldecode(sops_decrypt_file("${get_terragrunt_dir()}/talos-secrets.yaml"))
-     control_plane_public_ip_enabled    = false
-     private_api_dns_name               = "api.my-cluster.internal"
-     talos_access_transport             = "ssm"
-     kube_api_source_security_groups    = { jump = dependency.ssm.outputs.security_group_id }
-     talos_api_source_security_groups   = { jump = dependency.ssm.outputs.security_group_id }
+     cluster_name                     = "my-cluster"
+     vpc_id                           = dependency.vpc.outputs.vpc_id
+     secrets_bundle                   = yamldecode(sops_decrypt_file("${get_terragrunt_dir()}/talos-secrets.yaml"))
+     control_plane_public_ip_enabled  = false
+     private_api_dns_name             = "api.my-cluster.internal"
+     talos_access_transport           = include.panfactum.locals.talos_transport
+     kube_api_source_security_groups  = { tailscale = dependency.router.outputs.security_group_id }
+     talos_api_source_security_groups = { tailscale = dependency.router.outputs.security_group_id }
      control_plane = [
        { subnet = "PRIVATE_A", private_ip = "10.0.64.10" },
        { subnet = "PRIVATE_B", private_ip = "10.0.128.10" },
@@ -188,39 +156,23 @@ This module replaces `aws_eks`. It needs Talos-only setup before the apply.
    }
    ```
 
-   Point `dependency.vpc.config_path` at the caller that owns the shared VPC.
-   Add the standalone jump security group to the Kubernetes and Talos API
-   ingress maps. The host needs an outbound path to Systems Manager and to
-   the private API destinations in its fixed documents.
+   Point `dependency.vpc.config_path` at the caller that owns the shared VPC
+   and `dependency.router.config_path` at the VPN subnet router. Set
+   `talos_transport_enabled: true` in the region metadata so
+   `talos_transport` resolves to the registered transport. For a first apply
+   without a VPN route, export `PF_TALOS_TRANSPORT=bootstrap_public` as the
+   [Talos bootstrap guide](../../../../../docs/talos-new-cluster-bootstrap.md#public-bootstrap-before-vpn) describes.
 
-   The Talos provider connects through the loopback listener. Cluster nodes need a separate private Kubernetes endpoint. `private_api_dns_name` creates a private hosted zone and an API record for the controllers. Use a unique parent domain per cluster in a shared VPC, such as `api.a.internal` and `api.b.internal`. A single-controller cluster can use a fixed `control_plane` `private_ip` in place of private DNS.
+   The Talos provider connects to the endpoint that `talos_access_transport` selects. Cluster nodes need a separate private Kubernetes endpoint. `private_api_dns_name` creates a private hosted zone and an API record for the controllers. Use a unique parent domain per cluster in a shared VPC, such as `api.a.internal` and `api.b.internal`. A single-controller cluster can use a fixed `control_plane` `private_ip` in place of private DNS.
 
-   The include needs a local copy of the hook HCL before Terragrunt downloads the Terraform source. The hook runs the bundled helper from the Terraform working directory in the cache. Terragrunt v0.69.1 exposes `inputs.cluster_name` to the hook as the raw string `TF_VAR_cluster_name`. For the `aws_kube_talos` module, the shared `panfactum.hcl` passes the primary AWS provider's profile, region and expected account via `PF_TALOS_AWS_PROFILE`, `PF_TALOS_AWS_REGION` and `PF_TALOS_AWS_ACCOUNT_ID`. The helper checks the AWS account before looking up controllers.
+   The include needs a local copy of the hook HCL before Terragrunt downloads the Terraform source. Its `after_hook` registers the cluster after a successful apply and retires the registration after a destroy. Terragrunt v0.69.1 exposes `inputs.cluster_name` to the hook as the raw string `TF_VAR_cluster_name`. For the `aws_kube_talos` module, the shared `panfactum.hcl` passes the primary AWS provider's profile and region via `PF_TALOS_AWS_PROFILE` and `PF_TALOS_AWS_REGION`.
 
-   The hook calls `cluster_access.py` before `plan`, `apply` and `destroy`.
-   It skips SSM on routed access. For first apply, it waits in the background
-   for the configured controller while OpenTofu launches it. The helper exits
-   with Terragrunt. Check `bootstrap.log` in the tunnel state directory for
-   failures.
-
-   When cluster outputs already exist, include `terragrunt.access.hcl` as
-   `talos_access` to create the two provider connections with the same helper
-   and register the cluster after a successful apply.
-
-3. Set `PF_TALOS_FIXED_SSM` and check the configured SSM path before the
-   first plan:
-
-   ```sh
-   python3 <module>/scripts/pf-bootstrap-talos preflight --cluster my-cluster --profile <aws-profile> --region <region>
-   ```
-
-   The command validates the AWS account, fixed documents and Online jump
-   hosts without opening sessions. Review the controller ingress for TCP
-   50000 and 6443 and keep the controllers private.
+3. Review the controller ingress for TCP 50000 and 6443 before the first plan
+   and keep the controllers private.
 
 4. Run `pf-tf-init` in the caller. Run the first plan in a new tmux window and
-   review it before applying. The Talos provider retries until the forward
-   connects.
+   review it before applying. The Talos provider retries until the controller's
+   Talos API answers.
 
 #### Use cases
 
@@ -300,7 +252,7 @@ Run `pf-update-kube-talos --build` after `register` adds a cluster and whenever 
    k9s
    ```
 
-   The Kubernetes credential helper uses the transport selected in `config.talos.user.yaml`. For SSM, the first request opens the tunnel and later requests reuse it.
+   The Kubernetes credential helper uses the transport selected in `config.talos.user.yaml`.
 
    The homelab dev shell's `talosctl` follows the Kubernetes context. To use the standard Talos CLI with the context selected by `kubectx`, generate a protected client config and pass it to the CLI:
 
@@ -317,14 +269,14 @@ No command is needed, so skip `pf-eks-reset`. The module turns off Flannel, kube
 
 ### 6. Configure the Kubernetes provider
 
-Same as the guide. Add the keys to the region's `region.yaml`, with the tunnel's local port:
+Add the context to the region's `region.yaml` and enable the Talos transport:
 
 ```yaml
 kube_config_context: my-cluster
-kube_api_server: https://127.0.0.1:16443
+talos_transport_enabled: true
 ```
 
-This example uses the SSM default port 16443. Modules that run inside the cluster, such as `kube_cilium`, override `kube_api_server` with the in-cluster URL in their `module.yaml`.
+The shared `panfactum.hcl` reads the provider server and context from the generated kubeconfig through `cluster-access.py --direct-provider-config`, so the region needs no `kube_api_server`.
 
 ### Check etcd backups
 
@@ -339,7 +291,7 @@ Confirm that a new `<cluster>-<timestamp>.snap` object appears under `etcd/<clus
 ### Differences from the EKS guide
 
 - `pf-update-kube-talos` never calls `pf-update-kube`. It adds contexts from `.kube/cluster_info.talos` and `.kube/config.talos.user.yaml`.
-- The API is private. An SSM tunnel reaches it, and the kubeconfig's exec credential plugin (`cluster_access.py --exec-credential`) opens the tunnel on first use.
+- The API is private. The VPN reaches it, and the kubeconfig's exec credential plugin (`cluster_access.py --exec-credential`) returns the admin client certificate.
 - Credentials are client certificates, not tokens.
 
 ## Controller runbook
@@ -364,7 +316,7 @@ Stay on the same CPU architecture (for example t4g to m7g, both arm64). A type w
 
 1. Set `private_api_dns_name` if it is unset, and apply.
 2. Append entries to `control_plane` until it has 3 (or 5).
-3. Apply with `KUBECONFIG` pointing at the operator tunnel. The module first runs the pre-join etcd snapshot, then creates the new controllers. Talos joins each one as a learner and promotes it.
+3. Apply with `KUBECONFIG` pointing at a kubeconfig whose current context reaches the cluster. The module first runs the pre-join etcd snapshot, then creates the new controllers. Talos joins each one as a learner and promotes it.
 4. Check that `etcd members` lists every controller.
 5. Check that each new controller has `spec.providerID` set to `aws:///<az>/<instance-id>`. `kube_aws_ccm` sets the ID for short names and the AWS CCM resolves FQDNs. `control_plane_register_with_fqdn` defaults to `true`. A cluster created with the old default must set it to `false`, because changing it renames existing controller Nodes.
 
@@ -375,7 +327,7 @@ The module removes the highest positions. The first entry bootstraps the cluster
 1. For each controller that goes, one at a time: run `talosctl -n <its-ip> etcd leave`, then `kubectl delete node <its-node>`. Check `etcd members` before the next one.
 2. Remove the same trailing entries from `control_plane` and apply. The plan destroys only the controllers that left.
 
-The plan fails if a controller being removed is still an etcd member, and names its IP. The check runs `talosctl etcd members` against a remaining controller, so `talosctl` must be on PATH and the operator tunnel up. It runs only while a controller above the new count still exists.
+The plan fails if a controller being removed is still an etcd member, and names its IP. The check runs `talosctl etcd members` against a remaining controller, so `talosctl` must be on PATH and the Talos API reachable. It runs only while a controller above the new count still exists.
 
 ### Replace a dead controller
 
@@ -400,22 +352,18 @@ Use this when etcd has lost quorum. See also "Recovery" below.
 
 ## Everyday access
 
-- `kubectl`, `kubectx` and `k9s` use the contexts in `.kube/config`. Routed contexts use the private endpoint. An SSM context requires the fixed configuration and opens or reuses a tunnel.
+- `kubectl`, `kubectx` and `k9s` use the contexts in `.kube/config`. Routed contexts use the private endpoint.
 - Run the registration command again when saved cluster access details change.
 - Use `talosctl --context <cluster-context> --nodes <controller-ip>` in the repository shell. Outside the wrapper, get a protected path with `cluster_access.py --talos-config` and pass it to Talos.
 - A new operator clones the repository, adds their profile to `.kube/config.talos.user.yaml` as in step 4, then runs `pf-update-kube-talos`.
 - Run `pf-update-kube-talos` again whenever `.kube/cluster_info.talos` or `.kube/config.talos.user.yaml` changes, or something rewrites `.kube/config`, such as `pf devshell sync`. A plain run makes no AWS calls and only replaces the Talos entries.
-- Every AWS profile that can open the tunnel and read the Terraform state gets cluster-admin, because the credential is the admin client certificate. Restrict both with IAM.
-
-## More than one cluster
-
-The bundled hook uses local port 50000. Run Terragrunt operations that use it one at a time, with that port free. `register` takes no port flags, so the SSM tunnel ports cannot be set per cluster.
+- Every AWS profile that can read the Terraform state gets cluster-admin, because the credential is the admin client certificate. Restrict both with IAM.
 
 ## Recovery
 
 Never run a full apply to recover a cluster without checking `talos_cluster.this` first. If it is missing from state and the replacement controller has no etcd data, the apply creates an empty etcd. Exclude that resource, restore the snapshot with `talosctl bootstrap --recover-from`, then reconcile.
 
-If the first apply cannot reach Talos, target what the first call needs, then run a full plan and apply: `aws_instance.control_plane`, `aws_security_group.nodes`, `aws_vpc_security_group_ingress_rule.operator_tunnel`, `aws_vpc_security_group_ingress_rule.self`, `aws_vpc_security_group_egress_rule.nodes_all` and `aws_route53_record.private_api`.
+If the first apply cannot reach Talos, target what the first call needs, then run a full plan and apply: `aws_instance.control_plane`, `aws_security_group.nodes`, `aws_vpc_security_group_ingress_rule.talos_api_source`, `aws_vpc_security_group_ingress_rule.self`, `aws_vpc_security_group_egress_rule.nodes_all` and `aws_route53_record.private_api`.
 
 ## Version upgrades
 

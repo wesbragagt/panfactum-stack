@@ -125,16 +125,6 @@ output "talos_ami_id" {
   value       = data.aws_ami.talos.id
 }
 
-output "ssm_jump_host_instance_id" {
-  description = "Instance ID of the SSM jump host, or null when ssm_jump_host_enabled is false."
-  value       = one(aws_instance.ssm_jump_host[*].id)
-}
-
-output "ssm_jump_host_security_group_id" {
-  description = "Security group of the SSM jump host, or null when ssm_jump_host_enabled is false."
-  value       = one(aws_security_group.ssm_jump_host[*].id)
-}
-
 output "bootstrap_public_host" {
   description = "Temporary public hostname for the Talos and Kubernetes operator APIs. Null when the public load balancer is disabled."
   value       = local.bootstrap_public_host

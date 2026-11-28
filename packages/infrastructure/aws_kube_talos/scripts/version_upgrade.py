@@ -139,7 +139,7 @@ def upgrade_talos(talos, nodes, target, image, schematic_id=None):
             raise UpgradeError(f"etcd is not healthy with members {nodes}; not upgrading {node}")
         boot_id = talos.boot_id(node) if schematic_id is not None else None
         print(f"{node}: upgrading Talos to {target} with {image}", flush=True)
-        # NOTE: The forward can drop during the reboot.
+        # NOTE: The Talos API connection can drop during the reboot.
         talos.run(node, "upgrade", "--image", image, "--wait=false", timeout=300)
         wait(ready,
              lambda: (schematic_id is None or (

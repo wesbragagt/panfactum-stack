@@ -33,7 +33,7 @@ def main():
     finally:
         os.unlink(path)
     if result.returncode != 0:
-        sys.exit(f"etcd_members: talosctl etcd members failed (is the operator tunnel up?): {result.stderr.strip()}")
+        sys.exit(f"etcd_members: talosctl etcd members failed (is the Talos API reachable?): {result.stderr.strip()}")
     print(json.dumps({"member_ips": ",".join(parse_member_ips(result.stdout))}))
 
 

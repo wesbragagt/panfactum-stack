@@ -84,7 +84,7 @@ Use an AWS CLI that supports STS `get-web-identity-token` (2.33 or later). The k
 
 ### Through the VPN
 
-The API server is reachable directly, so the kubeconfig uses the cluster URL and needs no tunnel helper. `--server` takes any HTTPS URL with a hostname, and the port may be omitted. It rejects credentials, paths other than `/`, queries and fragments. The CA data still pins the server.
+The API server is reachable directly, so the kubeconfig uses the cluster URL. `--server` takes any HTTPS URL with a hostname, and the port may be omitted. It rejects credentials, paths other than `/`, queries and fragments. The CA data still pins the server.
 
 ```sh
 scripts="$PWD/forks/panfactum/packages/infrastructure/aws_kube_talos/scripts"
@@ -110,42 +110,22 @@ pf-update-kube-talos --build
 kubectl --context homelab-talos-2-iam auth whoami
 ```
 
-`build` copies the module's `iam_login` output into the cluster's entry in `.kube/cluster_info.talos`. `merge` writes that metadata to `.kube/<cluster>.iam.json`, only when its contents change, and adds a context whose cluster is the module's `kube_api_server` and `ca_data`. The context user runs `iam_login.py credential` with `--profile <iam_profile>` and `--aws-cli aws`, so it needs no tunnel helper and no Talos certificate. The `<cluster>` and `<cluster>-ssm` contexts are not changed.
+`build` copies the module's `iam_login` output into the cluster's entry in `.kube/cluster_info.talos`. `merge` writes that metadata to `.kube/<cluster>.iam.json`, only when its contents change, and adds a context whose cluster is the module's `kube_api_server` and `ca_data`. The context user runs `iam_login.py credential` with `--profile <iam_profile>` and `--aws-cli aws`, so it needs no Talos certificate. The `<cluster>` context is not changed.
 
-Only the `vpn` transport is supported. For `ssm` and `bootstrap_public`, `merge` prints a message and skips the `-iam` context. It also skips the context, with a message, when `cluster_info.talos` has no `iam_login` entry for the cluster. Run `pf-update-kube-talos --build` after the module applies with the output.
+Only the `vpn` transport is supported. For `bootstrap_public`, `merge` prints a message and skips the `-iam` context. It also skips the context, with a message, when `cluster_info.talos` has no `iam_login` entry for the cluster. Run `pf-update-kube-talos --build` after the module applies with the output.
 
 For a `vpn` cluster, `iam_profile` also switches the Terragrunt Kubernetes, kubectl and Helm providers to the `<cluster>-iam` context. `cluster-access.py --direct-provider-config` checks that context and returns it, and it fails with a message to run `pf-bootstrap-talos merge` when the context is missing or stale. Remove the `iam_profile` line to switch the providers back to the `<cluster>` context, which uses the Talos admin certificate.
-
-### Through SSM
-
-Use the cluster's fixed SSM configuration and the Reader profile. Generate the standard operator kubeconfig with a loopback server, then pass it as the credential source. The shared helper opens only the Kubernetes document.
-
-```sh
-operator_profile=homelab-reader
-export PF_TALOS_FIXED_SSM="$fixed_config"
-python3 "$scripts/iam_login.py" kubeconfig --config "$operator_metadata" \
-  --profile "$operator_profile" --aws-cli "$aws_cli" --server https://127.0.0.1:26443 \
-  --ca-data "$cluster_ca_data" > "$operator_kubeconfig"
-kubeconfig=$(python3 "$scripts/cluster_access.py" --ensure \
-  --cluster "$cluster_name" --profile "$operator_profile" --region us-east-2 \
-  --source-kubeconfig "$operator_kubeconfig" --kube-port 26443)
-kubectl --kubeconfig "$kubeconfig" auth whoami
-```
 
 ## Bootstrap and recovery
 
 IAM login cannot bootstrap itself. Until `kube_policies` is applied, and whenever IAM login is unavailable, use the Talos admin certificate. This covers the first `kube_policies` apply, an AWS outage, and a role recreated before the module applies its new ARN.
 
-Use the same fixed configuration with a Superuser profile and the
-protected Talos credential source. To recover through the NAT, pass
-`--nat-host "$nat_id"` and list that instance in the JSON file's
-`nat_host_ids`. The helper selects only the requested controller document.
-Recovery access still requires AWS permissions for both the destination
-document and the chosen host.
+Use a Superuser profile and the protected Talos credential source over the
+VPN. Pass the controller's private IP as the Talos endpoint.
 
 ```sh
 talosconfig=$(python3 "$scripts/cluster_access.py" --talos-config \
   --cluster "$cluster_name" --profile "$superuser_profile" --region us-east-2 \
-  --source-talosconfig "$admin_talosconfig" --node "$controller_ip" --nat-host "$nat_id" --talos-port 55000)
+  --source-talosconfig "$admin_talosconfig" --talos-endpoint "$controller_ip")
 talosctl --talosconfig "$talosconfig" kubeconfig --merge=false "$admin_kubeconfig"
 ```
