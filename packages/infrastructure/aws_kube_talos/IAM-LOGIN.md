@@ -114,6 +114,8 @@ kubectl --context homelab-talos-2-iam auth whoami
 
 Only the `vpn` transport is supported. For `ssm` and `bootstrap_public`, `merge` prints a message and skips the `-iam` context. It also skips the context, with a message, when `cluster_info.talos` has no `iam_login` entry for the cluster. Run `pf-update-kube-talos --build` after the module applies with the output.
 
+For a `vpn` cluster, `iam_profile` also switches the Terragrunt Kubernetes, kubectl and Helm providers to the `<cluster>-iam` context. `cluster-access.py --direct-provider-config` checks that context and returns it, and it fails with a message to run `pf-bootstrap-talos merge` when the context is missing or stale. Remove the `iam_profile` line to switch the providers back to the `<cluster>` context, which uses the Talos admin certificate.
+
 ### Through SSM
 
 Use the cluster's fixed SSM configuration and the Reader profile. Generate the standard operator kubeconfig with a loopback server, then pass it as the credential source. The shared helper opens only the Kubernetes document.
