@@ -79,7 +79,7 @@ class PfBootstrapTalosTests(unittest.TestCase):
                               capture_output=True, text=True, timeout=60)
 
     def register(self, *options, name="a", env="a", profile="prof-a"):
-        """Register, then build and merge from fake outputs, as the apply hook and pf-update-kube-talos do."""
+        """Register, then build and merge from fake outputs, as an operator does after the first apply."""
         result = self.run_cli("register", "--cluster", name, "--module", str(self.root / "environments" / env),
                               "--region", "us-east-2", "--profile", profile, *options)
         if result.returncode:
@@ -504,7 +504,7 @@ class PfBootstrapTalosTests(unittest.TestCase):
         self.assertEqual(failure.returncode, 1)
         self.assertIn("b: module has no cluster_name output", failure.stderr)
 
-    def test_after_apply_retires_only_generated_entries(self):
+    def test_retire_removes_only_generated_entries(self):
         self.assertEqual(self.register(name="replacement", env="b").returncode, 0)
         self.assertEqual(self.register(name="retiring").returncode, 0)
         with self.user_file().open("a") as user:
@@ -517,16 +517,11 @@ class PfBootstrapTalosTests(unittest.TestCase):
         config["contexts"].append({"name": "unrelated",
                                    "context": {"cluster": "replacement", "user": "replacement"}})
         (self.kube / "config").write_text(json.dumps(config))
-        tofu = self.tmp / "bin/tofu"
-        tofu.write_text('#!/bin/sh\nprintf "%s" "$TEST_TOFU_OUTPUTS"\n')
-        tofu.chmod(0o755)
-        self.env["TG_CTX_TF_PATH"] = str(tofu)
-        self.env["TEST_TOFU_OUTPUTS"] = '{"cluster_name":{"value":"wrong"}}'
-        args = ("after-apply", "--cluster", "retiring", "--module", str(self.root / "environments/a"),
-                "--region", "us-east-2")
-        self.assertEqual(self.run_cli(*args).returncode, 1)
-        self.assertIn("retiring", self.user_profiles())
-        self.env["TEST_TOFU_OUTPUTS"] = "{}"
+        wrong_caller = self.run_cli("retire", "--cluster", "replacement", "--module", str(self.root / "environments/a"))
+        self.assertEqual(wrong_caller.returncode, 1)
+        self.assertIn("registered to another caller", wrong_caller.stderr)
+        self.assertIn("replacement", self.user_profiles())
+        args = ("retire", "--cluster", "retiring", "--module", str(self.root / "environments/a"))
         for _ in range(2):
             result = self.run_cli(*args)
             self.assertEqual(result.returncode, 0, result.stderr)

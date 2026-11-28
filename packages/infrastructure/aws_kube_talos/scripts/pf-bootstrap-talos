@@ -2,8 +2,8 @@
 """Set up kubectl access to Talos through VPN or public bootstrap.
 
 Subcommands: register (add a cluster's module and user entries after its first apply), build
-(write cluster_info.talos from module outputs) and merge (write the registered clusters into
-$KUBE_DIR/config).
+(write cluster_info.talos from module outputs), merge (write the registered clusters into
+$KUBE_DIR/config) and retire (remove a destroyed cluster's registration and generated contexts).
 
 $KUBE_DIR (default: .kube at the git repository root) holds three files. config.talos.yaml lists
 the module paths. cluster_info.talos is committed and has no secrets: region, module path, CA and
@@ -506,32 +506,21 @@ def retire_registration(args):
     return 0
 
 
-def cmd_after_apply(args):
-    # NOTE: Terragrunt runs hooks in the cached OpenTofu working directory.
-    tofu = os.environ.get("TG_CTX_TF_PATH") or "tofu"
-    outputs = json.loads(cluster_access.command([tofu, "output", "-json"]))
-    if outputs == {}:
-        return retire_registration(args)
-    if outputs.get("cluster_name", {}).get("value") != args.cluster:
-        raise SetupError(f"{args.module}: cluster_name output does not match {args.cluster}")
-    return cmd_register(args)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
-    for action, run, help_text in (
-        ("register", cmd_register, "add a cluster's module and user entries after its first apply"),
-        ("after-apply", cmd_after_apply, "update the registration from the applied state"),
-    ):
-        reg = sub.add_parser(action, help=help_text)
-        reg.add_argument("--cluster", required=True)
-        reg.add_argument("--module", type=Path, required=True)
-        reg.add_argument("--region", required=True)
-        reg.add_argument("--profile")
-        reg.add_argument("--bootstrap-public", action="store_true",
-                         help="set transport bootstrap_public on a new user entry")
-        reg.set_defaults(run=run)
+    reg = sub.add_parser("register", help="add a cluster's module and user entries after its first apply")
+    reg.add_argument("--cluster", required=True)
+    reg.add_argument("--module", type=Path, required=True)
+    reg.add_argument("--region", required=True)
+    reg.add_argument("--profile")
+    reg.add_argument("--bootstrap-public", action="store_true",
+                     help="set transport bootstrap_public on a new user entry")
+    reg.set_defaults(run=cmd_register)
+    ret = sub.add_parser("retire", help="remove a destroyed cluster's registration and generated contexts")
+    ret.add_argument("--cluster", required=True)
+    ret.add_argument("--module", type=Path, required=True)
+    ret.set_defaults(run=retire_registration)
     bld = sub.add_parser("build", help="write $KUBE_DIR/cluster_info.talos from the module outputs")
     bld.add_argument("--module", type=Path, help="refresh only this registered caller")
     bld.add_argument("--merge", action="store_true", help="merge the selected caller into the kubeconfig")
@@ -545,8 +534,8 @@ def main():
     if args.command == "build" and args.merge and args.module is None:
         parser.error("--merge requires --module")
     try:
-        if args.command in ("register", "after-apply", "build", "merge"):
-            directory = kube_dir(args.module.resolve() if args.command in ("register", "after-apply") else None)
+        if args.command in ("register", "retire", "build", "merge"):
+            directory = kube_dir(args.module.resolve() if args.command in ("register", "retire") else None)
             directory.mkdir(parents=True, exist_ok=True)
             with (directory / ".talos-registration.lock").open("a") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)

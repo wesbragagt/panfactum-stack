@@ -296,7 +296,7 @@ resource "terraform_data" "pre_membership_snapshot" {
   lifecycle {
     precondition {
       condition     = var.etcd_pre_membership_snapshot_kubeconfig != null && try(trimspace(var.etcd_pre_membership_snapshot_kubeconfig) != "", false)
-      error_message = "Adding controllers to an existing cluster needs etcd_pre_membership_snapshot_kubeconfig (path to a kubeconfig that reaches the private Kubernetes API, with kubectl on PATH), or set etcd_pre_membership_snapshot_enabled = false."
+      error_message = "Adding controllers to an existing cluster needs etcd_pre_membership_snapshot_kubeconfig set in the caller to a kubeconfig that reaches the private Kubernetes API and has a context named cluster_name (kubectl on PATH), or set etcd_pre_membership_snapshot_enabled = false."
     }
   }
 }

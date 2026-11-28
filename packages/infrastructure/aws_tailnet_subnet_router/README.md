@@ -76,7 +76,7 @@ The committed `.kube/cluster_info.talos` contains shared cluster metadata, inclu
 Register after the Talos caller has outputs, run `pf-update-kube-talos --build`, then run `pf-update-kube-talos`. The commands use the repository's primary checkout for the shared generated config.
 
 ```sh
-direnv exec . python3 forks/panfactum/packages/infrastructure/aws_kube_talos/scripts/pf-bootstrap-talos register --cluster homelab-talos-2 --module environments/homelab/us-east-2/aws_kube_talos --region us-east-2 --profile homelab-superuser --vpn-endpoints
+direnv exec . python3 forks/panfactum/packages/infrastructure/aws_kube_talos/scripts/pf-bootstrap-talos register --cluster homelab-talos-2 --module environments/homelab/us-east-2/aws_kube_talos --region us-east-2 --profile homelab-superuser
 direnv exec . python3 forks/panfactum/packages/infrastructure/aws_kube_talos/scripts/pf-bootstrap-talos merge
 direnv exec . scripts/cluster-access.py --cluster homelab-talos-2 --show-transport
 ```

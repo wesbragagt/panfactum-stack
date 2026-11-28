@@ -199,7 +199,7 @@ variable "etcd_pre_membership_snapshot_enabled" {
 }
 
 variable "etcd_pre_membership_snapshot_kubeconfig" {
-  description = "Path to a kubeconfig that reaches the private Kubernetes API. Required only when an apply adds controllers to an existing cluster; kubectl must be on PATH."
+  description = "Path to a kubeconfig that reaches the private Kubernetes API and has a context named cluster_name. The caller sets it only for an apply that adds controllers to an existing cluster; kubectl must be on PATH."
   type        = string
   default     = null
 }

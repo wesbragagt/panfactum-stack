@@ -115,16 +115,12 @@ This module replaces `aws_eks`. It needs Talos-only setup before the apply.
 
    Keep an encrypted copy outside the cluster. Never reuse another cluster's bundle.
 
-2. Include the access hook alongside the shared Panfactum configuration in `<caller>/terragrunt.hcl`:
+2. Include the shared Panfactum configuration in `<caller>/terragrunt.hcl`. Set `expose = true` so the caller can read `talos_transport`:
 
    ```hcl
    include "panfactum" {
      path   = find_in_parent_folders("panfactum.hcl")
      expose = true
-   }
-
-   include "talos_access" {
-     path = "${get_repo_root()}/<module>/terragrunt.access.hcl"
    }
 
    terraform {
@@ -165,7 +161,7 @@ This module replaces `aws_eks`. It needs Talos-only setup before the apply.
 
    The Talos provider connects to the endpoint that `talos_access_transport` selects. Cluster nodes need a separate private Kubernetes endpoint. `private_api_dns_name` creates a private hosted zone and an API record for the controllers. Use a unique parent domain per cluster in a shared VPC, such as `api.a.internal` and `api.b.internal`. A single-controller cluster can use a fixed `control_plane` `private_ip` in place of private DNS.
 
-   The include needs a local copy of the hook HCL before Terragrunt downloads the Terraform source. Its `after_hook` registers the cluster after a successful apply and retires the registration after a destroy. Terragrunt v0.69.1 exposes `inputs.cluster_name` to the hook as the raw string `TF_VAR_cluster_name`. For the `aws_kube_talos` module, the shared `panfactum.hcl` passes the primary AWS provider's profile and region via `PF_TALOS_AWS_PROFILE` and `PF_TALOS_AWS_REGION`.
+   No Terragrunt hook registers the cluster. Step 4 registers it after the first apply and retires the registration after a destroy.
 
 3. Review the controller ingress for TCP 50000 and 6443 before the first plan
    and keep the controllers private.
@@ -220,7 +216,7 @@ Talos clusters use three files in `.kube`:
 
 The files stay separate from Panfactum's because every `pf-update` runs `pf-update-kube`. That run rewrites the `users` entry of each cluster in `config.user.yaml` to `pf-get-kube-token`, which Talos rejects.
 
-Run `pf-update-kube-talos --build` after `register` adds a cluster and whenever the module outputs change. Then run `pf-update-kube-talos` to write the contexts.
+Nothing updates these files during an apply. Run the commands in this step after the first apply, after an apply that changes the module outputs, and after a destroy.
 
 1. After the first successful apply, run `register` as a superuser, the same role as `pf-update-kube --build`:
 
@@ -228,7 +224,11 @@ Run `pf-update-kube-talos --build` after `register` adds a cluster and whenever 
    python3 <module>/scripts/pf-bootstrap-talos register --cluster my-cluster --module <caller> --region <region> --profile <aws-profile>
    ```
 
-   It appends the module path to `.kube/config.talos.yaml` and the cluster to `.kube/config.talos.user.yaml`. It makes no AWS calls and writes no kubeconfig. Run `pf-update-kube-talos --build` next, then commit `.kube/config.talos.yaml` and `.kube/cluster_info.talos`. The `.kube/.gitignore` must contain `!config.talos.yaml` and `!cluster_info.talos`.
+   It appends the module path to `.kube/config.talos.yaml` and the cluster to `.kube/config.talos.user.yaml`. The profile defaults to `AWS_PROFILE`. Add `--bootstrap-public` when the first apply used `PF_TALOS_TRANSPORT=bootstrap_public`, so the new user entry gets that transport. It makes no AWS calls and writes no kubeconfig. Next, build the cluster's entry and contexts, then commit `.kube/config.talos.yaml` and `.kube/cluster_info.talos`. The `.kube/.gitignore` must contain `!config.talos.yaml` and `!cluster_info.talos`.
+
+   ```sh
+   pf-update-kube-talos --build --module <caller>
+   ```
 
 2. Each user, the same role as `config.user.yaml` and `pf-update-kube`. `register` already created or appended `.kube/config.talos.user.yaml`, which stays out of git. Omitting `transport` selects VPN. On a new machine, create that file yourself and list your clusters:
 
@@ -262,6 +262,22 @@ Run `pf-update-kube-talos --build` after `register` adds a cluster and whenever 
    ```
 
    Pass a context name after `--talosconfig` to select a different cluster. This operation needs access to the module's sensitive Talos output.
+
+#### Refresh after an apply that changes outputs
+
+After an apply changes an output that the files record, such as the API URL, the controller IPs or `iam_login`, refresh that caller's entry in `.kube/cluster_info.talos` and its generated contexts, including `<cluster>-iam`. The command reads only that caller's outputs and leaves other clusters unchanged. Then commit `.kube/cluster_info.talos`.
+
+```sh
+pf-update-kube-talos --build --module <caller>
+```
+
+#### Retire a destroyed cluster
+
+After a destroy, remove the cluster's registration. This deletes its entries from `.kube/config.talos.yaml`, `.kube/config.talos.user.yaml` and `.kube/cluster_info.talos`, its generated contexts from `.kube/config`, and `.kube/<cluster>.iam.json`. It makes no AWS calls and fails if another caller owns the cluster name. Then commit the two committed files.
+
+```sh
+python3 <module>/scripts/pf-bootstrap-talos retire --cluster my-cluster --module <caller>
+```
 
 ### 5. Reset the cluster
 
@@ -316,7 +332,7 @@ Stay on the same CPU architecture (for example t4g to m7g, both arm64). A type w
 
 1. Set `private_api_dns_name` if it is unset, and apply.
 2. Append entries to `control_plane` until it has 3 (or 5).
-3. Apply with `KUBECONFIG` pointing at a kubeconfig whose current context reaches the cluster. The module first runs the pre-join etcd snapshot, then creates the new controllers. Talos joins each one as a learner and promotes it.
+3. Add `etcd_pre_membership_snapshot_kubeconfig = get_env("KUBECONFIG")` to the caller's `inputs` for this apply, and remove it afterward. `KUBECONFIG` must name a kubeconfig that reaches the cluster and has a context named after it. The module first runs the pre-join etcd snapshot, then creates the new controllers. Talos joins each one as a learner and promotes it.
 4. Check that `etcd members` lists every controller.
 5. Check that each new controller has `spec.providerID` set to `aws:///<az>/<instance-id>`. `kube_aws_ccm` sets the ID for short names and the AWS CCM resolves FQDNs. `control_plane_register_with_fqdn` defaults to `true`. A cluster created with the old default must set it to `false`, because changing it renames existing controller Nodes.
 
