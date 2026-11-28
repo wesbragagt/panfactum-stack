@@ -23,7 +23,7 @@ CONFIG = {
     "role_arns": {role: f"{ROLE_PATH}AWSReservedSSO_{role}_abcd" for role in iam.ROLES},
 }
 ARGS = SimpleNamespace(
-    profile="homelab-reader",
+    profile="reader",
     aws_cli="aws",
     config=Path("operator.json"),
     server="https://127.0.0.1:16443",
@@ -147,7 +147,7 @@ class IamLoginTest(unittest.TestCase):
 
     def test_kubeconfig_accepts_any_https_hostname_and_optional_port(self):
         for server in (
-            "https://127.0.0.1:16443", "https://[::1]:26443", "https://api.homelab-talos-2.internal:6443",
+            "https://127.0.0.1:16443", "https://[::1]:26443", "https://api.cluster.internal:6443",
             "https://api.example.internal", "https://api.example.internal:6443/",
         ):
             with self.subTest(server=server), patch.object(iam.ssl, "create_default_context"):

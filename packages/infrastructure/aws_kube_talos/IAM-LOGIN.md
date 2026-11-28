@@ -100,14 +100,14 @@ kubectl --kubeconfig "$operator_kubeconfig" auth whoami
 
 ```yaml
 clusters:
-  - name: homelab-talos-2
-    aws_profile: homelab-superuser
-    iam_profile: homelab-k8s-test-superuser
+  - name: my-cluster
+    aws_profile: my-admin-profile
+    iam_profile: my-iam-profile
 ```
 
 ```sh
 pf-update-kube-talos --build
-kubectl --context homelab-talos-2-iam auth whoami
+kubectl --context my-cluster-iam auth whoami
 ```
 
 `build` copies the module's `iam_login` output into the cluster's entry in `.kube/cluster_info.talos`. `merge` writes that metadata to `.kube/<cluster>.iam.json`, only when its contents change, and adds a context whose cluster is the module's `kube_api_server` and `ca_data`. The context user runs `iam_login.py credential` with `--profile <iam_profile>` and `--aws-cli aws`, so it needs no Talos certificate. The `<cluster>` context is not changed.
