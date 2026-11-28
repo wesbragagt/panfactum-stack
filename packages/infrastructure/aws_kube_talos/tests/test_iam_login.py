@@ -145,6 +145,27 @@ class IamLoginTest(unittest.TestCase):
         self.assertIn(ARGS.profile, user["exec"]["args"])
         self.assertEqual(user["exec"]["interactiveMode"], "Never")
 
+    def test_kubeconfig_accepts_any_https_hostname_and_optional_port(self):
+        for server in (
+            "https://127.0.0.1:16443", "https://[::1]:26443", "https://api.homelab-talos-2.internal:6443",
+            "https://api.example.internal", "https://api.example.internal:6443/",
+        ):
+            with self.subTest(server=server), patch.object(iam.ssl, "create_default_context"):
+                config = iam.kubeconfig(CONFIG, SimpleNamespace(**{**vars(ARGS), "server": server}))
+                self.assertEqual(config["clusters"][0]["cluster"]["server"], server)
+
+    def test_kubeconfig_rejects_non_https_credentials_path_query_fragment_and_bad_ports(self):
+        for server in (
+            "http://api.example.internal:6443", "api.example.internal:6443", "https://:6443",
+            "https://user@api.example.internal:6443", "https://:secret@api.example.internal:6443",
+            "https://@api.example.internal:6443", "https://api.example.internal:6443/api",
+            "https://api.example.internal:6443?x=1", "https://api.example.internal:6443#x",
+            "https://api.example.internal:0", "https://api.example.internal:abc",
+        ):
+            with self.subTest(server=server), patch.object(iam.ssl, "create_default_context"):
+                with self.assertRaisesRegex(ValueError, "must be an HTTPS URL with a hostname"):
+                    iam.kubeconfig(CONFIG, SimpleNamespace(**{**vars(ARGS), "server": server}))
+
     def test_config_accepts_terraform_output_and_rejects_missing_role(self):
         # Mirrors `tofu output -json iam_login`, where a role without a match is null.
         with tempfile.TemporaryDirectory() as directory:

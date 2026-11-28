@@ -80,12 +80,45 @@ A cluster that used the earlier manual flow must remove its hand-written `KubeAu
 
 ## Operator login
 
-Use the cluster's fixed SSM configuration and the Reader profile. Generate
-the standard operator kubeconfig first, then pass it as the credential
-source. The shared helper opens only the Kubernetes document.
+Use an AWS CLI that supports STS `get-web-identity-token` (2.33 or later). The kubeconfig helper checks the issuer, audience and caller before returning the five-minute credential. The caller must be an approved Identity Center role or an ARN listed in `principal_arns`. An extra IAM role caller matches the role name in the same account.
+
+### Through the VPN
+
+The API server is reachable directly, so the kubeconfig uses the cluster URL and needs no tunnel helper. `--server` takes any HTTPS URL with a hostname, and the port may be omitted. It rejects credentials, paths other than `/`, queries and fragments. The CA data still pins the server.
 
 ```sh
 scripts="$PWD/forks/panfactum/packages/infrastructure/aws_kube_talos/scripts"
+python3 "$scripts/iam_login.py" kubeconfig --config "$operator_metadata" \
+  --profile "$operator_profile" --aws-cli "$aws_cli" --server "$cluster_url" \
+  --ca-data "$cluster_ca_data" > "$operator_kubeconfig"
+kubectl --kubeconfig "$operator_kubeconfig" auth whoami
+```
+
+### Generated context
+
+`pf-update-kube-talos` can add this login to the project kubeconfig as a `<cluster>-iam` context. Set `iam_profile` on the cluster's entry in the gitignored `.kube/config.talos.user.yaml`. The value is the AWS profile of the Identity Center role, IAM user or root user to sign in as. It is separate from `aws_profile`, which the Talos admin certificate context keeps using.
+
+```yaml
+clusters:
+  - name: homelab-talos-2
+    aws_profile: homelab-superuser
+    iam_profile: homelab-k8s-test-superuser
+```
+
+```sh
+pf-update-kube-talos --build
+kubectl --context homelab-talos-2-iam auth whoami
+```
+
+`build` copies the module's `iam_login` output into the cluster's entry in `.kube/cluster_info.talos`. `merge` writes that metadata to `.kube/<cluster>.iam.json`, only when its contents change, and adds a context whose cluster is the module's `kube_api_server` and `ca_data`. The context user runs `iam_login.py credential` with `--profile <iam_profile>` and `--aws-cli aws`, so it needs no tunnel helper and no Talos certificate. The `<cluster>` and `<cluster>-ssm` contexts are not changed.
+
+Only the `vpn` transport is supported. For `ssm` and `bootstrap_public`, `merge` prints a message and skips the `-iam` context. It also skips the context, with a message, when `cluster_info.talos` has no `iam_login` entry for the cluster. Run `pf-update-kube-talos --build` after the module applies with the output.
+
+### Through SSM
+
+Use the cluster's fixed SSM configuration and the Reader profile. Generate the standard operator kubeconfig with a loopback server, then pass it as the credential source. The shared helper opens only the Kubernetes document.
+
+```sh
 operator_profile=homelab-reader
 export PF_TALOS_FIXED_SSM="$fixed_config"
 python3 "$scripts/iam_login.py" kubeconfig --config "$operator_metadata" \
@@ -96,12 +129,6 @@ kubeconfig=$(python3 "$scripts/cluster_access.py" --ensure \
   --source-kubeconfig "$operator_kubeconfig" --kube-port 26443)
 kubectl --kubeconfig "$kubeconfig" auth whoami
 ```
-
-Use an AWS CLI that supports STS `get-web-identity-token`. The kubeconfig
-helper checks the issuer, audience and caller before returning the
-five-minute credential. The caller must be an approved Identity Center role
-or an ARN listed in `principal_arns`. An extra IAM role caller matches the
-role name in the same account.
 
 ## Bootstrap and recovery
 

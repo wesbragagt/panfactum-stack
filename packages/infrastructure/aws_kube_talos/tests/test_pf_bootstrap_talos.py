@@ -36,6 +36,14 @@ esac
 '''
 
 
+IAM_LOGIN = {
+    "issuer": "https://example.tokens.sts.global.api.aws", "audience": "a", "region": "us-east-2",
+    "principal_arns": ["arn:aws:iam::123456789012:root"],
+    "role_arns": {role: f"arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_{role}_abcd"
+                  for role in ("Superuser", "Admin", "Reader", "RestrictedReader")},
+}
+
+
 class PreflightTests(unittest.TestCase):
     def test_preflight_checks_fixed_configuration_through_shared_helper(self):
         env = {key: value for key, value in os.environ.items() if key != "PF_TALOS_FIXED_SSM"}
@@ -398,6 +406,95 @@ class PfBootstrapTalosTests(unittest.TestCase):
             "stable_api_hostname": "api.example.internal"})
         self.assertEqual(sorted(info), ["one", "two"])
         self.assertNotIn("bootstrap_public_host", info["two"])
+
+    def test_build_stores_iam_login_only_when_the_module_outputs_it(self):
+        self.write_outputs("a", "one", iam_login=IAM_LOGIN)
+        self.write_outputs("b", "two", iam_login=None)
+        self.kube.mkdir(exist_ok=True)
+        (self.kube / "config.talos.yaml").write_text("clusters:\n  - module: a\n  - module: b\n")
+        result = self.run_cli("build")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        info = json.loads((self.kube / "cluster_info.talos").read_text())["clusters"]
+        self.assertEqual(info["one"]["iam_login"], IAM_LOGIN)
+        self.assertNotIn("iam_login", info["two"])
+
+    def build_and_merge(self, user_text, **outputs):
+        self.kube.mkdir(exist_ok=True)
+        (self.kube / "config.talos.yaml").write_text("clusters:\n  - module: a\n")
+        self.user_file().write_text(user_text)
+        self.write_outputs("a", "a", **outputs)
+        built = self.run_cli("build")
+        self.assertEqual(built.returncode, 0, built.stderr)
+        return self.run_cli("merge")
+
+    def test_iam_profile_adds_a_context_and_keeps_existing_contexts_byte_identical(self):
+        result = self.build_and_merge("- name: a\n  aws_profile: prof-a\n", iam_login=IAM_LOGIN)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        before = self.config()
+        self.assertEqual(sorted(c["name"] for c in before["contexts"]), ["a", "a-ssm"])
+        self.assertFalse((self.kube / "a.iam.json").exists())
+
+        result = self.build_and_merge("- name: a\n  aws_profile: prof-a\n  iam_profile: iam-a\n",
+                                      iam_login=IAM_LOGIN)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        after = self.config()
+        for key in ("clusters", "users", "contexts"):
+            self.assertEqual([item for item in after[key] if item["name"] != "a-iam"], before[key])
+        clusters = {item["name"]: item["cluster"] for item in after["clusters"]}
+        self.assertEqual(clusters["a-iam"], {"server": "https://api.example.internal:6443",
+                                             "certificate-authority-data": self.ca})
+        users = {item["name"]: item["user"] for item in after["users"]}
+        self.assertEqual(users["a-iam"], {"exec": {
+            "apiVersion": "client.authentication.k8s.io/v1", "command": "python3", "interactiveMode": "Never",
+            "args": [str(SCRIPT.parent / "iam_login.py"), "credential", "--config", str(self.kube / "a.iam.json"),
+                     "--profile", "iam-a", "--aws-cli", "aws"]}})
+        contexts = {item["name"]: item["context"] for item in after["contexts"]}
+        self.assertEqual(contexts["a-iam"], {"cluster": "a-iam", "user": "a-iam"})
+        self.assertEqual(json.loads((self.kube / "a.iam.json").read_text()), IAM_LOGIN)
+
+    def test_iam_metadata_file_is_rewritten_only_when_its_contents_change(self):
+        user = "- name: a\n  aws_profile: prof-a\n  iam_profile: iam-a\n"
+        self.assertEqual(self.build_and_merge(user, iam_login=IAM_LOGIN).returncode, 0)
+        path, config = self.kube / "a.iam.json", self.kube / "config"
+        before = [(file.read_bytes(), file.stat().st_ino, file.stat().st_mtime_ns) for file in (path, config)]
+        time.sleep(0.05)
+        self.assertEqual(self.run_cli("merge").returncode, 0)
+        self.assertEqual(before, [(file.read_bytes(), file.stat().st_ino, file.stat().st_mtime_ns)
+                                  for file in (path, config)])
+        changed = {**IAM_LOGIN, "audience": "other"}
+        self.assertEqual(self.build_and_merge(user, iam_login=changed).returncode, 0)
+        self.assertEqual(json.loads(path.read_text()), changed)
+
+    def test_iam_profile_skips_transports_other_than_vpn_with_a_message(self):
+        for transport, extra in (("ssm", {}), ("bootstrap_public", {
+                "bootstrap_public_host": "talos-1.elb.amazonaws.com", "bootstrap_public_node": "10.0.1.5"})):
+            with self.subTest(transport=transport):
+                result = self.build_and_merge(
+                    f"- name: a\n  aws_profile: prof-a\n  iam_profile: iam-a\n  transport: {transport}\n",
+                    iam_login=IAM_LOGIN, **extra)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"a uses transport {transport}; a-iam supports only vpn", result.stderr)
+                self.assertNotIn("a-iam", [c["name"] for c in self.config()["contexts"]])
+                self.assertFalse((self.kube / "a.iam.json").exists())
+
+    def test_iam_profile_without_cluster_metadata_skips_with_a_message(self):
+        result = self.build_and_merge("- name: a\n  aws_profile: prof-a\n  iam_profile: iam-a\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("a has no iam_login metadata", result.stderr)
+        self.assertEqual(sorted(c["name"] for c in self.config()["contexts"]), ["a", "a-ssm"])
+        self.assertFalse((self.kube / "a.iam.json").exists())
+
+    def test_iam_context_name_cannot_shadow_a_registered_cluster(self):
+        self.write_outputs("b", "a-iam")
+        (self.kube).mkdir(exist_ok=True)
+        (self.kube / "config.talos.yaml").write_text("clusters:\n  - module: a\n  - module: b\n")
+        self.user_file().write_text("- name: a\n  aws_profile: prof-a\n  iam_profile: iam-a\n")
+        self.write_outputs("a", "a", iam_login=IAM_LOGIN)
+        self.assertEqual(self.run_cli("build").returncode, 0)
+        result = self.run_cli("merge")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("a-iam", result.stderr)
+        self.assertFalse((self.kube / "config").exists())
 
     def test_build_failure_keeps_the_old_file(self):
         self.write_outputs("a", "one")

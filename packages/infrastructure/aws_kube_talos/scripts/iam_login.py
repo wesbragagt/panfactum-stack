@@ -118,10 +118,14 @@ def credential(config, args):
 
 def kubeconfig(config, args):
     server = urlsplit(args.server)
-    if (server.scheme != "https" or server.hostname not in ("127.0.0.1", "::1")
-            or not server.port or server.username or server.path not in ("", "/")
-            or server.query or server.fragment):
-        raise ValueError("operator Kubernetes endpoint must be an HTTPS loopback URL with a port")
+    try:
+        valid = (server.scheme == "https" and server.hostname and "@" not in server.netloc
+                 and server.port != 0 and server.path in ("", "/") and not server.query and not server.fragment)
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError("operator Kubernetes endpoint must be an HTTPS URL with a hostname, "
+                         "and no credentials, path, query or fragment")
     ca_data = args.ca_data.strip()
     try:
         ssl.create_default_context(cadata=base64.b64decode(ca_data, validate=True).decode("ascii"))

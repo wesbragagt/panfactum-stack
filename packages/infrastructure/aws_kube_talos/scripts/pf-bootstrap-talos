@@ -8,18 +8,24 @@ its first apply), build (write cluster_info.talos from module outputs) and merge
 
 $KUBE_DIR (default: .kube at the git repository root) holds three files. config.talos.yaml lists
 the module paths. cluster_info.talos is committed and has no secrets: region, module path, CA and
-endpoints per cluster. config.talos.user.yaml is gitignored and records the operator's AWS profile and transport
+endpoints per cluster, plus the cluster's iam_login metadata when its module outputs it.
+config.talos.user.yaml is gitignored and records the operator's AWS profile and transport
 per cluster. Both are read as JSON or,
 for the user file, as a block list:
 
   - name: my-cluster
     aws_profile: my-profile
     transport: vpn
+    iam_profile: my-iam-profile
 
 Omitting transport selects VPN.
 
 The kubeconfig user runs python3 on cluster_access.py (next to this script) with
 --exec-credential to fetch the credential on demand, so config holds no keys.
+
+An iam_profile adds a <name>-iam context for VPN clusters that output iam_login. Its user runs
+iam_login.py credential with that AWS profile, so the context needs no tunnel helper or Talos
+certificate. merge writes the metadata that script reads to $KUBE_DIR/<name>.iam.json.
 """
 
 import argparse
@@ -118,7 +124,7 @@ def parse_block_list(text, path, keys):
 
 def parse_user(text, path):
     """Read the operator's profile and transport from JSON or a block list."""
-    data = parse_block_list(text, path, ("name", "aws_profile", "transport"))
+    data = parse_block_list(text, path, ("name", "aws_profile", "transport", "iam_profile"))
     try:
         entries = {entry["name"]: entry for entry in data}
     except (KeyError, TypeError, AttributeError) as exc:
@@ -168,8 +174,8 @@ def recovery_exists(config, name, recovery, *, require_available=False):
     return False
 
 
-def credential_helper(root):
-    helper = HERE / "cluster_access.py"
+def credential_helper(root, script="cluster_access.py"):
+    helper = HERE / script
     # NOTE: A shared kubeconfig must outlive the linked checkout that generated it.
     try:
         shared = root / helper.relative_to(repo_root(HERE))
@@ -222,7 +228,7 @@ def cmd_build(_args):
                          "module": str(module.relative_to(root))}
             except KeyError as exc:
                 raise SetupError(f"{relative}: module has no {exc.args[0]} output") from exc
-            for key in ("stable_api_hostname", "bootstrap_public_host", "bootstrap_public_node"):
+            for key in ("stable_api_hostname", "bootstrap_public_host", "bootstrap_public_node", "iam_login"):
                 if outputs.get(key):
                     entry[key] = outputs[key]
             cluster_access.validate_private_endpoints(entry["kube_api_server"], entry["talos_endpoints"])
@@ -253,6 +259,33 @@ def cmd_talosconfig(args):
     if profile := operator.get("aws_profile"):
         command += ["--profile", profile]
     os.execv(sys.executable, [*command, *talos_endpoint_args(entry, transport)])
+
+
+def merge_iam_context(config, directory, root, name, entry, operator, clusters):
+    """Add the <name>-iam context that signs in with the operator's IAM profile."""
+    context = name + "-iam"
+    if operator.get("transport", "vpn") != "vpn":
+        print(f"pf-bootstrap-talos: {name} uses transport {operator['transport']}; "
+              f"{context} supports only vpn, so it was skipped", file=sys.stderr)
+        return
+    if not entry.get("iam_login"):
+        print(f"pf-bootstrap-talos: {name} has no iam_login metadata in {INFO}; "
+              f"run pf-update-kube-talos --build to add {context}", file=sys.stderr)
+        return
+    if context in clusters:
+        raise SetupError(f"cannot create {context}: it is already registered as a source cluster")
+    metadata = directory / f"{name}.iam.json"
+    content = dump(entry["iam_login"])
+    if not metadata.exists() or metadata.read_bytes() != content:
+        atomic_write(metadata, content)
+    upsert(config["clusters"], {"name": context, "cluster": {
+        "server": entry["kube_api_server"], "certificate-authority-data": entry["ca_data"]}})
+    upsert(config["users"], {"name": context, "user": {"exec": {
+        "apiVersion": "client.authentication.k8s.io/v1", "command": "python3",
+        "args": [str(credential_helper(root, "iam_login.py")), "credential", "--config", str(metadata),
+                 "--profile", operator["iam_profile"], "--aws-cli", "aws"],
+        "interactiveMode": "Never"}}})
+    upsert(config["contexts"], {"name": context, "context": {"cluster": context, "user": context}})
 
 
 def cmd_merge(_args):
@@ -303,6 +336,8 @@ def cmd_merge(_args):
                 "apiVersion": "client.authentication.k8s.io/v1", "command": "python3",
                 "args": arguments, "interactiveMode": "Never"}}})
             upsert(config["contexts"], {"name": context, "context": {"cluster": context, "user": context}})
+        if operator.get("iam_profile"):
+            merge_iam_context(config, directory, root, name, entry, operator, clusters)
     # Rewriting an unchanged file would retrigger direnv's watch_file.
     if config != current or not path.exists():
         atomic_write(path, dump(config))
