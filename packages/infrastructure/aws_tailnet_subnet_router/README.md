@@ -1,6 +1,6 @@
 # Tailscale or Headscale subnet router on AWS
 
-The homelab caller runs one `t4g.nano` in PUBLIC_A in us-east-2a. It advertises PRIVATE_A, PRIVATE_B and PRIVATE_C and the VPC resolver. The Talos-2 Kubernetes API uses an internal NLB in us-east-2b. The live Talos controller is also in us-east-2b. The router can forward to other VPC AZs, but its instance and AZ are single points of failure for VPN access. The separate SSM jump host provides recovery.
+The homelab caller runs one `t4g.nano` in PUBLIC_A in us-east-2a. It advertises PRIVATE_A, PRIVATE_B and PRIVATE_C and the VPC resolver. The Talos-2 Kubernetes API uses an internal NLB in us-east-2b. The live Talos controller is also in us-east-2b. The router can forward to other VPC AZs, but its instance and AZ are single points of failure for VPN access. The Headscale router is the recovery path when the hosted router fails.
 
 The router uses hosted Tailscale, default source NAT, an encrypted 8 GiB root volume, IMDSv2 and SSM. The current caller selects `tag:subnet-router`. The module also supports two routers when `ha_enabled` is set, but this caller uses `ha_enabled = false`.
 
@@ -69,9 +69,9 @@ The route should use `tailscale0`. The private name should resolve to the intern
 
 ## Generate access contexts
 
-For either backend, an enrolled client with accepted subnet routes and DNS connects directly to the private Kubernetes and Talos endpoints. The client needs cluster credentials. The SSM jump host is for explicit recovery. Headscale server administration and router bootstrap use SSM separately from the client network path.
+For either backend, an enrolled client with accepted subnet routes and DNS connects directly to the private Kubernetes and Talos endpoints. The client needs cluster credentials. Headscale server administration and router bootstrap use Systems Manager sessions on those hosts, separate from the client network path.
 
-The committed `.kube/cluster_info.talos` contains shared cluster metadata, including the private URL and controller endpoints. The gitignored `.kube/config.talos.user.yaml` holds the operator profile and transport. Set the existing `homelab-talos-2` entry to `transport: vpn`, using `.kube/config.talos.user.example.yaml` as the shape. Omitting `transport` selects VPN. Setting `ssm` selects SSM and requires `PF_TALOS_FIXED_SSM`.
+The committed `.kube/cluster_info.talos` contains shared cluster metadata, including the private URL and controller endpoints. The gitignored `.kube/config.talos.user.yaml` holds the operator profile and transport. Set the existing `homelab-talos-2` entry to `transport: vpn`, using `.kube/config.talos.user.example.yaml` as the shape. Omitting `transport` selects VPN. The other accepted value is `bootstrap_public`, for new clusters. Add `iam_profile` to generate the `homelab-talos-2-iam` context.
 
 Register after the Talos caller has outputs, run `pf-update-kube-talos --build`, then run `pf-update-kube-talos`. The commands use the repository's primary checkout for the shared generated config.
 
@@ -81,13 +81,12 @@ direnv exec . python3 forks/panfactum/packages/infrastructure/aws_kube_talos/scr
 direnv exec . scripts/cluster-access.py --cluster homelab-talos-2 --show-transport
 ```
 
-In VPN mode `homelab-talos-2` uses `https://api.homelab-talos-2.internal:6443`. `homelab-talos-2-ssm` is an explicit recovery context for the same source cluster and uses `https://127.0.0.1:16443`. Both use the same cluster CA and protected certificate source. The generator preserves the selected current context. `.envrc` exports the primary checkout's `.kube/config` as both `KUBECONFIG` and `KUBE_CONFIG_PATH`. Merge overwrites generated entries, so change the metadata or local preferences instead of editing generated entries.
+In VPN mode `homelab-talos-2` and `homelab-talos-2-iam` use `https://api.homelab-talos-2.internal:6443` with the same cluster CA. `homelab-talos-2` authenticates with the Talos admin certificate, and `homelab-talos-2-iam` with Talos IAM login. The generator preserves the selected current context. `.envrc` exports the primary checkout's `.kube/config` as both `KUBECONFIG` and `KUBE_CONFIG_PATH`. Merge overwrites generated entries, so change the metadata or local preferences instead of editing generated entries.
 
 For the project Headscale client, prefix the routed commands below with
 `direnv exec . tailnet exec` instead of `direnv exec .`. The Tailnet include
 selects this namespace for OpenTofu in opted-in callers. No existing caller
-selects it until the include is added. For SSM recovery, use the host commands
-below with the fixed configuration.
+selects it until the include is added.
 
 ```sh
 direnv exec . kubectl --context homelab-talos-2 get --raw=/readyz
@@ -96,13 +95,7 @@ direnv exec . talosctl --context homelab-talos-2 version
 direnv exec . talosctl --context homelab-talos-2 service etcd
 ```
 
-Use the following commands for SSM recovery.
-
-```sh
-export PF_TALOS_FIXED_SSM="$talos_2_fixed_config"
-direnv exec . kubectl --context homelab-talos-2-ssm get --raw=/readyz
-direnv exec . talosctl --context homelab-talos-2-ssm service etcd
-```
+If the hosted Tailscale router is down, run the same commands through the Headscale client with `direnv exec . tailnet exec`.
 
 For a direct Talos command, obtain the protected config path and pass it to talosctl. The generated file has mode `0600`. Its default node is the first private controller. Use `--node PRIVATE_IP` with the helper to select another private node.
 
@@ -111,7 +104,7 @@ export TALOSCONFIG="$(direnv exec . scripts/cluster-access.py --cluster homelab-
 direnv exec . talosctl --talosconfig "$TALOSCONFIG" version
 ```
 
-The API providers follow the local transport selection. Set `PF_TALOS_TRANSPORT=ssm` and `PF_TALOS_FIXED_SSM` on a Terragrunt invocation for recovery even when VPN is selected. Kubectl's current context alone does not change Terraform's provider selection. Talos provider `0.12.0` refreshes a machine using its prior-state endpoint when switching transports. Inspect a full transition plan before applying it. A targeted `-refresh=false` transition plan can evaluate endpoint changes if the old endpoint is unavailable. Do not point Talos at the Kubernetes-only NLB.
+The API providers follow the local transport selection. With `iam_profile` set, the Kubernetes, kubectl and Helm providers use the `-iam` context. Kubectl's current context alone does not change Terraform's provider selection. Talos provider `0.12.0` refreshes a machine using its prior-state endpoint when switching transports. Inspect a full transition plan before applying it. A targeted `-refresh=false` transition plan can evaluate endpoint changes if the old endpoint is unavailable. Do not point Talos at the Kubernetes-only NLB.
 
 ## Plan and apply
 
@@ -129,16 +122,16 @@ In that window, review the plan output. From the repository root, apply the revi
 tmux new-window -n router-apply -c "$PWD/environments/homelab/us-east-2/aws_tailnet_subnet_router" 'umask 077; direnv exec . terragrunt apply "$PWD/../../../../tmp/tailscale-operator/router.tfplan"; exec bash'
 ```
 
-The Talos caller uses the router `security_group_id` for its Kubernetes and Talos API source maps. Plan the scoped ingress using SSM. Inspect that plan before applying it in a separate window.
+The Talos caller uses the router `security_group_id` for its Kubernetes and Talos API source maps. A new router has no API ingress yet, so plan the scoped ingress from a client that reaches the API through the other router. For the Headscale client, prefix the commands with `direnv exec . tailnet exec`. Inspect that plan before applying it in a separate window.
 
 ```sh
-tmux new-window -n talos-ingress-plan -c "$PWD/environments/homelab/us-east-2/aws_kube_talos" 'umask 077; direnv exec . env PF_TALOS_TRANSPORT=ssm terragrunt plan -target=aws_vpc_security_group_ingress_rule.kube_api_source -target=aws_vpc_security_group_ingress_rule.api_lb_source -target=aws_vpc_security_group_ingress_rule.talos_api_source -out="$PWD/../../../../tmp/tailscale-operator/ingress.tfplan"; exec bash'
+tmux new-window -n talos-ingress-plan -c "$PWD/environments/homelab/us-east-2/aws_kube_talos" 'umask 077; direnv exec . terragrunt plan -target=aws_vpc_security_group_ingress_rule.kube_api_source -target=aws_vpc_security_group_ingress_rule.api_lb_source -target=aws_vpc_security_group_ingress_rule.talos_api_source -out="$PWD/../../../../tmp/tailscale-operator/ingress.tfplan"; exec bash'
 ```
 
 Review the plan, then apply the saved plan in a separate window.
 
 ```sh
-tmux new-window -n talos-ingress-apply -c "$PWD/environments/homelab/us-east-2/aws_kube_talos" 'umask 077; direnv exec . env PF_TALOS_TRANSPORT=ssm terragrunt apply "$PWD/../../../../tmp/tailscale-operator/ingress.tfplan"; exec bash'
+tmux new-window -n talos-ingress-apply -c "$PWD/environments/homelab/us-east-2/aws_kube_talos" 'umask 077; direnv exec . terragrunt apply "$PWD/../../../../tmp/tailscale-operator/ingress.tfplan"; exec bash'
 ```
 
 The 2026-11-24 deployment added 11 router resources and three ingress rules. Follow-up saved plans had no changes. Future plans can differ and need review.
@@ -170,20 +163,20 @@ The approved 2026-11-24 reboot preserved the router's Tailscale identity. The AS
 
 Network denial and revocation remain pending. The tested router-tagged identity could reach both API ports. Confirm a test identity's effective grants before using it for either check.
 
-For a router outage, use `homelab-talos-2-ssm` and the AWS profile. Check the context and credentials if recovery fails. If VPN fails, inspect route acceptance, the route to the resolver, the split DNS suffix, route approval and the router's SSM/cloud-init status. If a new router fails enrollment, verify the OAuth credential and tag scope in the Tailscale console. Revoked or invalid credentials must be replaced in the SOPS caller secret and applied through a reviewed plan.
+For a router outage, use the other router. SSM cluster recovery was removed on 2026-11-27. Check the context and credentials if recovery fails. If VPN fails, inspect route acceptance, the route to the resolver, the split DNS suffix, route approval and the router's SSM/cloud-init status. If a new router fails enrollment, verify the OAuth credential and tag scope in the Tailscale console. Revoked or invalid credentials must be replaced in the SOPS caller secret and applied through a reviewed plan.
 
 To roll back this workstation to its captured setting when route acceptance was originally false:
 
 ```sh
 sudo tailscale set --accept-routes=false
-direnv exec . kubectl --context homelab-talos-2-ssm get --raw=/readyz
+direnv exec . tailnet exec kubectl --context homelab-talos-2 get --raw=/readyz
 ```
 
 Restore any captured DNS preference only if it was changed, using `tailscale set --accept-dns=<true|false>`. Verify the previously reachable mesh peers. To revoke a user or device, remove only its relevant policy membership or grant, then test denial and unrelated mesh access. This is independent of router OAuth rotation. Remove only DNS or policy entries that were added for this access, after reviewing their current ownership.
 
 For secret rotation, update the encrypted caller secret, review and apply its SSM parameter plan, then validate a fresh isolated boot or confirmed replacement before revoking the old OAuth credential. The launch template ignores new AMIs and changes reach replacement instances. Production termination and cleanup of stale ephemeral nodes require confirmation.
 
-Before a planned drill, verify both access contexts and get explicit confirmation for the disruption and any termination. With the discovered `router_id`, this reboots the same instance:
+Before a planned drill, verify API access through both routers and get explicit confirmation for the disruption and any termination. With the discovered `router_id`, this reboots the same instance:
 
 ```sh
 direnv exec . aws ec2 reboot-instances --profile homelab-superuser --region us-east-2 --instance-ids "$router_id"
@@ -195,6 +188,6 @@ Compare `cat /proc/sys/kernel/random/boot_id` and `tailscale status --json | pyt
 direnv exec . aws autoscaling terminate-instance-in-auto-scaling-group --profile homelab-superuser --region us-east-2 --instance-id "$router_id" --no-should-decrement-desired-capacity
 ```
 
-Discover the new instance and repeat the boot checks. Verify a new Tailscale node identity, the expected tag, all four approved routes and both API contexts. Exercise explicit SSM while VPN is unavailable if checking recovery during a router outage.
+Discover the new instance and repeat the boot checks. Verify a new Tailscale node identity, the expected tag, all four approved routes and API access. Exercise the Headscale path while the hosted router is unavailable if checking recovery during a router outage.
 
 At 730 hours per month the router's fixed AWS estimate was $7.36 on 2026-11-24: $3.07 compute, $3.65 public IPv4 and $0.64 gp3 storage. The observed cluster snapshot changed from $206.17 to $353.18, including $139.65 from concurrent Karpenter worker turnover. Cross-AZ transfer, internet egress and Tailscale subscription charges are usage-dependent or unverified and excluded. The `t4g.nano` needed the boot script's swap during package installation.
