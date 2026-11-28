@@ -26,11 +26,6 @@ def main():
     env = os.environ.copy()
     env["KUBE_DIR"] = str(kube_dir)
     env["KUBECONFIG"] = str(kube_dir / "config")
-    # NOTE: The project's kubectl wrapper opens transport for the current context.
-    env["PATH"] = os.pathsep.join(
-        directory for directory in env["PATH"].split(os.pathsep)
-        if (Path(directory) / "kubectl").resolve().name != "cluster-command.py"
-    )
     helper = Path(__file__).resolve().with_name("pf-bootstrap-talos")
     if args[:1] == ["--talosconfig"]:
         return subprocess.run([sys.executable, str(helper), "talosconfig", *args[1:]],
