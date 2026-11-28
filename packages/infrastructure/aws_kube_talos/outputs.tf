@@ -36,6 +36,16 @@ output "cluster_ca_data" {
   value = nonsensitive(local.machine_secrets.certs.k8s.cert)
 }
 
+output "iam_login" {
+  description = "Public operator metadata for scripts/iam_login.py: `tofu output -json iam_login > operator.json`. A role with no matching IAM role is null, which the script rejects."
+  value = {
+    issuer    = data.aws_iam_outbound_web_identity_federation.iam_login.issuer_identifier
+    audience  = var.cluster_name
+    region    = data.aws_region.current.region
+    role_arns = { for role, set in local.iam_login_roles : role => try(sort(tolist(set.arns))[0], null) }
+  }
+}
+
 output "cluster_region" {
   description = "The AWS region to which the Talos cluster is deployed"
   value       = data.aws_region.current.region

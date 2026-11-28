@@ -397,6 +397,20 @@ locals {
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeAPIServerConfig", extraArgs = { "service-account-jwks-uri" = "${local.service_account_oidc_issuer_url}/keys.json" } })
   ]
   control_plane_patches = concat(local.control_plane_base_patches, local.oidc_config_patches, var.control_plane_workloads_enabled || var.bootstrap_mode_enabled ? [yamlencode(local.control_plane_node_config)] : [], local.fqdn_patches, [
+    yamlencode({ apiVersion = "v1alpha1", kind = "KubeAuthenticationConfig", configuration = {
+      anonymous = { enabled = true, conditions = [for path in ["/livez", "/readyz", "/healthz"] : { path = path }] }
+      jwt = [{
+        issuer = { url = data.aws_iam_outbound_web_identity_federation.iam_login.issuer_identifier, audiences = [var.cluster_name] }
+        claimValidationRules = [{
+          expression = "claims.sub == claims[\"https://sts.amazonaws.com/\"].principal_id && claims.sub in ${jsonencode(keys(local.iam_login_role_groups))}"
+          message    = "principal is not an approved role"
+        }]
+        claimMappings = {
+          username = { expression = "'aws:' + claims.sub" }
+          groups   = { expression = "(${jsonencode(local.iam_login_role_groups)})[claims.sub]" }
+        }
+      }]
+    } }),
     yamlencode({ apiVersion = "v1alpha1", kind = "KubeCredentialProviderConfig", configuration = {
       apiVersion = "kubelet.config.k8s.io/v1", kind = "CredentialProviderConfig", providers = [{
         name = "ecr-credential-provider", apiVersion = "credentialprovider.kubelet.k8s.io/v1", defaultCacheDuration = "12h", matchImages = ["*.dkr.ecr.*.amazonaws.com"]

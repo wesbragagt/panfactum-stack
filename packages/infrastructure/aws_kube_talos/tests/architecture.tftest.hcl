@@ -21,6 +21,9 @@ mock_provider "aws" {
   mock_resource "aws_iam_role" {
     defaults = { arn = "arn:aws:iam::123456789012:role/test" }
   }
+  mock_data "aws_iam_outbound_web_identity_federation" {
+    defaults = { issuer_identifier = "https://test.tokens.sts.global.api.aws" }
+  }
   mock_data "aws_ec2_instance_type" {
     defaults = { supported_architectures = ["arm64"] }
   }
@@ -384,6 +387,95 @@ run "cluster_region_output" {
   assert {
     condition     = output.cluster_region == "us-east-2"
     error_message = "cluster_region must equal the deployed AWS region."
+  }
+}
+
+run "iam_login_maps_roles_to_groups" {
+  command = plan
+  override_data {
+    target = data.aws_iam_roles.iam_login_superuser
+    values = { arns = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_Superuser_0123456789abcdef"] }
+  }
+  override_data {
+    target = data.aws_iam_roles.iam_login_admin
+    values = { arns = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_Admin_0123456789abcdef"] }
+  }
+  override_data {
+    target = data.aws_iam_roles.iam_login_reader
+    values = { arns = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_Reader_0123456789abcdef"] }
+  }
+  override_data {
+    target = data.aws_iam_roles.iam_login_restricted_reader
+    values = { arns = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_RestrictedReader_0123456789abcdef"] }
+  }
+
+  assert {
+    condition = alltrue([
+      for role, group in {
+        Superuser        = "pf:superusers"
+        Admin            = "pf:admins"
+        Reader           = "pf:readers"
+        RestrictedReader = "pf:restricted-readers"
+        } : strcontains(
+        one([for patch in local.control_plane_patches : yamldecode(patch) if try(yamldecode(patch).kind, "") == "KubeAuthenticationConfig"]).configuration.jwt[0].claimMappings.groups.expression,
+        "\"arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_${role}_0123456789abcdef\":\"${group}\""
+      )
+    ])
+    error_message = "Every discovered Identity Center role ARN must map to its Panfactum group."
+  }
+
+  assert {
+    condition = alltrue([
+      for arn in values(output.iam_login.role_arns) :
+      strcontains(one([for patch in local.control_plane_patches : yamldecode(patch) if try(yamldecode(patch).kind, "") == "KubeAuthenticationConfig"]).configuration.jwt[0].claimValidationRules[0].expression, "\"${arn}\"")
+    ])
+    error_message = "The claim validation rule must admit the discovered role ARNs and the account root ARN."
+  }
+
+  assert {
+    condition = strcontains(
+      one([for patch in local.control_plane_patches : yamldecode(patch) if try(yamldecode(patch).kind, "") == "KubeAuthenticationConfig"]).configuration.jwt[0].claimMappings.groups.expression,
+      "\"arn:aws:iam::123456789012:root\":\"pf:superusers\""
+      ) && strcontains(
+      one([for patch in local.control_plane_patches : yamldecode(patch) if try(yamldecode(patch).kind, "") == "KubeAuthenticationConfig"]).configuration.jwt[0].claimValidationRules[0].expression,
+      "\"arn:aws:iam::123456789012:root\""
+    )
+    error_message = "The account root ARN must be admitted and mapped to pf:superusers."
+  }
+
+  assert {
+    condition = one([for patch in local.control_plane_patches : yamldecode(patch) if try(yamldecode(patch).kind, "") == "KubeAuthenticationConfig"]).configuration.jwt[0].issuer == {
+      url       = "https://test.tokens.sts.global.api.aws"
+      audiences = ["test"]
+    }
+    error_message = "The authentication config must trust the account issuer with the cluster name as the only audience."
+  }
+
+  assert {
+    condition = output.iam_login == {
+      issuer   = "https://test.tokens.sts.global.api.aws"
+      audience = "test"
+      region   = "us-east-2"
+      role_arns = {
+        Superuser        = "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_Superuser_0123456789abcdef"
+        Admin            = "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_Admin_0123456789abcdef"
+        Reader           = "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_Reader_0123456789abcdef"
+        RestrictedReader = "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-east-2/AWSReservedSSO_RestrictedReader_0123456789abcdef"
+      }
+    }
+    error_message = "The iam_login output must carry the metadata that scripts/iam_login.py reads."
+  }
+}
+
+run "iam_login_without_matching_roles" {
+  command = plan
+
+  assert {
+    condition = alltrue([for arn in values(output.iam_login.role_arns) : arn == null]) && strcontains(
+      one([for patch in local.control_plane_patches : yamldecode(patch) if try(yamldecode(patch).kind, "") == "KubeAuthenticationConfig"]).configuration.jwt[0].claimValidationRules[0].expression,
+      "claims.sub in [\"arn:aws:iam::123456789012:root\"]"
+    )
+    error_message = "Without matching roles the config must admit only the account root and the output must carry null role ARNs."
   }
 }
 

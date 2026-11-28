@@ -192,3 +192,67 @@ resource "kubernetes_cluster_role_binding" "restricted_readers" {
     api_group = "rbac.authorization.k8s.io"
   }
 }
+
+resource "kubernetes_cluster_role" "readers" {
+  metadata {
+    name   = "pf:readers"
+    labels = data.pf_kube_labels.labels.labels
+  }
+  dynamic "rule" {
+    for_each = local.non_secret_resources
+    content {
+      api_groups = [rule.value.api_group, ""]
+      resources  = rule.value.resources
+      verbs      = local.read_verbs
+    }
+  }
+  rule {
+    api_groups = [""]
+    resources  = ["pods/log"]
+    verbs      = local.read_verbs
+  }
+  rule {
+    api_groups = ["metrics.k8s.io"]
+    resources  = ["*"]
+    verbs      = local.read_verbs
+  }
+  rule {
+    api_groups = [""]
+    resources  = ["secrets"]
+    verbs      = local.read_verbs
+  }
+}
+
+resource "kubernetes_cluster_role_binding" "readers" {
+  metadata {
+    name   = kubernetes_cluster_role.readers.metadata[0].name
+    labels = data.pf_kube_labels.labels.labels
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = kubernetes_cluster_role.readers.metadata[0].name
+  }
+  subject {
+    kind      = "Group"
+    name      = kubernetes_cluster_role.readers.metadata[0].name
+    api_group = "rbac.authorization.k8s.io"
+  }
+}
+
+resource "kubernetes_cluster_role_binding" "superusers" {
+  metadata {
+    name   = "pf:superusers"
+    labels = data.pf_kube_labels.labels.labels
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = "cluster-admin"
+  }
+  subject {
+    kind      = "Group"
+    name      = "pf:superusers"
+    api_group = "rbac.authorization.k8s.io"
+  }
+}
