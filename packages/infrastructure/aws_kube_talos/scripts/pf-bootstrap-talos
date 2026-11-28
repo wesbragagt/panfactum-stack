@@ -29,9 +29,11 @@ certificate. merge writes the metadata that script reads to $KUBE_DIR/<name>.iam
 """
 
 import argparse
+import fcntl
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -50,11 +52,11 @@ class SetupError(Exception):
     pass
 
 
-def kube_dir():
+def kube_dir(cwd=None):
     if os.environ.get("KUBE_DIR"):
         return Path(os.environ["KUBE_DIR"]).resolve()
     # NOTE: Linked checkouts share the primary checkout's config with direnv.
-    return repo_root(Path.cwd(), primary=True) / ".kube"
+    return repo_root(cwd or Path.cwd(), primary=True) / ".kube"
 
 
 def repo_root(directory, *, primary=False):
@@ -88,11 +90,14 @@ def dump(data):
 
 
 def read_committed(path):
+    return {name: {**DEFAULT_PORTS, **entry} for name, entry in read_info(path).items()}
+
+
+def read_info(path):
     if not path.exists() or not path.read_text().strip():
         return {}
     try:
-        clusters = json.loads(path.read_text())["clusters"]
-        return {name: {**DEFAULT_PORTS, **entry} for name, entry in clusters.items()}
+        return dict(json.loads(path.read_text())["clusters"])
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise SetupError(f"{path} must be JSON with a top-level \"clusters\" object") from exc
 
@@ -201,7 +206,16 @@ def talos_endpoint_args(entry, transport, node=None):
     return arguments
 
 
-def cmd_build(_args):
+def module_outputs(module, env):
+    try:
+        return {key: value["value"] for key, value in json.loads(cluster_access.command(
+            ["terragrunt", "output", "-json"], cwd=module, env=env, timeout=300)).items()}
+    except (cluster_access.AccessError, OSError, ValueError, TypeError, KeyError,
+            AttributeError, subprocess.SubprocessError) as exc:
+        raise SetupError(f"{module}: unable to read module outputs ({type(exc).__name__})") from exc
+
+
+def cmd_build(args):
     directory = kube_dir()
     root = repo_root(directory)
     modules = directory / MODULES
@@ -210,7 +224,13 @@ def cmd_build(_args):
         paths = [entry["module"] for entry in listed]
     except (KeyError, TypeError) as exc:
         raise SetupError(f"{modules}: every entry needs a module") from exc
-    clusters = {}
+    selected = args.module is not None
+    if selected:
+        requested = registration_path(args.module, root)
+        if requested not in paths:
+            raise SetupError(f"{requested}: module is not registered in {modules}")
+        paths = [requested]
+    clusters = read_info(directory / INFO) if selected else {}
     with tempfile.TemporaryDirectory(prefix="pf-bootstrap-talos-") as scratch:
         download = str(Path(scratch) / "terragrunt-download")
         env = dict(os.environ, TERRAGRUNT_DOWNLOAD=download, TG_DOWNLOAD_DIR=download)
@@ -218,8 +238,7 @@ def cmd_build(_args):
             module = root / "environments" / relative
             if not module.is_dir():
                 raise SetupError(f"{modules}: {module} is not a directory")
-            outputs = {key: value["value"] for key, value in json.loads(cluster_access.command(
-                ["terragrunt", "output", "-json"], cwd=module, env=env, timeout=300)).items()}
+            outputs = module_outputs(module, env)
             try:
                 name = outputs["cluster_name"]
                 entry = {"region": outputs["cluster_region"], "kube_api_server": outputs["cluster_url"],
@@ -231,8 +250,15 @@ def cmd_build(_args):
             for key in ("stable_api_hostname", "bootstrap_public_host", "bootstrap_public_node", "iam_login"):
                 if outputs.get(key):
                     entry[key] = outputs[key]
-            cluster_access.validate_private_endpoints(entry["kube_api_server"], entry["talos_endpoints"])
+            try:
+                cluster_access.validate_private_endpoints(entry["kube_api_server"], entry["talos_endpoints"])
+            except cluster_access.AccessError as exc:
+                raise SetupError(f"{relative}: {exc}") from exc
+            if name in clusters and clusters[name].get("module") != entry["module"]:
+                raise SetupError(f"{relative}: {name} is registered to another caller")
             clusters[name] = entry
+    if selected and args.merge:
+        merge(directory, {key: {**DEFAULT_PORTS, **entry} for key, entry in clusters.items()}, selected=name)
     atomic_write(directory / INFO, dump({"clusters": clusters}))
     return 0
 
@@ -291,6 +317,10 @@ def merge_iam_context(config, directory, root, name, entry, operator, clusters):
 def cmd_merge(_args):
     directory = kube_dir()
     clusters = read_committed(directory / INFO)
+    return merge(directory, clusters)
+
+
+def merge(directory, clusters, *, selected=None):
     operators = read_user(directory / USER)
     if not clusters:
         return 0
@@ -300,9 +330,14 @@ def cmd_merge(_args):
     current = kubectl_config(path)
     config = json.loads(json.dumps(current))
     for name, entry in sorted(clusters.items()):
+        if selected is not None and name != selected:
+            continue
         if name not in operators:
-            print(f"pf-bootstrap-talos: {name} is not in {directory / USER}; "
-                  f"add '- name: {name}' and 'aws_profile: <profile>' to use it", file=sys.stderr)
+            message = (f"{name} is not in {directory / USER}; "
+                       f"add '- name: {name}' and 'aws_profile: <profile>' to use it")
+            if selected is not None:
+                raise SetupError(message)
+            print(f"pf-bootstrap-talos: {message}", file=sys.stderr)
             continue
         exec_args = [str(helper), "--exec-credential", "--cluster", name]
         operator = operators[name]
@@ -334,7 +369,7 @@ def cmd_merge(_args):
                 "server": server, "certificate-authority-data": entry["ca_data"]}})
             upsert(config["users"], {"name": context, "user": {"exec": {
                 "apiVersion": "client.authentication.k8s.io/v1", "command": "python3",
-                "args": arguments, "interactiveMode": "Never"}}})
+                "args": arguments, "interactiveMode": "Never", "provideClusterInfo": True}}})
             upsert(config["contexts"], {"name": context, "context": {"cluster": context, "user": context}})
         if operator.get("iam_profile"):
             merge_iam_context(config, directory, root, name, entry, operator, clusters)
@@ -371,10 +406,8 @@ def append_module_entry(text, module):
     return text + f"  - module: {module}\n"
 
 
-def cmd_register(args):
-    directory = kube_dir()
-    root = repo_root(directory)
-    module = args.module.resolve()
+def registration_path(module, root):
+    module = module.resolve()
     try:
         relative = module.relative_to(root)
     except ValueError as exc:
@@ -383,9 +416,16 @@ def cmd_register(args):
         relative = module.relative_to(repo_root(module))
     if relative.parts[:1] != ("environments",):
         raise SetupError(f"--module {module} must be under {root / 'environments'}")
+    return str(relative.relative_to("environments"))
+
+
+def cmd_register(args):
+    directory = kube_dir(args.module.resolve())
+    root = repo_root(directory)
+    relative = registration_path(args.module, root)
     modules_path = directory / MODULES
     text = modules_path.read_text() if modules_path.exists() else ""
-    updated = append_module_entry(text, str(relative.relative_to("environments")))
+    updated = append_module_entry(text, relative)
     if updated != text:
         atomic_write(modules_path, updated.encode())
     user_path = directory / USER
@@ -406,8 +446,105 @@ def cmd_register(args):
         else:
             text = append_user_entry(text, args.cluster, profile, "bootstrap_public" if args.bootstrap_public else None)
         atomic_write(user_path, text.encode())
-    print(f"pf-bootstrap-talos: run pf-update-kube-talos --build to add {args.cluster} to .kube/config")
+    print(f"pf-bootstrap-talos: run pf-update-kube-talos --build --module {shlex.quote(str(args.module.resolve()))} "
+          f"to add {args.cluster} to .kube/config")
     return 0
+
+
+def remove_entry(text, path, keys, key, value):
+    entries = parse_block_list(text, path, keys)
+    if not any(entry[key] == value for entry in entries):
+        return text
+    if text.lstrip().startswith(("{", "[")):
+        data = json.loads(text)
+        remaining = [entry for entry in entries if entry[key] != value]
+        if isinstance(data, dict):
+            data["clusters"] = remaining
+        else:
+            data = remaining
+        return dump(data).decode()
+    result = []
+    matching = False
+    entries = iter(entries)
+    for raw in text.splitlines(keepends=True):
+        line = raw.split(" #")[0].strip()
+        if line.startswith("- "):
+            matching = next(entries)[key] == value
+        if not matching or not line or line.startswith("#"):
+            result.append(raw)
+    return "".join(result)
+
+
+def remove_generated_contexts(directory, name):
+    path = directory / "config"
+    if not path.is_file():
+        return
+    config = kubectl_config(path)
+    owned = set()
+    for user in config["users"]:
+        context = user["name"]
+        args = user.get("user", {}).get("exec", {}).get("args", [])
+        if (context in (name, name + "-ssm") and len(args) >= 4
+                and Path(args[0]).name == "cluster_access.py"
+                and args[1:4] == ["--exec-credential", "--cluster", name]):
+            owned.add(context)
+        if (context == name + "-iam" and len(args) >= 4 and Path(args[0]).name == "iam_login.py"
+                and args[1:4] == ["credential", "--config", str(directory / f"{name}.iam.json")]):
+            owned.add(context)
+    if not owned:
+        return
+    config["contexts"] = [entry for entry in config["contexts"]
+                          if entry["name"] not in owned
+                          or entry["context"].get("user") != entry["name"]
+                          or entry["context"].get("cluster") != entry["name"]]
+    for kind, reference in (("clusters", "cluster"), ("users", "user")):
+        referenced = {entry["context"].get(reference) for entry in config["contexts"]}
+        config[kind] = [entry for entry in config[kind]
+                        if entry["name"] not in owned or entry["name"] in referenced]
+    if (config.get("current-context") in owned
+            and all(entry["name"] != config["current-context"] for entry in config["contexts"])):
+        config["current-context"] = ""
+    atomic_write(path, dump(config))
+
+
+def retire_registration(args):
+    directory = kube_dir(args.module.resolve())
+    relative = registration_path(args.module, repo_root(directory))
+    info_path = directory / INFO
+    metadata = read_info(info_path)
+    entry = metadata.get(args.cluster)
+    if entry is not None and entry["module"] != f"environments/{relative}":
+        raise SetupError(f"{args.cluster} is registered to another caller")
+    changes = {}
+    for path, keys, value in (
+        (directory / MODULES, ("module",), relative),
+        (directory / USER, ("name", "aws_profile", "transport", "iam_profile"), args.cluster),
+    ):
+        if path.is_file():
+            text = path.read_text()
+            updated = remove_entry(text, path, keys, keys[0], value)
+            if updated != text:
+                changes[path] = updated.encode()
+    if entry is not None:
+        del metadata[args.cluster]
+        changes[info_path] = dump({"clusters": metadata})
+    remove_generated_contexts(directory, args.cluster)
+    for path, updated in changes.items():
+        atomic_write(path, updated)
+    (directory / f"{args.cluster}.iam.json").unlink(missing_ok=True)
+    print(f"pf-bootstrap-talos: retired the registration for {args.cluster}")
+    return 0
+
+
+def cmd_after_apply(args):
+    # NOTE: Terragrunt runs hooks in the cached OpenTofu working directory.
+    tofu = os.environ.get("TG_CTX_TF_PATH") or "tofu"
+    outputs = json.loads(cluster_access.command([tofu, "output", "-json"]))
+    if outputs == {}:
+        return retire_registration(args)
+    if outputs.get("cluster_name", {}).get("value") != args.cluster:
+        raise SetupError(f"{args.module}: cluster_name output does not match {args.cluster}")
+    return cmd_register(args)
 
 
 def cmd_forward(args):
@@ -436,15 +573,21 @@ def main():
     fwd = sub.add_parser("forward", help="cluster_access.py --bootstrap with the remaining flags")
     fwd.add_argument("rest", nargs=argparse.REMAINDER)
     fwd.set_defaults(run=cmd_forward)
-    reg = sub.add_parser("register", help="add a cluster's module and user entries after its first apply")
-    reg.add_argument("--cluster", required=True)
-    reg.add_argument("--module", type=Path, required=True)
-    reg.add_argument("--region", required=True)
-    reg.add_argument("--profile")
-    reg.add_argument("--bootstrap-public", action="store_true",
-                     help="set transport bootstrap_public on a new user entry")
-    reg.set_defaults(run=cmd_register)
+    for action, run, help_text in (
+        ("register", cmd_register, "add a cluster's module and user entries after its first apply"),
+        ("after-apply", cmd_after_apply, "update the registration from the applied state"),
+    ):
+        reg = sub.add_parser(action, help=help_text)
+        reg.add_argument("--cluster", required=True)
+        reg.add_argument("--module", type=Path, required=True)
+        reg.add_argument("--region", required=True)
+        reg.add_argument("--profile")
+        reg.add_argument("--bootstrap-public", action="store_true",
+                         help="set transport bootstrap_public on a new user entry")
+        reg.set_defaults(run=run)
     bld = sub.add_parser("build", help="write $KUBE_DIR/cluster_info.talos from the module outputs")
+    bld.add_argument("--module", type=Path, help="refresh only this registered caller")
+    bld.add_argument("--merge", action="store_true", help="merge the selected caller into the kubeconfig")
     bld.set_defaults(run=cmd_build)
     mrg = sub.add_parser("merge", help="write registered clusters into $KUBE_DIR/config")
     mrg.set_defaults(run=cmd_merge)
@@ -452,7 +595,15 @@ def main():
     talos.add_argument("context", nargs="?", help="defaults to the current Kubernetes context")
     talos.set_defaults(run=cmd_talosconfig)
     args = parser.parse_args()
+    if args.command == "build" and args.merge and args.module is None:
+        parser.error("--merge requires --module")
     try:
+        if args.command in ("register", "after-apply", "build", "merge"):
+            directory = kube_dir(args.module.resolve() if args.command in ("register", "after-apply") else None)
+            directory.mkdir(parents=True, exist_ok=True)
+            with (directory / ".talos-registration.lock").open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                return args.run(args)
         return args.run(args)
     except (SetupError, cluster_access.AccessError, OSError, ValueError, KeyError, StopIteration,
             subprocess.SubprocessError) as exc:

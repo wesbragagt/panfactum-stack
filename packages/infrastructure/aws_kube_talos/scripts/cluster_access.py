@@ -767,7 +767,11 @@ def vpn_cache_key(args, *components):
 
 def vpn_credential(args):
     directory = vpn_directory(args)
-    identity = vpn_cache_key(args)
+    exec_info = json.loads(os.environ.get("KUBERNETES_EXEC_INFO", "{}"))
+    cluster = exec_info.get("spec", {}).get("cluster") or {}
+    # NOTE: A rebuilt cluster can use the same caller and name with a new CA.
+    ca = cluster.get("certificate-authority-data")
+    identity = vpn_cache_key(args, ca) if ca else vpn_cache_key(args)
     path = directory / f"credential-{identity}.json"
     with (directory / f"credential-{identity}.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

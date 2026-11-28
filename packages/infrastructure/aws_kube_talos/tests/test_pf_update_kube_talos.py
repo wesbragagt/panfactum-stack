@@ -78,6 +78,11 @@ if sys.argv[1:] == ["build"]:
         self.assertEqual(result.returncode, 7)
         self.assertEqual([call[1] for call in calls], [["build"]])
 
+    def test_targeted_build_delegates_only_the_selected_module(self):
+        result, calls = self.run_update(self.root, "--build", "--module", "/caller")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([call[1] for call in calls], [["build", "--merge", "--module", "/caller"]])
+
     def test_missing_cluster_info_asks_for_build(self):
         result, calls = self.run_update(self.root)
         self.assertNotEqual(result.returncode, 0)

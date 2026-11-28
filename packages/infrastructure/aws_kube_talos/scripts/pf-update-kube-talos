@@ -12,7 +12,8 @@ def main():
     args = sys.argv[1:]
     if args in (["-h"], ["--help"]):
         print("Usage: pf-update-kube-talos            merge Talos contexts into the project kubeconfig\n"
-              "       pf-update-kube-talos -b|--build  rebuild .kube/cluster_info.talos, then merge\n"
+              "       pf-update-kube-talos -b|--build [--module PATH]\n"
+              "                                        rebuild Talos metadata, then merge\n"
               "       pf-update-kube-talos --talosconfig [CONTEXT]\n"
               "                                        print the protected Talos config path")
         return 0
@@ -35,6 +36,9 @@ def main():
         return subprocess.run([sys.executable, str(helper), "talosconfig", *args[1:]],
                               cwd=root, env=env).returncode
     if args[:1] in (["-b"], ["--build"]):
+        if args[1:]:
+            return subprocess.run([sys.executable, str(helper), "build", "--merge", *args[1:]],
+                                  env=env).returncode
         built = subprocess.run([sys.executable, str(helper), "build"], cwd=root, env=env).returncode
         if built:
             return built

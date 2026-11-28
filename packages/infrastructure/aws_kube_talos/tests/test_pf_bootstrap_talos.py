@@ -111,7 +111,7 @@ class PfBootstrapTalosTests(unittest.TestCase):
         result = self.run_cli("register", "--cluster", "a", "--module", str(self.root / "environments/a"),
                               "--region", "us-east-2", "--profile", "prof-a")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("pf-update-kube-talos --build to add a", result.stdout)
+        self.assertIn("pf-update-kube-talos --build --module", result.stdout)
         self.assertEqual((self.kube / "config.talos.yaml").read_text(), "clusters:\n  - module: a\n")
         self.assertEqual(self.user_file().read_text(), "clusters:\n  - name: a\n    aws_profile: prof-a\n")
         self.assertFalse((self.tmp / "bin/terragrunt.called").exists())
@@ -292,6 +292,7 @@ class PfBootstrapTalosTests(unittest.TestCase):
         exec_config = config["users"][0]["user"]["exec"]
         self.assertEqual(exec_config["command"], "python3")
         self.assertEqual(exec_config["interactiveMode"], "Never")
+        self.assertTrue(exec_config["provideClusterInfo"])
         args = exec_config["args"]
         self.assertEqual(args[0], str(SCRIPT.parent / "cluster_access.py"))
         self.assertEqual(args[1], "--exec-credential")
@@ -505,6 +506,65 @@ class PfBootstrapTalosTests(unittest.TestCase):
         result = self.run_cli("build")
         self.assertEqual(result.returncode, 1)
         self.assertEqual((self.kube / "cluster_info.talos").read_text(), old)
+
+    def test_selected_build_keeps_stale_sibling_and_current_context(self):
+        self.assertEqual(self.register(name="old", env="b").returncode, 0)
+        (self.root / "environments/b/outputs.json").write_text("{}")
+        subprocess.run(["python3", str(SCRIPT), "register", "--cluster", "new",
+                        "--module", str(self.root / "environments/a"), "--region", "us-east-2"],
+                       cwd=self.root, env=self.env, check=True, capture_output=True)
+        self.write_outputs("a", "new")
+        modules, users = self.kube / "config.talos.yaml", self.user_file()
+        before = (modules.read_bytes(), users.read_bytes())
+        config = self.config()
+        config["current-context"] = "old"
+        (self.kube / "config").write_text(json.dumps(config))
+        result = self.run_cli("build", "--module", str(self.root / "environments/a"), "--merge")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((modules.read_bytes(), users.read_bytes()), before)
+        self.assertEqual(self.config()["current-context"], "old")
+        self.assertEqual([item["name"] for item in self.config()["contexts"]],
+                         ["old", "old-ssm", "new", "new-ssm"])
+        failure = self.run_cli("build", "--module", str(self.root / "environments/b"), "--merge")
+        self.assertEqual(failure.returncode, 1)
+        self.assertIn("b: module has no cluster_name output", failure.stderr)
+
+    def test_after_apply_retires_only_generated_entries(self):
+        self.assertEqual(self.register(name="replacement", env="b").returncode, 0)
+        self.assertEqual(self.register(name="retiring").returncode, 0)
+        with self.user_file().open("a") as user:
+            user.write("    iam_profile: iam-fixture\n")
+        self.write_outputs("a", "retiring", iam_login=IAM_LOGIN)
+        self.assertEqual(self.run_cli("build", "--module", "environments/a", "--merge").returncode, 0)
+        self.assertTrue((self.kube / "retiring.iam.json").exists())
+        config = self.config()
+        config["current-context"] = "replacement"
+        config["contexts"].append({"name": "unrelated",
+                                   "context": {"cluster": "replacement", "user": "replacement"}})
+        (self.kube / "config").write_text(json.dumps(config))
+        tofu = self.tmp / "bin/tofu"
+        tofu.write_text('#!/bin/sh\nprintf "%s" "$TEST_TOFU_OUTPUTS"\n')
+        tofu.chmod(0o755)
+        self.env["TG_CTX_TF_PATH"] = str(tofu)
+        self.env["TEST_TOFU_OUTPUTS"] = '{"cluster_name":{"value":"wrong"}}'
+        args = ("after-apply", "--cluster", "retiring", "--module", str(self.root / "environments/a"),
+                "--region", "us-east-2")
+        self.assertEqual(self.run_cli(*args).returncode, 1)
+        self.assertIn("retiring", self.user_profiles())
+        self.env["TEST_TOFU_OUTPUTS"] = "{}"
+        for _ in range(2):
+            result = self.run_cli(*args)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.config()["current-context"], "replacement")
+        self.assertEqual([item["name"] for item in self.config()["contexts"]],
+                         ["replacement", "replacement-ssm", "unrelated"])
+        self.assertFalse((self.kube / "retiring.iam.json").exists())
+        self.assertEqual(self.user_profiles(), {"replacement": "prof-a"})
+        self.assertEqual((self.kube / "config.talos.yaml").read_text(), "clusters:\n  - module: b\n")
+        info = json.loads((self.kube / "cluster_info.talos").read_text())["clusters"]
+        self.assertEqual(list(info), ["replacement"])
+        (self.root / "environments/a/outputs.json").write_text("{}")
+        self.assertEqual(self.run_cli("build").returncode, 0)
 
     def test_reader_fills_default_ports_and_user_transport_defaults_to_vpn(self):
         self.kube.mkdir(exist_ok=True)
